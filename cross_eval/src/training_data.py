@@ -1,3 +1,4 @@
+from data_handling import get_base_papers_ids_for_user
 from embedding import Embedding
 from enum import Enum, auto
 import numpy as np
@@ -17,10 +18,11 @@ def get_cache_type_from_arg(cache_type_arg : str) -> Cache_Type:
     return Cache_Type[cache_type_arg.upper()]
 
 def load_base_for_user(embedding : Embedding, user_id : int, paper_removal = None, remaining_percentage : float = None, random_state : int = None) -> tuple:
-    base_idxs = embedding.get_base_idxs_for_user(user_id, paper_removal, remaining_percentage, random_state)
+    base_ids = get_base_papers_ids_for_user(user_id, paper_removal, remaining_percentage, random_state)
+    base_idxs = embedding.get_idxs(base_ids)
     base_n = len(base_idxs)
     y_base = np.ones(base_n, dtype = LABEL_DTYPE)
-    return base_idxs, base_n, y_base
+    return base_ids, base_idxs, base_n, y_base
 
 def load_global_cache(embedding : Embedding, max_cache : int = None, random_state : int = None) -> tuple:
     global_cache_idxs = embedding.get_global_cache_idxs(max_cache, random_state)

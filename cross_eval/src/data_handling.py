@@ -87,20 +87,26 @@ def sql_execute(query, sql_connection, **kwargs):
         res = None
     return res
 
-def get_users_ids_with_sufficient_votes(min_n_negrated : int, min_n_posrated : int) -> pd.DataFrame:
-    query = '''
+def get_users_ids_with_sufficient_votes(min_n_posrated : int, min_n_negrated : int, sort_ids : bool = False) -> pd.DataFrame:
+    query = f"""
     WITH users_ratings_n AS (
         SELECT  user_id,
-                SUM(CASE WHEN rating = -1 THEN 1 ELSE 0 END) AS n_negrated,
-                SUM(CASE WHEN rating = 1 THEN 1 ELSE 0 END) AS n_posrated
+                SUM(CASE WHEN rating = 1 THEN 1 ELSE 0 END) AS n_posrated,
+                SUM(CASE WHEN rating = -1 THEN 1 ELSE 0 END) AS n_negrated
             FROM users_ratings
             GROUP BY user_id)
-    SELECT user_id, n_negrated + n_posrated AS n_total
+    SELECT user_id, n_posrated, n_negrated, n_posrated + n_negrated AS n_rated
     FROM users_ratings_n
-    WHERE n_negrated >= :min_n_negrated AND n_posrated >= :min_n_posrated;
-    '''
-    tuple_list = sql_execute(query, min_n_negrated = min_n_negrated, min_n_posrated = min_n_posrated)
-    return pd.DataFrame(tuple_list, columns = ['user_id', 'n_total'])
+    WHERE n_posrated >= :min_n_posrated AND n_negrated >= :min_n_negrated
+    {"ORDER BY user_id" if sort_ids else ""}
+    """
+    tuple_list = sql_execute(query, min_n_posrated = min_n_posrated, min_n_negrated = min_n_negrated)
+    return pd.DataFrame(tuple_list, columns = ["user_id", "n_posrated", "n_negrated", "n_rated"])
+
+def get_user_id_from_sha_key(sha_key : str) -> int:
+    query = """SELECT user_id FROM users WHERE sha_key = :sha_key"""
+    tuple_list = sql_execute(query, sha_key = sha_key)
+    return tuple_list[0][0] if len(tuple_list) > 0 else None
 
 def get_user_id_from_sha_key(sha_key : str) -> int:
     query = '''
@@ -116,12 +122,12 @@ def get_users_ids_from_sha_keys(sha_keys : list) -> dict:
     return users_dict
 
 def get_rated_papers_ids_for_user(user_id : int, positive : bool, paper_removal : Paper_Removal = None, remaining_percentage : float = None, random_state : int = None) -> list:
-    query = f'''
+    query = f"""
     SELECT paper_id FROM users_ratings 
-    WHERE user_id = {user_id}
+    WHERE user_id = {user_id} 
     AND rating = {1 if positive else -1}
     {"ORDER BY time" if paper_removal in [Paper_Removal.OLDEST, Paper_Removal.NEWEST] else ""};
-    '''
+    """
     result = [t[0] for t in sql_execute(query)]
     if paper_removal == Paper_Removal.OLDEST:
         result = result[:int(len(result) * remaining_percentage)]
@@ -131,19 +137,19 @@ def get_rated_papers_ids_for_user(user_id : int, positive : bool, paper_removal 
         result = sorted(result)
         rng = random.Random(random_state)
         result = rng.sample(result, int(len(result) * remaining_percentage))
-    return result
+    return sorted(result)
 
 def get_base_papers_ids_for_user(user_id : int, paper_removal : Paper_Removal = None,  remaining_percentage : float = None, random_state : int = None) -> list:
-    query = f'''
+    query = f"""
     SELECT paper_id FROM base_papers
     WHERE user_id = {user_id}
     AND paper_id NOT IN (
         SELECT paper_id FROM users_ratings
         WHERE user_id = {user_id}
-        AND rating = 1
+        AND rating IN (-1, 1)
     )
     {"ORDER BY time" if paper_removal in [Paper_Removal.OLDEST, Paper_Removal.NEWEST] else ""};
-    '''
+    """
     result = [t[0] for t in sql_execute(query)]
     if paper_removal == Paper_Removal.OLDEST:
         result = result[:int(len(result) * remaining_percentage)]
@@ -153,7 +159,7 @@ def get_base_papers_ids_for_user(user_id : int, paper_removal : Paper_Removal = 
         result = sorted(result)
         rng = random.Random(random_state)
         result = rng.sample(result, int(len(result) * remaining_percentage))
-    return result
+    return sorted(result)
 
 def get_voting_weight_for_user(user_id : int) -> float:
     query = '''
@@ -171,7 +177,7 @@ def get_global_cache_papers_ids(cache_size : int = None, random_state : int = No
         cache = sorted(cache)
         rng = random.Random(random_state)
         cache = rng.sample(cache, min(cache_size, len(cache)))
-    return cache
+    return sorted(cache)
 
 def get_cache_papers_ids_for_user(user_id : int, cache_size : int = None, random_state : int = None) -> list:
     query = '''
@@ -189,6 +195,22 @@ def get_cache_papers_ids_for_user(user_id : int, cache_size : int = None, random
         rng = random.Random(random_state)
         cache = rng.sample(cache, min(cache_size, len(cache)))
     return cache
+
+def get_global_cache_papers_ids_no_overlap(max_cache : int = None, random_state : int = None) -> list:
+    rated_papers_query = """SELECT DISTINCT paper_id FROM users_ratings WHERE rating IN (-1, 1);"""
+    rated_papers_ids = set([t[0] for t in sql_execute(rated_papers_query)])
+    base_papers_query = """SELECT DISTINCT paper_id FROM base_papers;"""
+    base_papers_ids = set([t[0] for t in sql_execute(base_papers_query)])
+    cache_papers_query = """SELECT paper_id FROM cache_papers;"""
+    cache_papers_ids = set([t[0] for t in sql_execute(cache_papers_query)])
+    filtered_cache_papers_ids = sorted(list(cache_papers_ids - rated_papers_ids.union(base_papers_ids)))
+    n_filtered_cache_papers = len(filtered_cache_papers_ids)
+    max_cache = n_filtered_cache_papers if max_cache is None else max_cache
+    if n_filtered_cache_papers < max_cache:
+        raise ValueError(f"Required cache size ({max_cache}) is greater than the number of filtered cache papers ({n_filtered_cache_papers}).")
+    rng = random.Random(random_state)
+    filtered_cache_papers_ids = rng.sample(filtered_cache_papers_ids, max_cache)
+    return sorted(filtered_cache_papers_ids)
 
 def get_title_and_abstract(paper_id : int) -> str:
     query = '''

@@ -31,6 +31,7 @@ def get_weights_group_from_arg(weights_group_arg : str) -> Weights_Group:
 
 class Weights_Scheme(Enum):
     UNWEIGHTED = auto()
+    CACHE_V = auto()
 
     BOTH_CONSTANT_VW, BOTH_CONSTANT_HYP = auto(), auto()
     BOTH_CUBE_ROOT_VW, BOTH_CUBE_ROOT_HYP = auto(), auto()
@@ -118,7 +119,8 @@ class Weights_Handler():
         return weights_hyperparameters_ranges
         
     def load_weights_hyperparameters_global(self, weights_scheme : Weights_Scheme, config : dict) -> dict:
-        return {}
+        if weights_scheme == Weights_Scheme.CACHE_V:
+            return {"weights_cache_v" : load_hyperparameter_range(config["weights_cache_v"])}
     
     def load_weights_hyperparameters_label(self, weights_scheme : Weights_Scheme, is_positive : bool, config : dict) -> dict:
         if weights_scheme == Weights_Scheme.UNWEIGHTED:
@@ -145,10 +147,19 @@ class Weights_Handler():
                                                             train_posrated_n, train_negrated_n, base_n, cache_n, is_positive = False)
         return w_p, w_n, w_b, w_c
 
-
     def load_weights_for_user_global(self, hyperparameters : dict, hyperparameters_combination : tuple, voting_weight : float,
                                      train_posrated_n : int, train_negrated_n : int, base_n : int, cache_n : int) -> tuple:
-        pass
+        if self.global_weights_scheme == Weights_Scheme.CACHE_V:
+            if train_posrated_n == 0 or train_negrated_n == 0 or cache_n == 0:
+                raise ValueError("Global Weights Scheme 'CACHE_V' requires non-zero values for train_posrated_n, train_negrated_n and cache_n.")
+            if base_n != 0:
+                raise ValueError("Global Weights Scheme 'CACHE_V' requires zero value for base_n.")
+            correction = train_posrated_n + train_negrated_n + cache_n
+            w_p, w_b = correction / train_posrated_n, None
+            v = hyperparameters_combination[hyperparameters["weights_cache_v"]]
+            shared_scalar = correction / (v * train_negrated_n + (1.0 - v) * cache_n)
+            w_n, w_c = v * shared_scalar, (1.0 - v) * shared_scalar
+            return w_p, w_n, w_b, w_c
 
     def load_weights_for_user_label(self, hyperparameters : dict, hyperparameters_combination : tuple, voting_weight : float,
                                     train_posrated_n : int, train_negrated_n : int, base_n : int, cache_n : int, is_positive : bool) -> tuple:

@@ -14,11 +14,28 @@ import pickle
 import sys
 import time
 
+def thesis_assertions(config : dict) -> None:
+    assert config["save_tfidf_coefs"] == False, "Config: save_tfidf_coefs must be False."
+    assert config["weights"] == "global:cache_v", "Config: weights must be 'global:cache_v'."
+    assert config["include_base"] == False, "Config: include_base must be False."
+    assert config["include_cache"] == True, "Config: include_cache must be True."
+    assert config["max_cache"] == 5000, "Config: max_cache must be 5000."
+    assert config["cache_type"] == "user_filtered", "Config: cache_type must be 'user_filtered'."
+    assert config["stratified"] == True, "Config: stratified must be True."
+    assert config["k_folds"] == 5, "Config: k_folds must be 5."
+    assert config["test_size"] == 0.2, "Config: test_size must be 0.2."
+    assert config["rated_paper_removal"] == "none", "Config: rated_paper_removal must be 'none'."
+    assert config["base_paper_removal"] == "none", "Config: base_paper_removal must be 'none'."
+    assert config["algorithm"] == "logreg", "Config: algorithm must be 'logreg'."
+    assert config["logreg_solver"] == "lbfgs", "Config: logreg_solver must be 'lbfgs'."
+    assert config["max_iter"] == 10000, "Config: max_iter must be 10000."
+
 def load_config(config_file : str) -> dict:
     try:
         with open(config_file) as file:
             config = json.load(file)
             config["experiment_name"] = config_file.split("/")[-1].split(".")[0]
+            thesis_assertions(config)
     except FileNotFoundError:
         sys.exit(f"Config File '{config_file}' not found.")
     return config
@@ -38,7 +55,6 @@ def create_outputs_folder(config : dict, continue_from_previous : bool) -> None:
     experiment_dir = outputs_dir / config["experiment_name"]
     os.makedirs(experiment_dir, exist_ok = True)
     config["outputs_dir"] = experiment_dir
-
     for item in os.listdir(experiment_dir):
         path = os.path.join(experiment_dir, item)
         if continue_from_previous:
@@ -48,28 +64,33 @@ def create_outputs_folder(config : dict, continue_from_previous : bool) -> None:
             os.remove(path)
         else:
             os.system(f"rm -r {path}")
-
     os.makedirs(experiment_dir / "tmp", exist_ok = True)
     if config["save_users_predictions"]:
         os.makedirs(experiment_dir / "users_predictions", exist_ok = True)
 
-def get_users_ids(users_selection : str, min_n_negrated : int = 0, min_n_posrated : int = 0, random_state : int = None, max_users : int = None, take_complement : bool = False) -> list:
-    users_ids_with_sufficient_votes = get_users_ids_with_sufficient_votes(min_n_negrated, min_n_posrated)
-    max_users = len(users_ids_with_sufficient_votes) if max_users is None else min(max_users, len(users_ids_with_sufficient_votes))
-    if users_selection == "all":
-        users_ids = users_ids_with_sufficient_votes["user_id"].to_list()
-    elif users_selection == "random":
-        users_ids_with_sufficient_votes = users_ids_with_sufficient_votes.sort_values(by = "user_id")
-        users_ids = users_ids_with_sufficient_votes.sample(n = max_users, random_state = random_state)["user_id"].to_list()
-    elif users_selection == "largest_n":
-        users_ids = users_ids_with_sufficient_votes.nlargest(max_users, 'n_total')["user_id"].to_list()
-    elif users_selection == "smallest_n":
-        users_ids = users_ids_with_sufficient_votes.nsmallest(max_users, 'n_total')["user_id"].to_list()
+def get_users_ids(users_selection : str, max_users : int = None, min_n_posrated : int = 20, min_n_negrated : int = 20, take_complement : bool = False, random_state : int = None) -> pd.DataFrame:
+    users_selection = users_selection.lower()
+    if users_selection not in ["random", "largest_n", "smallest_n"]:
+        raise ValueError("Users Selection: users_selection must be one of ['random', 'largest_n', 'smallest_n'].")
+
+    users_ids_with_sufficient_votes = get_users_ids_with_sufficient_votes(min_n_posrated = min_n_posrated, min_n_negrated = min_n_negrated, sort_ids = False)
+    n_users_with_sufficient_votes = len(users_ids_with_sufficient_votes)
+    max_users = n_users_with_sufficient_votes if max_users is None else min(max_users, n_users_with_sufficient_votes)
+    if max_users >= n_users_with_sufficient_votes:
+        assert not take_complement, "Users Selection: take_complement must be False when all users are selected."
     else:
-        users_ids = [user_id for user_id in users_selection if user_id in users_ids_with_sufficient_votes['user_id'].values]
-    if take_complement:
-        users_ids = [user_id for user_id in users_ids_with_sufficient_votes['user_id'].values if user_id not in users_ids]
-    return sorted([int(user_id) for user_id in users_ids])
+        if take_complement:
+            users_ids_with_sufficient_votes_complement = users_ids_with_sufficient_votes.copy()
+        if users_selection == "random":
+            users_ids_with_sufficient_votes = users_ids_with_sufficient_votes.sort_values(by = "user_id")
+            users_ids_with_sufficient_votes = users_ids_with_sufficient_votes.sample(n = max_users, random_state = random_state)
+        elif users_selection in ["largest_n", "smallest_n"]:
+            smallest_n_bool = (users_selection == "smallest_n")
+            users_ids_with_sufficient_votes = users_ids_with_sufficient_votes.sort_values(["n_rated", "n_posrated", "user_id"], 
+                                                                            ascending = [smallest_n_bool, smallest_n_bool, False]).head(max_users)
+        if take_complement:
+            users_ids_with_sufficient_votes = users_ids_with_sufficient_votes_complement[~users_ids_with_sufficient_votes_complement["user_id"].isin(users_ids_with_sufficient_votes["user_id"])]
+    return users_ids_with_sufficient_votes.sort_values(by = "user_id")
 
 def get_users_not_yet_evaluated(config : dict, users_ids : list, continue_from_previous : bool) -> list:
     if not continue_from_previous:
@@ -179,7 +200,9 @@ if __name__ == "__main__":
     else:
         continue_from_previous = False
     create_outputs_folder(config, continue_from_previous)
-    users_ids = get_users_ids(config["users_selection"], config["min_n_negrated"], config["min_n_posrated"], config["random_state"], config["max_users"], config["take_complement_of_users"])
+    users_ids = get_users_ids(users_selection = config["users_selection"], max_users = config["max_users"], min_n_posrated = config["min_n_posrated"], min_n_negrated = config["min_n_negrated"], 
+                              take_complement = config["take_complement_of_users"], random_state = config["random_state"])
+    users_ids = users_ids["user_id"].tolist()
     remaining_users_ids = get_users_not_yet_evaluated(config, users_ids, continue_from_previous)
 
     init_scores(config)

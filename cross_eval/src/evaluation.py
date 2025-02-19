@@ -1,7 +1,7 @@
 from algorithm import Algorithm, Evaluation, Score, get_score
 from algorithm import get_cross_val, get_model
 from compute_tfidf import load_vectorizer
-from data_handling import get_voting_weight_for_user
+from data_handling import get_rated_papers_ids_for_user, get_voting_weight_for_user
 from embedding import Embedding
 from training_data import load_base_for_user, load_global_cache, load_filtered_cache_for_user, load_training_data_for_user, Cache_Type, LABEL_DTYPE
 from weights_handler import Weights_Handler
@@ -48,20 +48,24 @@ class Evaluator:
 
     def evaluate_user(self, user_id : int) -> None:
         user_results_dict, user_predictions_dict = {}, {}
-        posrated_idxs = sorted(self.embedding.get_posrated_idxs_for_user(user_id, self.config["rated_paper_removal"], self.config["remaining_percentage"], self.random_state))
-        negrated_idxs = sorted(self.embedding.get_negrated_idxs_for_user(user_id, self.config["rated_paper_removal"], self.config["remaining_percentage"], self.random_state))
-        posrated_n, negrated_n = len(posrated_idxs), len(negrated_idxs)
-        rated_idxs = np.concatenate((posrated_idxs, negrated_idxs))
-        rated_labels = np.concatenate((np.ones(len(posrated_idxs), dtype = LABEL_DTYPE), np.zeros(len(negrated_idxs), dtype = LABEL_DTYPE)))
-        base_idxs, base_n, y_base = (load_base_for_user(self.embedding, user_id, self.config["base_paper_removal"], self.config["remaining_percentage"], self.random_state) 
-                                     if self.config["include_base"] else ([], 0, []))
-        user_predictions_dict["base_ids"] = self.embedding.get_papers_ids(base_idxs)
+        posrated_ids = get_rated_papers_ids_for_user(user_id, positive = True, paper_removal = self.config["rated_paper_removal"],
+                                                remaining_percentage = self.config["remaining_percentage"], random_state = self.random_state)
+        negrated_ids = get_rated_papers_ids_for_user(user_id, positive = False, paper_removal = self.config["rated_paper_removal"],
+                                                remaining_percentage = self.config["remaining_percentage"], random_state = self.random_state)
+        rated_ids = posrated_ids + negrated_ids
+        posrated_n, negrated_n = len(posrated_ids), len(negrated_ids)
+        rated_labels = np.concatenate((np.ones(posrated_n, dtype = LABEL_DTYPE), np.zeros(negrated_n, dtype = LABEL_DTYPE)))
+        base_ids, base_idxs, base_n, y_base = [], [], 0, []
+        if self.config["include_base"]:
+            base_ids, base_idxs, base_n, y_base = load_base_for_user(self.embedding, user_id, self.config["base_paper_removal"], self.config["remaining_percentage"], self.random_state)
+        user_predictions_dict["base_ids"] = base_ids
         cache_idxs, cache_n, y_cache = self.set_cache_for_user(user_id, posrated_n, negrated_n, base_n)
         user_info = self.store_user_info(user_id, posrated_n, negrated_n, base_n, cache_n)
 
         if self.config["evaluation"] == Evaluation.TRAIN_TEST_SPLIT:
-            train_rated_idxs, val_rated_idxs, y_train_rated, y_val = train_test_split(rated_idxs, rated_labels, test_size = self.config["test_size"], random_state = self.random_state,
-                                                                                      stratify = rated_labels if self.config["stratified"] else None)
+            train_rated_ids, val_rated_ids, y_train_rated, y_val = train_test_split(rated_ids, rated_labels, test_size = self.config["test_size"], random_state = self.random_state,
+                                                                                    stratify = rated_labels if self.config["stratified"] else None)
+            train_rated_idxs, val_rated_idxs = self.embedding.get_idxs(train_rated_ids), self.embedding.get_idxs(val_rated_ids)
             X_train_rated, X_val, X_train, y_train = self.load_data_for_user(train_rated_idxs, val_rated_idxs, y_train_rated, base_idxs, y_base, cache_idxs, y_cache)
             user_data_statistics = self.get_data_statistics_for_user(y_train_rated, base_n, cache_n)
             user_results, user_predictions, user_coefs = self.train_model_for_user(X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, user_data_statistics, user_info["voting_weight"])
@@ -72,7 +76,8 @@ class Evaluator:
                                                "tfidf_coefs": user_predictions["tfidf_coefs"]}}
 
         elif self.config["evaluation"] == Evaluation.CROSS_VALIDATION:
-            split = self.cross_val.split(X = rated_idxs, y = rated_labels)
+            rated_idxs = self.embedding.get_idxs(rated_ids)
+            split = self.cross_val.split(X = rated_ids, y = rated_labels)
             for fold_idx, (fold_train_idxs, fold_val_idxs) in enumerate(split):
                 train_rated_idxs, val_rated_idxs = rated_idxs[fold_train_idxs], rated_idxs[fold_val_idxs]
                 y_train_rated, y_val = rated_labels[fold_train_idxs], rated_labels[fold_val_idxs]
