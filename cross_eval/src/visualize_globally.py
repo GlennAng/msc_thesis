@@ -160,7 +160,7 @@ class Global_Visualizer:
         include_cache = self.config["include_cache"]
         config_string.append(f"Training Data includes Cache: {'Yes' if include_cache else 'No'}.")
         if include_cache:
-            config_string.append(get_cache_type_str(self.config["cache_type"], self.config["max_cache"]))
+            config_string.append(get_cache_type_str(self.config["cache_type"], self.config["max_cache"], self.config["draw_cache_from_users_ratings"]))
         config_string.append("\n")
 
         config_string.append(f"Minimum Number of required negative Votes per User: {self.config['min_n_negrated']}.")

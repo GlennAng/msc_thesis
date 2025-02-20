@@ -1,71 +1,25 @@
 from enum import Enum, auto
 from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, log_loss
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, log_loss, roc_auc_score
 from sklearn.svm import SVC
 import numpy as np
 
-"""
-class Score(Enum):
-    ACCURACY = auto()
-    RECALL = auto()
-    PRECISION = auto()
-    SPECIFICITY = auto()
-    BALANCED_ACCURACY = auto()
-    F1_SCORE = auto()
-    CEL = auto()
-SCORES_NAMES_DICT = {Score.ACCURACY: "Accuracy", Score.RECALL: "Recall", Score.PRECISION: "Precision", Score.SPECIFICITY: "Specificity", 
-                     Score.BALANCED_ACCURACY: "Balanced Accuracy", Score.F1_SCORE: "F1 Score", Score.CEL: "Cross-Entropy Loss"}
-SCORES_ABBREVIATIONS_DICT = {Score.ACCURACY: "ACC", Score.RECALL: "REC", Score.PRECISION: "PRE", Score.SPECIFICITY: "SPE",
-                             Score.BALANCED_ACCURACY: "BAL", Score.F1_SCORE: "F1", Score.CEL: "CEL"}
-SCORES_INCREASE_BETTER_DICT = {Score.ACCURACY: True, Score.RECALL: True, Score.PRECISION: True, Score.SPECIFICITY: True,
-                               Score.BALANCED_ACCURACY: True, Score.F1_SCORE: True, Score.CEL: False}
-
-def get_score_from_arg(score_arg : str) -> Score:
-    valid_score_args = [score.name.lower() for score in Score]
-    if score_arg.lower() not in valid_score_args:
-        raise ValueError(f"Invalid argument {score_arg} 'algorithm'. Possible values: {valid_score_args}.")
-    return Score[score_arg.upper()]
-
-def specificity_score(y_true, y_pred):
-    tn, fp, _, _ = confusion_matrix(y_true, y_pred).ravel()
-    return tn / (tn + fp) if tn + fp != 0 else 0
-
-def get_score(score : Score, y_true, y_pred, y_proba = None) -> float:
-    if y_proba is not None:
-        y_proba = np.array(y_proba)
-    if score == Score.ACCURACY:
-        return accuracy_score(y_true, y_pred)
-    elif score == Score.RECALL:
-        return recall_score(y_true, y_pred, zero_division = 0)
-    elif score == Score.PRECISION:
-        return precision_score(y_true, y_pred, zero_division = 0)
-    elif score == Score.SPECIFICITY:
-        return specificity_score(y_true, y_pred)
-    elif score == Score.BALANCED_ACCURACY:
-        return (get_score(Score.RECALL, y_true, y_pred) + get_score(Score.SPECIFICITY, y_true, y_pred)) / 2
-    elif score == Score.F1_SCORE:
-        recall_sc, precision_sc = get_score(Score.RECALL, y_true, y_pred), get_score(Score.PRECISION, y_true, y_pred)
-        denominator = recall_sc + precision_sc
-        return 2 * recall_sc * precision_sc / denominator if denominator != 0 else 0
-    elif score == Score.CEL:
-        return log_loss(y_true, y_proba)
-
-"""
 class Score(Enum):
     RECALL = auto()
     PRECISION = auto()
     SPECIFICITY = auto()
     BALANCED_ACCURACY = auto()
+    AUROC = auto()
     CEL = auto()
     CEL_POS = auto()
     CEL_NEG = auto()
 SCORES_NAMES_DICT = {Score.RECALL: "Recall", Score.PRECISION: "Precision", Score.SPECIFICITY: "Specificity", Score.BALANCED_ACCURACY: "Balanced Accuracy", 
-                     Score.CEL: "Cross-Entropy Loss", Score.CEL_POS: "CEL among positive GT", Score.CEL_NEG: "CEL among negative GT"}
+                     Score.AUROC: "Area under Roc Curve", Score.CEL: "Cross-Entropy Loss", Score.CEL_POS: "CEL among positive GT", Score.CEL_NEG: "CEL among negative GT"}
 SCORES_ABBREVIATIONS_DICT = {Score.RECALL: "REC", Score.PRECISION: "PRE", Score.SPECIFICITY: "SPE", Score.BALANCED_ACCURACY: "BAL", 
-                             Score.CEL: "CEL", Score.CEL_POS: "CEL_POS", Score.CEL_NEG: "CEL_NEG"}
+                             Score.AUROC: "AUC", Score.CEL: "CEL", Score.CEL_POS: "CEL_P", Score.CEL_NEG: "CEL_N"}
 SCORES_INCREASE_BETTER_DICT = {Score.RECALL: True, Score.PRECISION: True, Score.SPECIFICITY: True, Score.BALANCED_ACCURACY: True, 
-                               Score.CEL: False, Score.CEL_POS: False, Score.CEL_NEG: False}
+                               Score.AUROC: True, Score.CEL: False, Score.CEL_POS: False, Score.CEL_NEG: False}
 
 def get_score_from_arg(score_arg : str) -> Score:
     valid_score_args = [score.name.lower() for score in Score]
@@ -88,6 +42,8 @@ def get_score(score : Score, y_true, y_pred, y_proba = None) -> float:
         return specificity_score(y_true, y_pred)
     elif score == Score.BALANCED_ACCURACY:
         return (get_score(Score.RECALL, y_true, y_pred) + get_score(Score.SPECIFICITY, y_true, y_pred)) / 2
+    elif score == Score.AUROC:
+        return roc_auc_score(y_true, y_proba)
     elif score == Score.CEL:
         return log_loss(y_true, y_proba)
     elif score == Score.CEL_POS:

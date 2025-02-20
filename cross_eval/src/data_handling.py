@@ -168,55 +168,67 @@ def get_voting_weight_for_user(user_id : int) -> float:
     '''
     return sql_execute(query, user_id = user_id)[0][0]
 
-def get_global_cache_papers_ids(cache_size : int = None, random_state : int = None) -> list:
-    query = '''
-    SELECT paper_id FROM cache_papers;
-    '''
+def get_global_cache_papers_ids(max_cache : int = None, random_state : int = None, draw_cache_from_users_ratings : bool = False) -> list:
+    if draw_cache_from_users_ratings:
+        query = '''SELECT paper_id FROM users_ratings WHERE rating IN (-1, 1);'''
+    else:
+        query = '''SELECT paper_id FROM cache_papers;'''
     cache = [t[0] for t in sql_execute(query)]
-    if cache_size is not None:
+    n_cache = len(cache)
+    max_cache = n_cache if max_cache is None else min(max_cache, n_cache)
+    if n_cache < max_cache:
+        raise ValueError(f"Required cache size ({max_cache}) is greater than the number of valid cache papers ({n_cache}).")
+    elif n_cache > max_cache:
         cache = sorted(cache)
         rng = random.Random(random_state)
-        cache = rng.sample(cache, min(cache_size, len(cache)))
+        cache = rng.sample(cache, max_cache)
     return sorted(cache)
 
-def get_cache_papers_ids_for_user(user_id : int, cache_size : int = None, random_state : int = None) -> list:
-    query = '''
-    SELECT paper_id FROM cache_papers 
-    WHERE paper_id NOT IN 
-        (SELECT paper_id FROM users_ratings 
-        WHERE user_id = :user_id)
-    AND paper_id NOT IN
-        (SELECT paper_id FROM base_papers
-        WHERE user_id = :user_id);
-    '''
+def get_cache_papers_ids_for_user(user_id : int, max_cache : int = None, random_state : int = None, draw_cache_from_users_ratings : bool = False) -> list:
+    if draw_cache_from_users_ratings:
+        query = """
+                SELECT DISTINCT paper_id FROM users_ratings
+                WHERE rating IN (-1, 1) 
+                AND user_id != :user_id
+                AND paper_id NOT IN (
+                    SELECT paper_id FROM base_papers
+                    WHERE user_id = :user_id)
+                """
+    else:
+        query = f"""
+                SELECT paper_id FROM cache_papers
+                WHERE paper_id NOT IN (
+                    SELECT paper_id FROM users_ratings
+                    WHERE user_id = :user_id)
+                AND paper_id NOT IN (
+                    SELECT paper_id FROM base_papers
+                    WHERE user_id = :user_id);
+                """
     cache = [t[0] for t in sql_execute(query, user_id = user_id)]
-    if cache_size is not None:
+    n_cache = len(cache)
+    max_cache = n_cache if max_cache is None else min(max_cache, n_cache)
+    if n_cache < max_cache:
+        raise ValueError(f"Required cache size ({max_cache}) is greater than the number of valid cache papers ({n_cache}) for User ({user_id}).")
+    elif n_cache > max_cache:
         cache = sorted(cache)
         rng = random.Random(random_state)
-        cache = rng.sample(cache, min(cache_size, len(cache)))
-    return cache
-
-def get_global_cache_papers_ids_no_overlap(max_cache : int = None, random_state : int = None) -> list:
-    rated_papers_query = """SELECT DISTINCT paper_id FROM users_ratings WHERE rating IN (-1, 1);"""
-    rated_papers_ids = set([t[0] for t in sql_execute(rated_papers_query)])
-    base_papers_query = """SELECT DISTINCT paper_id FROM base_papers;"""
-    base_papers_ids = set([t[0] for t in sql_execute(base_papers_query)])
-    cache_papers_query = """SELECT paper_id FROM cache_papers;"""
-    cache_papers_ids = set([t[0] for t in sql_execute(cache_papers_query)])
-    filtered_cache_papers_ids = sorted(list(cache_papers_ids - rated_papers_ids.union(base_papers_ids)))
-    n_filtered_cache_papers = len(filtered_cache_papers_ids)
-    max_cache = n_filtered_cache_papers if max_cache is None else max_cache
-    if n_filtered_cache_papers < max_cache:
-        raise ValueError(f"Required cache size ({max_cache}) is greater than the number of filtered cache papers ({n_filtered_cache_papers}).")
-    rng = random.Random(random_state)
-    filtered_cache_papers_ids = rng.sample(filtered_cache_papers_ids, max_cache)
-    return sorted(filtered_cache_papers_ids)
+        cache = rng.sample(cache, max_cache)
+    return sorted(cache)
 
 def get_title_and_abstract(paper_id : int) -> str:
     query = '''
     SELECT title, abstract FROM papers WHERE paper_id = :paper_id;
     '''
     return sql_execute(query, paper_id = paper_id)[0]
+
+def get_titles_and_abstracts(papers_ids : list = None) -> str:
+    query = f"""
+            SELECT paper_id, title, abstract FROM papers
+            {f'WHERE paper_id IN ({", ".join([str(x) for x in papers_ids])})' if papers_ids else ''}
+            ORDER BY paper_id;
+            """
+    papers = sql_execute(query)
+    return sorted(papers, key = lambda x: x[0])
 
 def get_db_name() -> str:
     return DB_NAME

@@ -66,24 +66,24 @@ def clean_users_info(user_info: pd.DataFrame, include_base : bool, include_cache
         user_info["n_cache"] = np.float64('nan')
     return user_info
 
-def get_cache_type_str(cache_type : str, max_cache : int) -> str:
+def get_cache_type_str(cache_type : str, max_cache : int, draw_cache_from_users_ratings : bool = False) -> str:
     if type(cache_type) == str:
         cache_type = Cache_Type[cache_type]
     s = "Cache Type: "
     s_extension = str(max_cache // 1000) + 'K' if max_cache % 1000 == 0 else str(max_cache)
     if cache_type == Cache_Type.GLOBAL:
-        s += f"Global with a maximum number of {s_extension} papers."
+        s += f"Global with a maximum number of {s_extension} papers (potential overlap with user papers)."
     elif cache_type == Cache_Type.USER_FILTERED:
         s += f"User-filtered with a maximum number of {s_extension} papers."
     elif cache_type == Cache_Type.USER_FILTERED_FILLUP:
         s += f"User-filtered adaptively filling up to a maximum number of {s_extension} papers."
+    if draw_cache_from_users_ratings:
+        s += " Drawn from the User Ratings."
     return s
 
 def get_users_selection_str(users_selection : str, users_ids : list) -> str:
     s = "User Selection Criterion among those who qualified: "
-    if users_selection == "all":
-        s += "All chosen."
-    elif users_selection == "random":
+    if users_selection == "random":
         s += "Random."
     elif users_selection == "largest_n":
         s += "Largest Number of rated Papers."

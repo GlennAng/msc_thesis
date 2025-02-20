@@ -74,11 +74,11 @@ class Embedding:
     def get_base_idxs_for_user(self, user_id : int, paper_removal = None, remaining_percentage : bool = None, random_state : int = None) -> np.ndarray:
         return self.get_idxs(get_base_papers_ids_for_user(user_id, paper_removal, remaining_percentage, random_state))
     
-    def get_global_cache_idxs(self, cache_size : int = None, random_state : int = None) -> np.ndarray:
-        return self.get_idxs(get_global_cache_papers_ids(cache_size, random_state))
+    def get_global_cache_idxs(self, cache_size : int = None, random_state : int = None, draw_cache_from_users_ratings : bool = False) -> np.ndarray:
+        return self.get_idxs(get_global_cache_papers_ids(cache_size, random_state, draw_cache_from_users_ratings))
     
-    def get_cache_idxs_for_user(self, user_id : int, cache_size : int = None, random_state : int = None) -> np.ndarray:
-        return self.get_idxs(get_cache_papers_ids_for_user(user_id, cache_size, random_state))
+    def get_cache_idxs_for_user(self, user_id : int, cache_size : int = None, random_state : int = None, draw_cache_from_users_ratings : bool = False) -> np.ndarray:
+        return self.get_idxs(get_cache_papers_ids_for_user(user_id, cache_size, random_state, draw_cache_from_users_ratings))
     
     def get_papers_ids(self, idxs : np.ndarray) -> list:
         return self.papers_idxs_to_ids[idxs].tolist()

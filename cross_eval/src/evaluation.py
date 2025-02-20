@@ -21,10 +21,11 @@ class Evaluator:
         self.hyperparameters, self.hyperparameters_combinations = config["hyperparameters"], hyperparameters_combinations
         self.wh = wh
 
-        self.random_state = config["random_state"]
+        self.random_state, self.cache_random_state = config["random_state"], config["cache_random_state"]
         self.scores, self.scores_n = config["scores"], len(config["scores"])
         self.users_voting_weights = {user_id : get_voting_weight_for_user(user_id) for user_id in users_ids} if wh.need_voting_weight else None
         self.include_global_cache = self.config["include_cache"] and self.config["cache_type"] == Cache_Type.GLOBAL
+        self.draw_cache_from_users_ratings = self.config["include_cache"] and self.config["draw_cache_from_users_ratings"]
         if self.config["evaluation"] == Evaluation.CROSS_VALIDATION:
             self.cross_val = get_cross_val(config["stratified"], config["k_folds"], self.random_state)
 
@@ -39,7 +40,8 @@ class Evaluator:
             if self.config["evaluation"] != Evaluation.TRAIN_TEST_SPLIT:
                 raise ValueError("Coefficient saving is only supported with train-test split evaluation.")
         if self.include_global_cache:
-            self.global_cache_idxs, self.global_cache_n, self.y_global_cache = load_global_cache(self.embedding, self.config["max_cache"], self.random_state)
+            self.global_cache_idxs, self.global_cache_n, self.y_global_cache = load_global_cache(self.embedding, self.config["max_cache"], 
+                                                                                                 self.cache_random_state, self.draw_cache_from_users_ratings)
         if self.config["n_jobs"] == 1:
             for user_id in self.users_ids:
                 self.evaluate_user(user_id)
@@ -105,8 +107,8 @@ class Evaluator:
             if self.config["include_cache"]:
                 target_ratio = self.config["target_ratio"] if "target_ratio" in self.config else None
                 assert target_ratio is None or (target_ratio > 0 and target_ratio < 1)
-                cache_idxs, cache_n, y_cache = load_filtered_cache_for_user(self.embedding, self.config["cache_type"], user_id, self.config["max_cache"], self.random_state, 
-                                                                            pos_n, negrated_n, target_ratio)
+                cache_idxs, cache_n, y_cache = load_filtered_cache_for_user(self.embedding, self.config["cache_type"], user_id, self.config["max_cache"], self.cache_random_state, 
+                                                                            pos_n, negrated_n, target_ratio, self.draw_cache_from_users_ratings)
             else:
                 cache_idxs, cache_n, y_cache = [], 0, []
         return cache_idxs, cache_n, y_cache

@@ -20,7 +20,6 @@ def thesis_assertions(config : dict) -> None:
     assert config["include_base"] == False, "Config: include_base must be False."
     assert config["include_cache"] == True, "Config: include_cache must be True."
     assert config["max_cache"] == 5000, "Config: max_cache must be 5000."
-    assert config["cache_type"] == "user_filtered", "Config: cache_type must be 'user_filtered'."
     assert config["stratified"] == True, "Config: stratified must be True."
     assert config["k_folds"] == 5, "Config: k_folds must be 5."
     assert config["test_size"] == 0.2, "Config: test_size must be 0.2."

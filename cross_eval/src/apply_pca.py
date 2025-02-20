@@ -17,8 +17,8 @@ def l2_normalize_rows(matrix : np.ndarray) -> np.ndarray:
     return np.divide(matrix, norms[:, np.newaxis], where = mask[:, np.newaxis])
 
 if __name__ == "__main__":
-    EMBEDDINGS_INPUT_FOLDER = "/home/scholar/glenn_rp/msc_thesis/data/embeddings/before_pca/gte_large_2024-10-23"
-    PCA_DIM = 256
+    EMBEDDINGS_INPUT_FOLDER = "/home/scholar/glenn_rp/msc_thesis/data/embeddings/before_pca/gte_base_2024-10-23"
+    PCA_DIM = 384
 
     embeddings_base_folder = EMBEDDINGS_INPUT_FOLDER.split("/embeddings")[0] + "/embeddings"
     embeddings_name = EMBEDDINGS_INPUT_FOLDER.split("/")[-1]
