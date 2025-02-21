@@ -6,6 +6,7 @@ from sklearn.svm import SVC
 import numpy as np
 
 class Score(Enum):
+    ACCURACY = auto()
     RECALL = auto()
     PRECISION = auto()
     SPECIFICITY = auto()
@@ -16,7 +17,8 @@ class Score(Enum):
     CEL = auto()
     CEL_POS = auto()
     CEL_NEG = auto()
-SCORES_DICT = { Score.RECALL : {"name": "Recall", "abbreviation": "REC", "increase_better": True, "derivable": False},
+SCORES_DICT = { Score.ACCURACY : {"name": "Accuracy", "abbreviation": "ACC", "increase_better": True, "derivable": False},
+                Score.RECALL : {"name": "Recall", "abbreviation": "REC", "increase_better": True, "derivable": False},
                 Score.PRECISION : {"name": "Precision", "abbreviation": "PRE", "increase_better": True, "derivable": False},
                 Score.SPECIFICITY : {"name": "Specificity", "abbreviation": "SPE", "increase_better": True, "derivable": False},
                 Score.BALANCED_ACCURACY : {"name": "Balanced Accuracy", "abbreviation": "BAL", "increase_better": True, "derivable": True},
@@ -38,7 +40,9 @@ def specificity_score(y_true, y_pred):
     return tn / (tn + fp) if tn + fp != 0 else 0
 
 def get_score(score : Score, y_true : np.ndarray, y_pred : np.ndarray, y_proba : np.ndarray) -> float:
-    if score == Score.RECALL:
+    if score == Score.ACCURACY:
+        return accuracy_score(y_true, y_pred)
+    elif score == Score.RECALL:
         return recall_score(y_true, y_pred, zero_division = 0)
     elif score == Score.PRECISION:
         return precision_score(y_true, y_pred, zero_division = 0)
