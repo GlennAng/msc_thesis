@@ -1,4 +1,4 @@
-from algorithm import Algorithm, Evaluation, Score, get_score
+from algorithm import Algorithm, Evaluation, Score, get_score, derive_score, SCORES_DICT
 from algorithm import get_cross_val, get_model
 from compute_tfidf import load_vectorizer
 from data_handling import get_rated_papers_ids_for_user, get_voting_weight_for_user
@@ -23,6 +23,9 @@ class Evaluator:
 
         self.random_state, self.cache_random_state = config["random_state"], config["cache_random_state"]
         self.scores, self.scores_n = config["scores"], len(config["scores"])
+        self.non_derivable_scores, self.derivable_scores = [], []
+        for score in Score:
+            self.derivable_scores.append(score) if SCORES_DICT[score]["derivable"] else self.non_derivable_scores.append(score)
         self.users_voting_weights = {user_id : get_voting_weight_for_user(user_id) for user_id in users_ids} if wh.need_voting_weight else None
         self.include_global_cache = self.config["include_cache"] and self.config["cache_type"] == Cache_Type.GLOBAL
         self.draw_cache_from_users_ratings = self.config["include_cache"] and self.config["draw_cache_from_users_ratings"]
@@ -149,7 +152,7 @@ class Evaluator:
             y_train_rated_pred, y_val_pred = model.predict(X_train_rated), model.predict(X_val)
             y_train_rated_proba = model.predict_proba(X_train_rated)[:, 1].tolist()
             y_val_proba = model.predict_proba(X_val)[:, 1].tolist()
-            scores = self.get_scores_for_user(y_train_rated, y_train_rated_pred, y_train_rated_proba, y_val, y_val_pred, y_val_proba)
+            scores = self.get_scores_for_user(y_train_rated, y_train_rated_pred, np.array(y_train_rated_proba), y_val, y_val_pred, np.array(y_val_proba))
             user_results[combination_idx] = scores
             if self.config["save_users_predictions"]:
                 user_predictions["train_predictions"][combination_idx] = y_train_rated_proba
@@ -169,9 +172,13 @@ class Evaluator:
     def get_scores_for_user(self, y_train_rated : np.ndarray, y_train_rated_pred : np.ndarray, y_train_rated_proba : np.ndarray,
                                   y_val : np.ndarray, y_val_pred : np.ndarray, y_val_proba : np.ndarray) -> tuple:
         user_scores = [None, ] * self.scores_n
-        for score in Score:
+        for score in self.non_derivable_scores:
             user_scores[self.scores[f"train_{score.name.lower()}"]] = get_score(score, y_train_rated, y_train_rated_pred, y_train_rated_proba)
             user_scores[self.scores[f"val_{score.name.lower()}"]] = get_score(score, y_val, y_val_pred, y_val_proba)
+        user_scores_copy = user_scores.copy()
+        for score in self.derivable_scores:
+            user_scores[self.scores[f"train_{score.name.lower()}"]] = derive_score(score, user_scores_copy, self.scores, validation = False)
+            user_scores[self.scores[f"val_{score.name.lower()}"]] = derive_score(score, user_scores_copy, self.scores, validation = True)
         return tuple(user_scores)
     
     def get_papers_ids(self, train_rated_idxs : np.ndarray, y_train_rated : np.ndarray, val_rated_idxs : np.ndarray, y_val : np.ndarray) -> dict:

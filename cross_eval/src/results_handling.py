@@ -1,4 +1,4 @@
-from algorithm import Score, SCORES_INCREASE_BETTER_DICT
+from algorithm import Score, SCORES_DICT
 from typing import Callable
 import pandas as pd
 
@@ -74,15 +74,18 @@ def get_val_upper_bounds(results_after_avging_over_folds : pd.DataFrame, n_tail_
     """
     val_upper_bounds = {}
     for score in Score:
-        score_name = f"val_{score.name.lower()}"
-        if SCORES_INCREASE_BETTER_DICT[score]:
-            best_combinations = results_after_avging_over_folds.groupby("user_id").apply(lambda x: x.nlargest(1, score_name)).reset_index(drop = True)
-            best_combinations_tail = best_combinations.nsmallest(n_tail_users, score_name).reset_index(drop = True)
+        val_score_name = f"val_{score.name.lower()}"
+        train_score_name = f"train_{score.name.lower()}"
+        if SCORES_DICT[score]["increase_better"]:
+            best_combinations = results_after_avging_over_folds.groupby("user_id").apply(lambda x: x.nlargest(1, val_score_name)).reset_index(drop = True)
+            best_combinations_tail = best_combinations.nsmallest(n_tail_users, val_score_name).reset_index(drop = True)
         else:
-            best_combinations = results_after_avging_over_folds.groupby("user_id").apply(lambda x: x.nsmallest(1, score_name)).reset_index(drop = True)
-            best_combinations_tail = best_combinations.nlargest(n_tail_users, score_name).reset_index(drop = True)
-        val_upper_bounds[score_name] = best_combinations[score_name].mean()
-        val_upper_bounds[f"{score_name}_tail"] = best_combinations_tail[score_name].mean()
+            best_combinations = results_after_avging_over_folds.groupby("user_id").apply(lambda x: x.nsmallest(1, val_score_name)).reset_index(drop = True)
+            best_combinations_tail = best_combinations.nlargest(n_tail_users, val_score_name).reset_index(drop = True)
+        val_upper_bounds[val_score_name] = best_combinations[val_score_name].mean()
+        val_upper_bounds[train_score_name] = best_combinations[train_score_name].mean()
+        val_upper_bounds[f"{val_score_name}_tail"] = best_combinations_tail[val_score_name].mean()
+        val_upper_bounds[f"{train_score_name}_tail"] = best_combinations_tail[train_score_name].mean()
     return val_upper_bounds
 
 @throw_if_fold_idx_present("keep_only_n_most_extreme_hyperparameters_combinations_score")
@@ -90,7 +93,7 @@ def keep_only_n_most_extreme_hyperparameters_combinations_for_all_users_score(re
     """
     output columns: just like the input DF
     """
-    use_smallest_score = use_smallest if SCORES_INCREASE_BETTER_DICT[score] else not use_smallest
+    use_smallest_score = use_smallest if SCORES_DICT[score]["increase_better"] else not use_smallest
     extreme_func = pd.DataFrame.nsmallest if use_smallest_score else pd.DataFrame.nlargest
     return results_after_avging_over_folds.groupby(["user_id"]).apply(lambda x: extreme_func(x, n_extreme_combinations, f"val_{score.name.lower()}")).reset_index(drop = True)
 
@@ -125,7 +128,7 @@ def average_over_n_most_extreme_users_for_all_hyperparameters_combinations(resul
     """
     results_after_avging_over_n_most_extreme_users = results_after_avging_over_folds[['combination_idx']].drop_duplicates()
     for score in Score:
-        use_smallest_score = use_smallest if SCORES_INCREASE_BETTER_DICT[score] else not use_smallest
+        use_smallest_score = use_smallest if SCORES_DICT[score]["increase_better"] else not use_smallest
         results_after_avging_over_n_most_extreme_users_score = average_over_n_most_extreme_users_for_all_hyperparameters_combinations_score(results_after_avging_over_folds, score, n_extreme_users, use_smallest_score)
         results_after_avging_over_n_most_extreme_users = pd.merge(results_after_avging_over_n_most_extreme_users, results_after_avging_over_n_most_extreme_users_score, on = ['combination_idx'], how = "inner")
     return results_after_avging_over_n_most_extreme_users
@@ -135,7 +138,7 @@ def average_over_n_most_extreme_users_for_all_hyperparameters_combinations(resul
 def get_n_best_hyperparameters_combinations_score(results_after_avging_over_users: pd.DataFrame, score : Score, n_best_combinations : int) -> list:
     score_name = score.name.lower()
     column = f"val_{score_name}_mean"
-    if SCORES_INCREASE_BETTER_DICT[score]:
+    if SCORES_DICT[score]["increase_better"]:
         best_n_combinations = results_after_avging_over_users.nlargest(n_best_combinations, column)[["combination_idx"]].values.tolist()
     else:
         best_n_combinations = results_after_avging_over_users.nsmallest(n_best_combinations, column)[["combination_idx"]].values.tolist()

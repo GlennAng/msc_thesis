@@ -1,4 +1,4 @@
-from algorithm import Algorithm, Evaluation, Score, SCORES_ABBREVIATIONS_DICT, SCORES_INCREASE_BETTER_DICT, get_score_from_arg
+from algorithm import Algorithm, Evaluation, Score, get_score_from_arg, SCORES_DICT
 from data_handling import Paper_Removal
 from results_handling import *
 from visualization_tools import *
@@ -45,7 +45,7 @@ class Global_Visualizer:
         self.n_print_largest_performance_gain = min(32, self.n_users)
 
     def extract_optimization_data(self) -> None:
-        self.hyperparameters = list(self.config["hyperparameters"].keys())
+        self.hyperparameters = list(self.hyperparameters_combinations.columns)[1:]
         self.hyperparameters_ranges = get_hyperparameters_ranges(self.hyperparameters_combinations)
         self.n_print_best_hyperparameters_combinations = min(OPTIMIZATION_CONSTANTS["N_PRINT_BEST_HYPERPARAMETERS_COMBINATIONS"], len(self.hyperparameters_combinations))
 
@@ -57,29 +57,16 @@ class Global_Visualizer:
 
     def extract_best_global_hyperparameters_combination_data(self) -> None:
         self.best_global_hyperparameters_combinations_idxs = get_n_best_hyperparameters_combinations_score(self.results_after_averaging_over_tails if self.tail else self.results_after_averaging_over_users,
-                                                                                                      self.score, self.n_print_best_hyperparameters_combinations)
+                                                                                                           self.score, self.n_print_best_hyperparameters_combinations)
         self.best_global_hyperparameters_combination_idx = self.best_global_hyperparameters_combinations_idxs[0]
         self.best_global_hyperparameters_combination_df = self.results_after_averaging_over_folds[self.results_after_averaging_over_folds["combination_idx"] == self.best_global_hyperparameters_combination_idx]
 
-        if SCORES_INCREASE_BETTER_DICT[self.score]:
+        if SCORES_DICT[self.score]["increase_better"]:
             self.worst_users_best_global_hyperparameters_combination_df = self.best_global_hyperparameters_combination_df.nsmallest(self.n_print_interesting_users, f'val_{self.score.name.lower()}')
             self.best_users_best_global_hyperparameters_combination_df = self.best_global_hyperparameters_combination_df.nlargest(self.n_print_interesting_users, f'val_{self.score.name.lower()}')
         else:
             self.worst_users_best_global_hyperparameters_combination_df = self.best_global_hyperparameters_combination_df.nlargest(self.n_print_interesting_users, f'val_{self.score.name.lower()}')
             self.best_users_best_global_hyperparameters_combination_df = self.best_global_hyperparameters_combination_df.nsmallest(self.n_print_interesting_users, f'val_{self.score.name.lower()}')
-        
-        """
-        users = [3613, 6537, 17739, 18417]
-        pd.set_option('display.max_columns', None)  # Show all columns
-        pd.set_option('display.width', None)        # Don't limit the display width
-        pd.set_option('display.max_colwidth', None)
-        filtered_df = self.best_global_hyperparameters_combination_df[
-            self.best_global_hyperparameters_combination_df['user_id'].isin(users)]
-        merged_df = filtered_df.merge(self.users_info, on='user_id', how='left')
-        print(merged_df[["user_id", "combination_idx", "n_posrated", "n_negrated", "val_balanced_accuracy", "train_balanced_accuracy", "val_recall", "train_recall", 
-                         "val_specificity", "train_specificity", "val_cel", "train_cel"]])
-        """
-        
         
         self.worst_users_best_global_hyperparameters_combination = self.worst_users_best_global_hyperparameters_combination_df["user_id"].values
         self.best_users_best_global_hyperparameters_combination = self.best_users_best_global_hyperparameters_combination_df["user_id"].values
@@ -89,7 +76,7 @@ class Global_Visualizer:
 
     def extract_best_individual_hyperparameters_combination_data(self) -> None:
         self.best_individual_hyperparameters_combination_df = keep_only_n_most_extreme_hyperparameters_combinations_for_all_users_score(self.results_after_averaging_over_folds, self.score, 1, False)
-        if SCORES_INCREASE_BETTER_DICT[self.score]:
+        if SCORES_DICT[self.score]["increase_better"]:
             self.worst_users_best_individual_hyperparameters_combination_df = self.best_individual_hyperparameters_combination_df.nsmallest(self.n_print_interesting_users, f'val_{self.score.name.lower()}')
             self.best_users_best_individual_hyperparameters_combination_df = self.best_individual_hyperparameters_combination_df.nlargest(self.n_print_interesting_users, f'val_{self.score.name.lower()}')
         else:
@@ -97,17 +84,6 @@ class Global_Visualizer:
             self.best_users_best_individual_hyperparameters_combination_df = self.best_individual_hyperparameters_combination_df.nsmallest(self.n_print_interesting_users, f'val_{self.score.name.lower()}')
         self.worst_users_best_individual_hyperparameters_combination = self.worst_users_best_individual_hyperparameters_combination_df["user_id"].values
         self.best_users_best_individual_hyperparameters_combination = self.best_users_best_individual_hyperparameters_combination_df["user_id"].values
-        """
-        users = [3613, 6537, 17739, 18417]
-        pd.set_option('display.max_columns', None)  # Show all columns
-        pd.set_option('display.width', None)        # Don't limit the display width
-        pd.set_option('display.max_colwidth', None)
-        filtered_df = self.best_individual_hyperparameters_combination_df[
-            self.best_individual_hyperparameters_combination_df['user_id'].isin(users)]
-        merged_df = filtered_df.merge(self.users_info, on='user_id', how='left')
-        print(merged_df[["user_id", "combination_idx", "n_posrated", "n_negrated", "val_balanced_accuracy", "train_balanced_accuracy", "val_recall", "train_recall", 
-        "val_specificity", "train_specificity", "val_cel", "train_cel", "val_cel_pos", "train_cel_pos", "val_cel_neg", "train_cel_neg"]])
-        """
 
     def extract_largest_performance_gain_data(self) -> None:
         column_renames_global = {f'val_{score.name.lower()}': f'val_{score.name.lower()}_global' for score in list(Score)}
@@ -191,9 +167,9 @@ class Global_Visualizer:
         print_third_page(pdf, self.n_users, users_info_table, self.config["users_selection"], self.users_ids)
 
     def generate_fourth_page(self, pdf : PdfPages) -> None:
-        hyperparameters_combinations_table = get_hyperparameters_combinations_table(self.val_upper_bounds, self.score, self.tail, self.best_global_hyperparameters_combinations_idxs, 
-                                                                                    self.results_after_averaging_over_users, self.results_after_averaging_over_tails)
-        print_fourth_page(pdf, hyperparameters_combinations_table, self.score, self.tail, self.n_users, self.n_tail_users)
+        hyperparameters_combinations_table = get_hyperparameters_combinations_table(self.val_upper_bounds, self.score, self.best_global_hyperparameters_combinations_idxs, 
+                                                                                    self.results_after_averaging_over_users, self.hyperparameters_combinations)
+        print_fourth_page(pdf, hyperparameters_combinations_table, self.score, self.hyperparameters)
 
     def generate_fifth_page(self, pdf : PdfPages) -> None:
         title = "Worst"
@@ -220,7 +196,7 @@ class Global_Visualizer:
         plot_hyperparameter_for_all_combinations(pdf, self.hyperparameters, self.hyperparameters_combinations_with_explicit_X_hyperparameter, plot_df, plot_tail_df)
 
     def generate_pdf(self):
-        file_name = f"{self.folder}/global_visu_{SCORES_ABBREVIATIONS_DICT[self.score]}.pdf"
+        file_name = f"{self.folder}/global_visu_{SCORES_DICT[self.score]['abbreviation']}.pdf"
         with PdfPages(file_name) as pdf:
             self.generate_first_page(pdf)
             self.generate_second_page(pdf)
@@ -231,8 +207,18 @@ class Global_Visualizer:
             self.generate_seventh_page(pdf)
             self.generate_plots(pdf)
 
+    def print_fold_stds(self):
+        results_before_averaging_over_folds = self.results_before_averaging_over_folds[self.results_before_averaging_over_folds["combination_idx"] == self.best_global_hyperparameters_combination_idx]
+        results_before_averaging_over_folds = results_before_averaging_over_folds.drop(columns = ["combination_idx"])
+        group_columns = ["fold_idx"]
+        results_before_averaging_over_folds = results_before_averaging_over_folds.groupby(group_columns).mean()
+        print(results_before_averaging_over_folds["val_balanced_accuracy"].std())
+        print(results_before_averaging_over_folds["val_cel"].std())
+
 if __name__ == '__main__':
     args_dict = parse_args()
+    if args_dict["score"] not in PRINT_SCORES:
+        raise ValueError(f"Score {args_dict['score']} not in {PRINT_SCORES}.")
     config, users_info, hyperparameters_combinations, results_before_averaging_over_folds = load_outputs_files(args_dict["outputs_folder"])
     global_visualizer = Global_Visualizer(config, users_info, hyperparameters_combinations, results_before_averaging_over_folds, args_dict["outputs_folder"],
                                           args_dict["score"], args_dict["optimize_tail"])

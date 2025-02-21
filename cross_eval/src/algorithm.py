@@ -1,7 +1,7 @@
 from enum import Enum, auto
 from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, log_loss, roc_auc_score
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, log_loss, roc_auc_score, ndcg_score
 from sklearn.svm import SVC
 import numpy as np
 
@@ -10,16 +10,22 @@ class Score(Enum):
     PRECISION = auto()
     SPECIFICITY = auto()
     BALANCED_ACCURACY = auto()
+    F1_SCORE = auto()
     AUROC = auto()
+    NDCG = auto()
     CEL = auto()
     CEL_POS = auto()
     CEL_NEG = auto()
-SCORES_NAMES_DICT = {Score.RECALL: "Recall", Score.PRECISION: "Precision", Score.SPECIFICITY: "Specificity", Score.BALANCED_ACCURACY: "Balanced Accuracy", 
-                     Score.AUROC: "Area under Roc Curve", Score.CEL: "Cross-Entropy Loss", Score.CEL_POS: "CEL among positive GT", Score.CEL_NEG: "CEL among negative GT"}
-SCORES_ABBREVIATIONS_DICT = {Score.RECALL: "REC", Score.PRECISION: "PRE", Score.SPECIFICITY: "SPE", Score.BALANCED_ACCURACY: "BAL", 
-                             Score.AUROC: "AUC", Score.CEL: "CEL", Score.CEL_POS: "CEL_P", Score.CEL_NEG: "CEL_N"}
-SCORES_INCREASE_BETTER_DICT = {Score.RECALL: True, Score.PRECISION: True, Score.SPECIFICITY: True, Score.BALANCED_ACCURACY: True, 
-                               Score.AUROC: True, Score.CEL: False, Score.CEL_POS: False, Score.CEL_NEG: False}
+SCORES_DICT = { Score.RECALL : {"name": "Recall", "abbreviation": "REC", "increase_better": True, "derivable": False},
+                Score.PRECISION : {"name": "Precision", "abbreviation": "PRE", "increase_better": True, "derivable": False},
+                Score.SPECIFICITY : {"name": "Specificity", "abbreviation": "SPE", "increase_better": True, "derivable": False},
+                Score.BALANCED_ACCURACY : {"name": "Balanced Accuracy", "abbreviation": "BAL", "increase_better": True, "derivable": True},
+                Score.F1_SCORE : {"name": "F1 Score", "abbreviation": "F1", "increase_better": True, "derivable": True},
+                Score.AUROC : {"name": "Area under Roc Curve", "abbreviation": "AUC", "increase_better": True, "derivable": False},
+                Score.NDCG : {"name": "Normalized Discounted Cumulative Gain", "abbreviation": "NDCG", "increase_better": True, "derivable": False},
+                Score.CEL : {"name": "Cross-Entropy Loss", "abbreviation": "CEL", "increase_better": False, "derivable": False},
+                Score.CEL_POS : {"name": "CEL among positive GT", "abbreviation": "CE-P", "increase_better": False, "derivable": False},
+                Score.CEL_NEG : {"name": "CEL among negative GT", "abbreviation": "CE-N", "increase_better": False, "derivable": False}}
 
 def get_score_from_arg(score_arg : str) -> Score:
     valid_score_args = [score.name.lower() for score in Score]
@@ -31,28 +37,42 @@ def specificity_score(y_true, y_pred):
     tn, fp, _, _ = confusion_matrix(y_true, y_pred).ravel()
     return tn / (tn + fp) if tn + fp != 0 else 0
 
-def get_score(score : Score, y_true, y_pred, y_proba = None) -> float:
-    if y_proba is not None:
-        y_proba = np.array(y_proba)
+def get_score(score : Score, y_true : np.ndarray, y_pred : np.ndarray, y_proba : np.ndarray) -> float:
     if score == Score.RECALL:
         return recall_score(y_true, y_pred, zero_division = 0)
     elif score == Score.PRECISION:
         return precision_score(y_true, y_pred, zero_division = 0)
     elif score == Score.SPECIFICITY:
         return specificity_score(y_true, y_pred)
-    elif score == Score.BALANCED_ACCURACY:
-        return (get_score(Score.RECALL, y_true, y_pred) + get_score(Score.SPECIFICITY, y_true, y_pred)) / 2
     elif score == Score.AUROC:
         return roc_auc_score(y_true, y_proba)
+    elif score == Score.NDCG:
+        return ndcg_score(y_true.reshape(1, -1), y_proba.reshape(1, -1))
     elif score == Score.CEL:
         return log_loss(y_true, y_proba)
     elif score == Score.CEL_POS:
+        eps = np.finfo(y_proba.dtype).eps
+        y_proba = np.clip(y_proba, eps, 1 - eps)
         pos_mask = y_true >= 0.5
         return -np.mean(np.log(y_proba[pos_mask])) 
     elif score == Score.CEL_NEG:
+        eps = np.finfo(y_proba.dtype).eps
+        y_proba = np.clip(y_proba, eps, 1 - eps)
         neg_mask = y_true < 0.5
         return -np.mean(np.log(1 - y_proba[neg_mask]))
-        
+
+def derive_score(score : Score, user_scores : list, scores_indices_dict : dict, validation : bool) -> float:
+    if score == Score.BALANCED_ACCURACY:
+        recall = user_scores[scores_indices_dict[f"{'val' if validation else 'train'}_{Score.RECALL.name.lower()}"]]
+        specificity = user_scores[scores_indices_dict[f"{'val' if validation else 'train'}_{Score.SPECIFICITY.name.lower()}"]]
+        return (recall + specificity) / 2
+    elif score == Score.F1_SCORE:
+        precision = user_scores[scores_indices_dict[f"{'val' if validation else 'train'}_{Score.PRECISION.name.lower()}"]]
+        recall = user_scores[scores_indices_dict[f"{'val' if validation else 'train'}_{Score.RECALL.name.lower()}"]]
+        if precision == 0 and recall == 0:
+            return 0
+        return 2 * (precision * recall) / (precision + recall)
+   
 class Algorithm(Enum):
     LOGREG = auto()
     SVM = auto()

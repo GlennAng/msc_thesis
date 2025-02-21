@@ -28,6 +28,7 @@ if __name__ == "__main__":
         os.system("python src/main.py " + config_file + (" continue_from_previous" if args.continue_from_previous else ""))
         outputs_folder = f"outputs/{config_file.split('/')[-1].split('.')[0]}"
         os.system("python src/visualize_globally.py" + f" --outputs_folder {outputs_folder} --score balanced_accuracy")
+        os.system("python src/visualize_globally.py" + f" --outputs_folder {outputs_folder} --score cel")
         if args.visualize_users_infos:
             os.system("python src/visualize_users_infos.py " + outputs_folder)
         if args.visualize_users_papers:
