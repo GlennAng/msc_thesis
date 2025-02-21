@@ -7,7 +7,8 @@ from matplotlib.backends.backend_pdf import PdfPages
 import argparse
 import sys
 
-OPTIMIZATION_CONSTANTS = {"N_TAIL_USERS": 15, "N_PRINT_BEST_HYPERPARAMETERS_COMBINATIONS": 25}
+OPTIMIZATION_CONSTANTS = {"N_TAIL_USERS": 15, "N_PRINT_BEST_HYPERPARAMETERS_COMBINATIONS": 25, "PERCENTAGE_HI/LO_VOTES": 0.1, 
+                          "PERCENTAGE_HI/LO_RATIO": 0.1}
 
 def parse_args() -> dict:
     parser = argparse.ArgumentParser(description = "Global Visualization Parameters")
@@ -33,6 +34,7 @@ class Global_Visualizer:
         self.extract_optimization_data()
         self.extract_results_data()
         self.extract_best_global_hyperparameters_combination_data()
+        self.extract_high_low_users()
         self.extract_best_individual_hyperparameters_combination_data()
         self.extract_largest_performance_gain_data()
 
@@ -73,6 +75,21 @@ class Global_Visualizer:
         self.hyperparameters_combinations_with_explicit_X_hyperparameter = get_hyperparameters_combinations_with_explicit_X_hyperparameter(self.hyperparameters, self.hyperparameters_combinations)
         self.globally_optimal_X_hyperparameter = (self.hyperparameters_combinations[self.hyperparameters_combinations["combination_idx"] == 
                                                                                     self.best_global_hyperparameters_combination_idx][PLOT_CONSTANTS["X_HYPERPARAMETER"]].values[0])
+
+    def extract_high_low_users(self) -> None:
+        n_hi_lo_votes_users = max(1, min(int(self.n_users * OPTIMIZATION_CONSTANTS["PERCENTAGE_HI/LO_VOTES"]), self.n_users))
+        n_hi_lo_ratio_users = max(1, min(int(self.n_users * OPTIMIZATION_CONSTANTS["PERCENTAGE_HI/LO_RATIO"]), self.n_users))
+        self.users_info["n_rated"] = self.users_info["n_posrated"] + self.users_info["n_negrated"]
+        self.users_info["posrated_ratio"] = self.users_info["n_posrated"] / self.users_info["n_rated"]
+        self.high_votes_users = self.users_info.nlargest(n_hi_lo_votes_users, "n_rated")["user_id"].values
+        self.low_votes_users = self.users_info.nsmallest(n_hi_lo_votes_users, "n_rated")["user_id"].values
+        self.high_ratio_users = self.users_info.nlargest(n_hi_lo_ratio_users, "posrated_ratio")["user_id"].values
+        self.low_ratio_users = self.users_info.nsmallest(n_hi_lo_ratio_users, "posrated_ratio")["user_id"].values
+        if SCORES_DICT[self.score]["increase_better"]:
+            tail_df = self.best_global_hyperparameters_combination_df.nsmallest(self.n_tail_users, f'val_{self.score.name.lower()}')
+        else:
+            tail_df = self.best_global_hyperparameters_combination_df.nlargest(self.n_tail_users, f'val_{self.score.name.lower()}')
+        self.tail_users = tail_df["user_id"].values
 
     def extract_best_individual_hyperparameters_combination_data(self) -> None:
         self.best_individual_hyperparameters_combination_df = keep_only_n_most_extreme_hyperparameters_combinations_for_all_users_score(self.results_after_averaging_over_folds, self.score, 1, False)
@@ -172,6 +189,22 @@ class Global_Visualizer:
         print_fourth_page(pdf, hyperparameters_combinations_table, self.score, self.hyperparameters)
 
     def generate_fifth_page(self, pdf : PdfPages) -> None:
+        title = f"Breakdown of the Best Global Hyperparameters Combi {self.best_global_hyperparameters_combination_idx}"
+        best_global_hyperparameters_combination = self.hyperparameters_combinations[self.hyperparameters_combinations["combination_idx"] == self.best_global_hyperparameters_combination_idx]
+        for i, hyperparameter in enumerate(self.hyperparameters):
+            title += " (" if i == 0 else ", "
+            title += HYPERPARAMETERS_ABBREVIATIONS[hyperparameter] if hyperparameter in HYPERPARAMETERS_ABBREVIATIONS else hyperparameter
+            title += f" = {best_global_hyperparameters_combination[hyperparameter].values[0]}"
+        title += "):"
+        legend_text = "Legend:   "
+        legend_text += f"All: All {self.n_users} Users | HiVotes/LoVotes: The {len(self.high_votes_users)} Users with the highest/lowest number of positively + negatively rated Papers\n"
+        legend_text += f"HiRatio/LoRatio: The {len(self.high_ratio_users)} Users with the highest/lowest ratio of positively to negatively rated Papers | "
+        legend_text += f"Tail: The {self.n_tail_users} Users with the worst Validation Performance on the Score in the grey Row."
+        best_global_hyperparameters_combination_table = get_best_global_hyperparameters_combination_table(self.best_global_hyperparameters_combination_df, self.tail_users,
+                                                        self.high_votes_users, self.low_votes_users, self.high_ratio_users, self.low_ratio_users)
+        print_fifth_page(pdf, title, legend_text, best_global_hyperparameters_combination_table, self.score)
+
+    def generate_sixth_page(self, pdf : PdfPages) -> None:
         title = "Worst"
         interesting_users_best_global_hyperparameters_combination_df = self.worst_users_best_global_hyperparameters_combination_df
         best_global_merged_with_users_info = interesting_users_best_global_hyperparameters_combination_df.merge(self.users_info, on = "user_id")
@@ -179,7 +212,7 @@ class Global_Visualizer:
         best_individual_merged_with_users_info = interesting_users_best_individual_hyperparameters_combination_df.merge(self.users_info, on = "user_id")
         print_interesting_users(pdf, self.score, title, best_global_merged_with_users_info, best_individual_merged_with_users_info)
 
-    def generate_sixth_page(self, pdf : PdfPages) -> None:
+    def generate_seventh_page(self, pdf : PdfPages) -> None:
         title = "Best"
         interesting_users_best_global_hyperparameters_combination_df = self.best_users_best_global_hyperparameters_combination_df
         best_global_merged_with_users_info = interesting_users_best_global_hyperparameters_combination_df.merge(self.users_info, on = "user_id")
@@ -187,7 +220,7 @@ class Global_Visualizer:
         best_individual_merged_with_users_info = interesting_users_best_individual_hyperparameters_combination_df.merge(self.users_info, on = "user_id")
         print_interesting_users(pdf, self.score, title, best_global_merged_with_users_info, best_individual_merged_with_users_info)
 
-    def generate_seventh_page(self, pdf : PdfPages) -> None:
+    def generate_eighth_page(self, pdf : PdfPages) -> None:
         print_largest_performance_gain(pdf, self.largest_performance_gain_df, self.score, self.best_global_hyperparameters_combination_idx)
 
     def generate_plots(self, pdf : PdfPages) -> None:
@@ -205,6 +238,7 @@ class Global_Visualizer:
             self.generate_fifth_page(pdf)
             self.generate_sixth_page(pdf)
             self.generate_seventh_page(pdf)
+            self.generate_eighth_page(pdf)
             self.generate_plots(pdf)
 
     def print_fold_stds(self):

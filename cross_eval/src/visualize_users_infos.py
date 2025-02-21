@@ -34,11 +34,12 @@ class User_Info_Visualizer:
 
     def generate_first_page_for_user(self, pdf : PdfPages) -> None:
         user_info_table = get_user_info_table(self.user_info)
-        user_optimizer_column = get_optimizer_column(gv.score, gv.tail) + (1 if not gv.tail else 0)
         user_folds_table_best_global_hyperparameters_combination = get_user_folds_table(self.user_results_before_averaging_over_folds_best_global_hyperparameters_combination,
                                                                                         self.user_results_after_averaging_over_folds_best_global_hyperparameters_combination)
         user_folds_table_best_individual_hyperparameters_combination = get_user_folds_table(self.user_results_before_averaging_over_folds_best_individual_hyperparameters_combination,
                                                                                             self.user_results_after_averaging_over_folds_best_individual_hyperparameters_combination)
+        columns = [column.lower() for column in user_folds_table_best_global_hyperparameters_combination[0]]
+        user_optimizer_column = columns.index(f"val_{SCORES_DICT[gv.score]['abbreviation'].lower()}") 
         print_first_page_for_user(pdf, self.user_id, user_info_table, user_optimizer_column,
                                   user_folds_table_best_global_hyperparameters_combination, user_folds_table_best_individual_hyperparameters_combination,
                                   gv.best_global_hyperparameters_combination_idx, self.best_individual_hyperparameters_combination_idx)
