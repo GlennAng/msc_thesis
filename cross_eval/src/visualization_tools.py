@@ -16,12 +16,12 @@ import numpy as np
 import pandas as pd
 import re
 
-HYPERPARAMETERS_ABBREVIATIONS = {"clf_C": "C", "weights_cache_v": "v", "weights_negrated_importance": "v"}
+HYPERPARAMETERS_ABBREVIATIONS = {"clf_C": "C", "weights_cache_v": "v", "weights_negrated_importance": "v", "weights_cache_v1_v2": "v1_v2"}
 
 PLOT_CONSTANTS = {"FIG_SIZE": (11, 8.5), "ALPHA_PLOT": 0.5, "ALPHA_FILL": 0.2, "LINE_WIDTH": 2.5, "X_HYPERPARAMETER": "clf_C",
                   "N_PAPERS_PER_PAGE": 7, "N_PAPERS_IN_TOTAL" : 70, "MAX_LINES": 5, "LINE_HEIGHT": 0.025, "WORD_SPACING": 0.0075, "X_LOCATION": -0.125, 
                   "PLOT_SCORES" : [Score.BALANCED_ACCURACY, Score.RECALL, Score.PRECISION, Score.SPECIFICITY]}
-PRINT_SCORES = [Score.ACCURACY, Score.RECALL, Score.SPECIFICITY, Score.BALANCED_ACCURACY, Score.CEL, Score.AUROC, Score.NDCG]
+PRINT_SCORES = [Score.RECALL, Score.SPECIFICITY, Score.BALANCED_ACCURACY, Score.CEL, Score.AUROC]
 
 def is_number(string):
     try:
@@ -116,9 +116,11 @@ def get_users_info_table(users_info : pd.DataFrame) -> list:
     data = []
     rows = {"Voting Weight": users_info["voting_weight"], "Number of positively rated Papers": users_info["n_posrated"],
             "Number of negatively rated Papers": users_info["n_negrated"], "Number of base Papers": users_info["n_base"],
-            "Percentage of positively rated among all rated": users_info["n_posrated"] / (users_info["n_posrated"] + users_info["n_negrated"]),
-            "Percentage of positively rated + base \n among all rated + base": 
-            (users_info["n_posrated"] + users_info["n_base"]) / (users_info["n_posrated"] + users_info["n_negrated"] + users_info["n_base"])}
+            "Percentage of positively rated among all rated": users_info["n_posrated"] / (users_info["n_posrated"] + users_info["n_negrated"])}
+    n_base = users_info["n_base"].fillna(0)
+    n_zerorated = users_info["n_zerorated"].fillna(0)
+    rows["Percentage of positively rated + base \n among all rated + base + zerorated"] = (
+        (users_info["n_posrated"] + n_base) / (users_info["n_posrated"] + users_info["n_negrated"] + n_base + n_zerorated))
     for row_name, row in rows.items():
         if row.isnull().all():
             data.append([row_name] + [np.float64('nan')] * 5)
@@ -175,7 +177,7 @@ def print_fourth_page(pdf : PdfPages, hyperparameters_combinations_table : list,
         columns.append(f"{SCORES_DICT[score]['abbreviation']}_T")
     columns.append(f"{SCORES_DICT[optimizer_score]['abbreviation']}_σ")
     optimizer_column = columns.index(SCORES_DICT[optimizer_score]['abbreviation'])
-    print_table(hyperparameters_combinations_table, [-0.14, -0.025, 1.25, 1.11], columns, (len(hyperparameters) * [0.1]) + (2 * len(PRINT_SCORES) * [0.15] + [0.15]), bold_row = 1, grey_column = optimizer_column)
+    print_table(hyperparameters_combinations_table, [-0.14, -0.025, 1.25, 1.11], columns, (len(hyperparameters) * [0.2]) + (2 * len(PRINT_SCORES) * [0.15] + [0.15]), bold_row = 1, grey_column = optimizer_column)
     legend_text = "Legend:   "
     for i, score in enumerate(PRINT_SCORES):
         if score == Score.CEL:

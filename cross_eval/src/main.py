@@ -112,6 +112,7 @@ def load_hyperparameters(config : dict, wh : Weights_Handler) -> list:
     hyperparameters = {param: index for index, param in enumerate(hyperparameters_ranges.keys())}
     hyperparameters_combinations = list(itertools.product(*list(hyperparameters_ranges.values())))
     config["hyperparameters"] = hyperparameters
+    print(hyperparameters_combinations)
     return hyperparameters_combinations
 
 def init_scores(config : dict) -> None:

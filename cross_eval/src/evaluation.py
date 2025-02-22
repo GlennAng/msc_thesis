@@ -3,7 +3,7 @@ from algorithm import get_cross_val, get_model
 from compute_tfidf import load_vectorizer
 from data_handling import get_rated_papers_ids_for_user, get_voting_weight_for_user
 from embedding import Embedding
-from training_data import load_base_for_user, load_global_cache, load_filtered_cache_for_user, load_training_data_for_user, Cache_Type, LABEL_DTYPE
+from training_data import load_base_for_user, load_zerorated_for_user, load_global_cache, load_filtered_cache_for_user, load_training_data_for_user, Cache_Type, LABEL_DTYPE
 from weights_handler import Weights_Handler
 
 from joblib import Parallel, delayed
@@ -53,26 +53,32 @@ class Evaluator:
 
     def evaluate_user(self, user_id : int) -> None:
         user_results_dict, user_predictions_dict = {}, {}
-        posrated_ids = get_rated_papers_ids_for_user(user_id, positive = True, paper_removal = self.config["rated_paper_removal"],
+        posrated_ids = get_rated_papers_ids_for_user(user_id, rating = 1, paper_removal = self.config["rated_paper_removal"],
                                                 remaining_percentage = self.config["remaining_percentage"], random_state = self.random_state)
-        negrated_ids = get_rated_papers_ids_for_user(user_id, positive = False, paper_removal = self.config["rated_paper_removal"],
+        negrated_ids = get_rated_papers_ids_for_user(user_id, rating = -1, paper_removal = self.config["rated_paper_removal"],
                                                 remaining_percentage = self.config["remaining_percentage"], random_state = self.random_state)
         rated_ids = posrated_ids + negrated_ids
         posrated_n, negrated_n = len(posrated_ids), len(negrated_ids)
         rated_labels = np.concatenate((np.ones(posrated_n, dtype = LABEL_DTYPE), np.zeros(negrated_n, dtype = LABEL_DTYPE)))
         base_ids, base_idxs, base_n, y_base = [], [], 0, []
         if self.config["include_base"]:
-            base_ids, base_idxs, base_n, y_base = load_base_for_user(self.embedding, user_id, self.config["base_paper_removal"], self.config["remaining_percentage"], self.random_state)
+            base_ids, base_idxs, base_n, y_base = load_base_for_user(self.embedding, user_id, self.config["base_paper_removal"], 
+                                                                     self.config["remaining_percentage"], self.random_state)
         user_predictions_dict["base_ids"] = base_ids
+        zerorated_ids, zerorated_idxs, zerorated_n, y_zerorated = [], [], 0, []
+        if self.config["include_zerorated"]:
+            zerorated_ids, zerorated_idxs, zerorated_n, y_zerorated = load_zerorated_for_user(self.embedding, user_id, self.config["rated_paper_removal"],
+                                                                                              self.config["remaining_percentage"], self.random_state)
+        user_predictions_dict["zerorated_ids"] = zerorated_ids
         cache_idxs, cache_n, y_cache = self.set_cache_for_user(user_id, posrated_n, negrated_n, base_n)
-        user_info = self.store_user_info(user_id, posrated_n, negrated_n, base_n, cache_n)
+        user_info = self.store_user_info(user_id, posrated_n, negrated_n, base_n, zerorated_n, cache_n)
 
         if self.config["evaluation"] == Evaluation.TRAIN_TEST_SPLIT:
             train_rated_ids, val_rated_ids, y_train_rated, y_val = train_test_split(rated_ids, rated_labels, test_size = self.config["test_size"], random_state = self.random_state,
                                                                                     stratify = rated_labels if self.config["stratified"] else None)
             train_rated_idxs, val_rated_idxs = self.embedding.get_idxs(train_rated_ids), self.embedding.get_idxs(val_rated_ids)
-            X_train_rated, X_val, X_train, y_train = self.load_data_for_user(train_rated_idxs, val_rated_idxs, y_train_rated, base_idxs, y_base, cache_idxs, y_cache)
-            user_data_statistics = self.get_data_statistics_for_user(y_train_rated, base_n, cache_n)
+            X_train_rated, X_val, X_train, y_train = self.load_data_for_user(train_rated_idxs, val_rated_idxs, y_train_rated, base_idxs, y_base, zerorated_idxs, y_zerorated, cache_idxs, y_cache)
+            user_data_statistics = self.get_data_statistics_for_user(y_train_rated, base_n, zerorated_n, cache_n)
             user_results, user_predictions, user_coefs = self.train_model_for_user(X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, user_data_statistics, user_info["voting_weight"])
             user_results_dict[0] = user_results
             if self.config["save_users_predictions"]:
@@ -86,8 +92,8 @@ class Evaluator:
             for fold_idx, (fold_train_idxs, fold_val_idxs) in enumerate(split):
                 train_rated_idxs, val_rated_idxs = rated_idxs[fold_train_idxs], rated_idxs[fold_val_idxs]
                 y_train_rated, y_val = rated_labels[fold_train_idxs], rated_labels[fold_val_idxs]
-                X_train_rated, X_val, X_train, y_train = self.load_data_for_user(train_rated_idxs, val_rated_idxs, y_train_rated, base_idxs, y_base, cache_idxs, y_cache)
-                user_data_statistics = self.get_data_statistics_for_user(y_train_rated, base_n, cache_n)
+                X_train_rated, X_val, X_train, y_train = self.load_data_for_user(train_rated_idxs, val_rated_idxs, y_train_rated, base_idxs, y_base, zerorated_idxs, y_zerorated, cache_idxs, y_cache)
+                user_data_statistics = self.get_data_statistics_for_user(y_train_rated, base_n, zerorated_n, cache_n)
                 fold_results, fold_predictions, _ = self.train_model_for_user(X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, user_data_statistics, user_info["voting_weight"])
                 user_results_dict[fold_idx] = fold_results
                 if self.config["save_users_predictions"]:
@@ -115,25 +121,26 @@ class Evaluator:
             else:
                 cache_idxs, cache_n, y_cache = [], 0, []
         return cache_idxs, cache_n, y_cache
-    
-    def store_user_info(self, user_id : int, posrated_n : int, negrated_n : int, base_n : int = 0, cache_n = 0) -> dict:
+        
+    def store_user_info(self, user_id : int, posrated_n : int, negrated_n : int, base_n : int = 0, zerorated_n = 0, cache_n = 0) -> dict:
         return {"voting_weight" : self.users_voting_weights[user_id] if self.wh.need_voting_weight else None,
-                "n_posrated" : posrated_n, "n_negrated" : negrated_n, "n_base" : base_n , "n_cache" : cache_n}
+                "n_posrated" : posrated_n, "n_negrated" : negrated_n, "n_base" : base_n , "n_zerorated": zerorated_n, "n_cache" : cache_n}
     
-    def load_data_for_user(self, train_rated_idxs : np.ndarray, val_rated_idxs : np.ndarray, y_train_rated : np.ndarray, 
-                           base_idxs : np.ndarray, y_base : np.ndarray, cache_idxs : np.ndarray, y_cache : np.ndarray) -> tuple:
+    def load_data_for_user(self, train_rated_idxs : np.ndarray, val_rated_idxs : np.ndarray, y_train_rated : np.ndarray, base_idxs : np.ndarray, y_base : np.ndarray, 
+                           zerorated_idxs : np.ndarray, y_zerorated : np.ndarray, cache_idxs : np.ndarray, y_cache : np.ndarray) -> tuple:
         X_train_rated, X_val = self.embedding.matrix[train_rated_idxs], self.embedding.matrix[val_rated_idxs]
-        X_train, y_train = load_training_data_for_user(self.embedding, self.config["include_base"], self.config["include_cache"], 
-                                                        train_rated_idxs, y_train_rated, base_idxs, y_base, cache_idxs, y_cache)
+        X_train, y_train = load_training_data_for_user(self.embedding, self.config["include_base"], self.config["include_zerorated"], self.config["include_cache"],
+                                                       train_rated_idxs, y_train_rated, base_idxs, y_base, zerorated_idxs, y_zerorated, cache_idxs, y_cache)
         return X_train_rated, X_val, X_train, y_train
     
-    def get_data_statistics_for_user(self, y_train_rated : np.ndarray, base_n : int = 0, cache_n : int = 0) -> dict:
-        user_data_statistics = {"base_n" : base_n, "cache_n" : cache_n}
+    def get_data_statistics_for_user(self, y_train_rated : np.ndarray, base_n : int = 0, zerorated_n : int = 0, cache_n : int = 0) -> dict:
+        user_data_statistics = {"base_n" : base_n, "zerorated_n": zerorated_n, "cache_n" : cache_n}
         user_data_statistics["train_rated_n"] = len(y_train_rated)
         user_data_statistics["train_posrated_n"] = np.sum(y_train_rated)
         user_data_statistics["train_negrated_n"] = user_data_statistics["train_rated_n"] - user_data_statistics["train_posrated_n"]
         user_data_statistics["train_rated_base_n"] = user_data_statistics["train_rated_n"] + base_n
-        user_data_statistics["total_n"] = user_data_statistics["train_rated_n"] + base_n + cache_n
+        user_data_statistics["train_rated_base_zerorated_n"] = user_data_statistics["train_rated_base_n"] + zerorated_n
+        user_data_statistics["total_n"] = user_data_statistics["train_rated_base_zerorated_n"] + cache_n
         return user_data_statistics
     
     def train_model_for_user(self, X_train : np.ndarray, y_train : np.ndarray, X_train_rated : np.ndarray, y_train_rated : np.ndarray, 
@@ -141,12 +148,14 @@ class Evaluator:
         user_results, user_predictions, user_coefs = {}, {"train_predictions": {}, "val_predictions": {}, "tfidf_coefs": {}}, None
         sample_weights = np.empty(user_data_statistics["total_n"], dtype = np.float64)
         for combination_idx, hyperparameters_combination in enumerate(self.hyperparameters_combinations):
-            w_p, w_n, w_b, w_c = self.wh.load_weights_for_user(self.hyperparameters, hyperparameters_combination, voting_weight, user_data_statistics["train_posrated_n"], 
-                                                               user_data_statistics["train_negrated_n"], user_data_statistics["base_n"], user_data_statistics["cache_n"])
+            w_p, w_n, w_b, w_z, w_c = self.wh.load_weights_for_user(self.hyperparameters, hyperparameters_combination, voting_weight, user_data_statistics["train_posrated_n"], 
+                                                               user_data_statistics["train_negrated_n"], user_data_statistics["base_n"], user_data_statistics["zerorated_n"],
+                                                               user_data_statistics["cache_n"])
             sample_weights[:user_data_statistics["train_posrated_n"]] = w_p
             sample_weights[user_data_statistics["train_posrated_n"]:user_data_statistics["train_rated_n"]] = w_n
             sample_weights[user_data_statistics["train_rated_n"]:user_data_statistics["train_rated_base_n"]] = w_b
-            sample_weights[user_data_statistics["train_rated_base_n"]:user_data_statistics["total_n"]] = w_c
+            sample_weights[user_data_statistics["train_rated_base_n"]:user_data_statistics["train_rated_base_zerorated_n"]] = w_z
+            sample_weights[user_data_statistics["train_rated_base_zerorated_n"]:user_data_statistics["total_n"]] = w_c
             model = self.get_model_for_user(hyperparameters_combination)
             model.fit(X_train, y_train, sample_weight = sample_weights)
             y_train_rated_pred, y_val_pred = model.predict(X_train_rated), model.predict(X_val)

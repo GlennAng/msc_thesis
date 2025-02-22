@@ -121,11 +121,11 @@ def get_users_ids_from_sha_keys(sha_keys : list) -> dict:
         users_dict[sha_key] = get_user_id_from_sha_key(sha_key)
     return users_dict
 
-def get_rated_papers_ids_for_user(user_id : int, positive : bool, paper_removal : Paper_Removal = None, remaining_percentage : float = None, random_state : int = None) -> list:
+def get_rated_papers_ids_for_user(user_id : int, rating : int, paper_removal : Paper_Removal = None, remaining_percentage : float = None, random_state : int = None) -> list:
     query = f"""
     SELECT paper_id FROM users_ratings 
     WHERE user_id = {user_id} 
-    AND rating = {1 if positive else -1}
+    AND rating = {rating}
     {"ORDER BY time" if paper_removal in [Paper_Removal.OLDEST, Paper_Removal.NEWEST] else ""};
     """
     result = [t[0] for t in sql_execute(query)]

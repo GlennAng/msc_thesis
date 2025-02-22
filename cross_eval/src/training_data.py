@@ -1,4 +1,4 @@
-from data_handling import get_base_papers_ids_for_user
+from data_handling import get_base_papers_ids_for_user, get_rated_papers_ids_for_user
 from embedding import Embedding
 from enum import Enum, auto
 import numpy as np
@@ -24,6 +24,13 @@ def load_base_for_user(embedding : Embedding, user_id : int, paper_removal = Non
     y_base = np.ones(base_n, dtype = LABEL_DTYPE)
     return base_ids, base_idxs, base_n, y_base
 
+def load_zerorated_for_user(embedding : Embedding, user_id : int, paper_removal = None, remaining_percentage : float = None, random_state : int = None) -> tuple:
+    zerorated_ids = get_rated_papers_ids_for_user(user_id, 0, paper_removal, remaining_percentage, random_state)
+    zerorated_idxs = embedding.get_idxs(zerorated_ids)
+    zerorated_n = len(zerorated_idxs)
+    y_zerorated = np.zeros(zerorated_n, dtype = LABEL_DTYPE)
+    return zerorated_ids, zerorated_idxs, zerorated_n, y_zerorated
+
 def load_global_cache(embedding : Embedding, max_cache : int = None, random_state : int = None, draw_cache_from_users_ratings : bool = False) -> tuple:
     global_cache_idxs = embedding.get_global_cache_idxs(max_cache, random_state, draw_cache_from_users_ratings)
     global_cache_n = len(global_cache_idxs)
@@ -42,18 +49,17 @@ def load_filtered_cache_for_user(embedding : Embedding, cache_type : Cache_Type,
     y_user_filtered_cache = np.zeros(user_filtered_cache_n, dtype = LABEL_DTYPE)
     return user_filtered_cache_idxs, user_filtered_cache_n, y_user_filtered_cache
 
-def load_training_data_for_user(embedding : Embedding, include_base : bool, include_cache : bool, train_rated_idxs : np.ndarray, y_train_rated : np.ndarray, 
-                                base_idxs : np.ndarray, y_base : np.ndarray, cache_idxs : np.ndarray, y_cache : np.ndarray) -> tuple:
-    if not include_base and not include_cache:
-        X_train = embedding.matrix[train_rated_idxs]
-        y_train = y_train_rated
-    elif include_base and not include_cache:
-        X_train = embedding.matrix[np.concatenate((train_rated_idxs, base_idxs))]
-        y_train = np.concatenate((y_train_rated, y_base))
-    elif not include_base and include_cache:
-        X_train = embedding.matrix[np.concatenate((train_rated_idxs, cache_idxs))]
-        y_train = np.concatenate((y_train_rated, y_cache))
-    else:
-        X_train = embedding.matrix[np.concatenate((train_rated_idxs, base_idxs, cache_idxs))]
-        y_train = np.concatenate((y_train_rated, y_base, y_cache))
-    return X_train, y_train
+def load_training_data_for_user(embedding : Embedding, include_base : bool, include_zerorated : bool, include_cache : bool, train_rated_idxs : np.ndarray, y_train_rated : np.ndarray, 
+                                base_idxs : np.ndarray, y_base : np.ndarray, zerorated_idxs : np.ndarray, y_zerorated : np.ndarray, cache_idxs : np.ndarray, y_cache : np.ndarray) -> tuple:
+    X_idxs, y = train_rated_idxs, y_train_rated
+    if include_base:
+        X_idxs = np.concatenate((X_idxs, base_idxs))
+        y = np.concatenate((y, y_base))
+    if include_zerorated:
+        X_idxs = np.concatenate((X_idxs, zerorated_idxs))
+        y = np.concatenate((y, y_zerorated))
+    if include_cache:
+        X_idxs = np.concatenate((X_idxs, cache_idxs))
+        y = np.concatenate((y, y_cache))
+    X_train = embedding.matrix[X_idxs]
+    return X_train, y
