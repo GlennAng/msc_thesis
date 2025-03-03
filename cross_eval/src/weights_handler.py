@@ -156,10 +156,8 @@ class Weights_Handler():
         if self.global_weights_scheme == Weights_Scheme.CACHE_V:
             if train_posrated_n == 0 or train_negrated_n == 0 or cache_n == 0:
                 raise ValueError("Global Weights Scheme 'CACHE_V' requires non-zero values for train_posrated_n, train_negrated_n and cache_n.")
-            if base_n != 0:
-                raise ValueError("Global Weights Scheme 'CACHE_V' requires zero value for base_n.")
-            correction = train_posrated_n + train_negrated_n + zerorated_n + cache_n
-            w_p, w_b = correction / train_posrated_n, None
+            correction = train_posrated_n + base_n + train_negrated_n + zerorated_n + cache_n
+            w_p = w_b = correction / (train_posrated_n + base_n)
             if "weights_cache_v" in hyperparameters:
                 v = hyperparameters_combination[hyperparameters["weights_cache_v"]]
                 shared_scalar = correction / (v * train_negrated_n + (1.0 - v) * cache_n)

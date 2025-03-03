@@ -1,4 +1,4 @@
-from algorithm import Score, SCORES_DICT
+from algorithm import Score, SCORES_DICT, CLASSIFICATION_SCORES, RANKING_SCORES
 from compute_tfidf import train_vectorizer_for_user, get_mean_embedding
 from data_handling import sql_execute
 from results_handling import average_over_users
@@ -21,7 +21,11 @@ HYPERPARAMETERS_ABBREVIATIONS = {"clf_C": "C", "weights_cache_v": "v", "weights_
 PLOT_CONSTANTS = {"FIG_SIZE": (11, 8.5), "ALPHA_PLOT": 0.5, "ALPHA_FILL": 0.2, "LINE_WIDTH": 2.5, "X_HYPERPARAMETER": "clf_C",
                   "N_PAPERS_PER_PAGE": 7, "N_PAPERS_IN_TOTAL" : 70, "MAX_LINES": 5, "LINE_HEIGHT": 0.025, "WORD_SPACING": 0.0075, "X_LOCATION": -0.125, 
                   "PLOT_SCORES" : [Score.BALANCED_ACCURACY, Score.RECALL, Score.PRECISION, Score.SPECIFICITY]}
-PRINT_SCORES = [Score.RECALL, Score.SPECIFICITY, Score.BALANCED_ACCURACY, Score.CEL, Score.AUROC]
+PRINT_SCORES = [Score.RECALL, Score.SPECIFICITY, Score.BALANCED_ACCURACY, Score.PRECISION, Score.NDCG_NEG, Score.CEL, Score.CONFIDENCE_POS_GT, Score.CONFIDENCE_POS_GT_LOWEST_25_PERCENT, 
+                Score.CONFIDENCE_NEG_GT_HIGHEST_25_PERCENT, Score.CONFIDENCE_RANKING_MAX_3, Score.ACCURACY_RANKING, Score.NDCG]
+CONFIDENCE_SCORES = [score for score in list(Score) if score.name.lower().startswith("confidence") and not SCORES_DICT[score]["ranking"]]
+RANKING_SCORES = CONFIDENCE_SCORES + RANKING_SCORES
+CLASSIFICATION_SCORES = [score for score in CLASSIFICATION_SCORES if score not in CONFIDENCE_SCORES]
 
 def is_number(string):
     try:
@@ -140,21 +144,25 @@ def print_second_page(pdf : PdfPages, hyperparameters_ranges_str : str) -> None:
 
 
 def get_hyperparameters_combinations_table(val_upper_bounds : pd.DataFrame, optimizer_score : Score, best_global_hyperparameters_combinations_idxs : list, 
-                                           results_after_averaging_over_users : pd.DataFrame, hyperparameters_combinations : pd.DataFrame) -> list:
+                                           results_after_averaging_over_users : pd.DataFrame, hyperparameters_combinations : pd.DataFrame, validation : bool = True) -> list:
     data = []
     n_hyperparameters = len(hyperparameters_combinations.columns) - 1
     first_row = ["N/A"] * n_hyperparameters
     for score in list(PRINT_SCORES):
         first_row.append(format_number(val_upper_bounds[f"val_{score.name.lower()}"]))
-        first_row.append(format_number(val_upper_bounds[f"train_{score.name.lower()}"]))
     first_row.append("N/A")
     data.append(first_row)
     for combination_idx in best_global_hyperparameters_combinations_idxs:
         row = hyperparameters_combinations.loc[hyperparameters_combinations["combination_idx"] == combination_idx].values[0][1:].tolist()
         for score in list(PRINT_SCORES):
-            row.append(format_number(results_after_averaging_over_users.loc[results_after_averaging_over_users["combination_idx"] == combination_idx, f"val_{score.name.lower()}_mean"].values[0]))
-            row.append(format_number(results_after_averaging_over_users.loc[results_after_averaging_over_users["combination_idx"] == combination_idx, f"train_{score.name.lower()}_mean"].values[0]))
-        row.append(format_number(results_after_averaging_over_users.loc[results_after_averaging_over_users["combination_idx"] == combination_idx, f"val_{optimizer_score.name.lower()}_std"].values[0]))
+            if validation:
+                row.append(format_number(results_after_averaging_over_users.loc[results_after_averaging_over_users["combination_idx"] == combination_idx, f"val_{score.name.lower()}_mean"].values[0]))
+            else:
+                row.append(format_number(results_after_averaging_over_users.loc[results_after_averaging_over_users["combination_idx"] == combination_idx, f"train_{score.name.lower()}_mean"].values[0]))
+        if validation:
+            row.append(format_number(results_after_averaging_over_users.loc[results_after_averaging_over_users["combination_idx"] == combination_idx, f"val_{optimizer_score.name.lower()}_std"].values[0]))
+        else:
+            row.append(format_number(results_after_averaging_over_users.loc[results_after_averaging_over_users["combination_idx"] == combination_idx, f"train_{optimizer_score.name.lower()}_std"].values[0]))
         data.append(row)
     return data
 
@@ -167,17 +175,16 @@ def print_third_page(pdf : PdfPages, n_users : int, users_info_table : list, use
     pdf.savefig(fig)
     plt.close(fig)
 
-def print_fourth_page(pdf : PdfPages, hyperparameters_combinations_table : list, optimizer_score : Score, hyperparameters : list) -> None:
+def print_fourth_page(pdf : PdfPages, hyperparameters_combinations_table : list, optimizer_score : Score, hyperparameters : list, validation : bool = True) -> None:
     fig, ax = plt.subplots(figsize = PLOT_CONSTANTS["FIG_SIZE"])
     ax.axis("off")
-    ax.text(0.5, 1.1, f"Scores for Hyperparameters Combinations (Validation vs. Training '_T'):\n", fontsize = 16, ha = 'center', va = 'center', fontweight = 'bold')
+    ax.text(0.5, 1.1, f"Scores for Hyperparameters Combinations {'(Validation)' if validation else '(Training)'}:\n", fontsize = 16, ha = 'center', va = 'center', fontweight = 'bold')
     columns = [HYPERPARAMETERS_ABBREVIATIONS[hyperparameter] for hyperparameter in hyperparameters]
     for i, score in enumerate(PRINT_SCORES):
         columns.append(SCORES_DICT[score]['abbreviation'])
-        columns.append(f"{SCORES_DICT[score]['abbreviation']}_T")
     columns.append(f"{SCORES_DICT[optimizer_score]['abbreviation']}_σ")
     optimizer_column = columns.index(SCORES_DICT[optimizer_score]['abbreviation'])
-    print_table(hyperparameters_combinations_table, [-0.14, -0.025, 1.25, 1.11], columns, (len(hyperparameters) * [0.2]) + (2 * len(PRINT_SCORES) * [0.15] + [0.15]), bold_row = 1, grey_column = optimizer_column)
+    print_table(hyperparameters_combinations_table, [-0.14, -0.025, 1.25, 1.11], columns, len(hyperparameters) * [0.125] + len(PRINT_SCORES) * [0.15] + [0.15], bold_row = 1, grey_column = optimizer_column)
     legend_text = "Legend:   "
     for i, score in enumerate(PRINT_SCORES):
         if score == Score.CEL:
@@ -190,8 +197,8 @@ def print_fourth_page(pdf : PdfPages, hyperparameters_combinations_table : list,
     pdf.savefig(fig)
     plt.close(fig)
 
-def get_best_global_hyperparameters_combination_table(best_global_hyperparameters_combination_df : pd.DataFrame, tail_users : np.ndarray,
-                                                      high_votes_users : np.ndarray, low_votes_users : np.ndarray, high_ratio_users : np.ndarray, low_ratio_users : np.ndarray) -> list:
+def get_best_global_hyperparameters_combination_table(best_global_hyperparameters_combination_df : pd.DataFrame, tail_users : np.ndarray, high_votes_users : np.ndarray, 
+                                                      low_votes_users : np.ndarray, high_ratio_users : np.ndarray, low_ratio_users : np.ndarray, ranking : bool) -> list:
     averaged_over_all_users = average_over_users(best_global_hyperparameters_combination_df)
     averaged_over_high_votes_users = average_over_users(best_global_hyperparameters_combination_df.loc[best_global_hyperparameters_combination_df["user_id"].isin(high_votes_users)])
     averaged_over_low_votes_users = average_over_users(best_global_hyperparameters_combination_df.loc[best_global_hyperparameters_combination_df["user_id"].isin(low_votes_users)])
@@ -200,25 +207,41 @@ def get_best_global_hyperparameters_combination_table(best_global_hyperparameter
     averaged_over_tail_users = average_over_users(best_global_hyperparameters_combination_df.loc[best_global_hyperparameters_combination_df["user_id"].isin(tail_users)])
     dfs = [averaged_over_all_users, averaged_over_high_votes_users, averaged_over_low_votes_users, averaged_over_high_ratio_users, averaged_over_low_ratio_users, averaged_over_tail_users]
     data = []
-    for score in list(Score):
+    scores = RANKING_SCORES if ranking else CLASSIFICATION_SCORES
+    for score in scores:
         score_name = score.name.lower()
-        row = [SCORES_DICT[score]["abbreviation"]]
-        for df in dfs:
+        score_abbreviation = SCORES_DICT[score]["abbreviation"]
+        if "@" in score_abbreviation:
+            score_abbreviation = score_abbreviation.replace("@", "\n@")
+        elif "25" in score_abbreviation:
+            score_abbreviation = score_abbreviation.replace("25", "\n.25")
+        elif score_abbreviation == "NDCG-N":
+            score_abbreviation = "NDCG\nNeg"
+        row = [score_abbreviation]
+        for i, df in enumerate(dfs):
             row.append(format_number(df[f"val_{score_name}_mean"].values[0]))
             row.append(format_number(df[f"train_{score_name}_mean"].values[0]))
+            if i == 0:
+                row.append(format_number(df[f"val_{score_name}_std"].values[0]))
         data.append(row)
     return data
 
-def print_fifth_page(pdf : PdfPages, title : str, legend_text : str, best_global_hyperparameters_combination_table : list, score : Score) -> None:
+def print_fifth_page(pdf : PdfPages, title : str, legend_text : str, best_global_hyperparameters_combination_table : list, score : Score, ranking : bool) -> None:
     fig, ax = plt.subplots(figsize = PLOT_CONSTANTS["FIG_SIZE"])
     ax.axis("off")
     ax.text(0.5, 1.12, title, fontsize = 15, ha = 'center', va = 'center', fontweight = 'bold')
-    groups = ["All", "HiVotes", "LoVotes", "HiRatio", "LoRatio", "Tail"]
+    groups = ["All", "HiVote", "LoVote", "HiPosi", "LoPosi", "Tail"]
     columns = ["Score"]
     for group in groups:
         columns.extend([group, f"{group}_T"])
-    optimizer_row = list(Score).index(score) + 1
-    print_table(best_global_hyperparameters_combination_table, [-0.14, -0.025, 1.25, 1.11], columns, [0.1] + 12 * [0.15], bold_row = 0, grey_row = optimizer_row)
+        if group == "All":
+            columns.append("All_σ")
+    optimizer_row = -1
+    if ranking and score in RANKING_SCORES:
+        optimizer_row = list(RANKING_SCORES).index(score) + 1
+    elif not ranking and score in CLASSIFICATION_SCORES:
+        optimizer_row = list(CLASSIFICATION_SCORES).index(score) + 1
+    print_table(best_global_hyperparameters_combination_table, [-0.14, -0.025, 1.25, 1.11], columns, [0.1] + (len(groups) * 2 + 1) * [0.15], bold_row = 0, grey_row = optimizer_row)
     ax.text(0.5, -0.08, legend_text, fontsize = 8, ha = 'center', va = 'center')
     pdf.savefig(fig)
     plt.close(fig)

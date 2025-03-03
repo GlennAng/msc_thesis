@@ -18,8 +18,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='User Visualization Parameters')
     parser.add_argument('--outputs_folder', type = str)
     parser.add_argument('--n_print_interesting_users', type = str, default = '10')
-    parser.add_argument('--visualize_worst_users', action = 'store_true', default = True)
-    parser.add_argument('--visualize_best_users', action = 'store_true', default = True)
+    parser.add_argument('--visualize_worst_users', action = 'store_true', default = False)
+    parser.add_argument('--visualize_best_users', action = 'store_true', default = False)
+    parser.add_argument('--specific_users', type = int, nargs = '+', default = [])
     parser.add_argument('--use_tfidf_coefs', action = 'store_true', default = False)
     parser.add_argument('--visualize_best_global-hyperparameters_combination', action = 'store_true', default = True)
     parser.add_argument('--visualize_best_individual-hyperparameters_combination', action = 'store_true', default = False)
@@ -157,7 +158,8 @@ def visualize_interesting_users() -> None:
         os.makedirs(folder)
     worst_users_ids = select_interesting_users(worst_users = True) if args.visualize_worst_users else []
     best_users_ids = select_interesting_users(worst_users = False) if args.visualize_best_users else []
-    interesting_users_ids = sorted(list(set(worst_users_ids + best_users_ids)))
+    specific_users_ids = args.specific_users
+    interesting_users_ids = sorted(list(set(worst_users_ids + best_users_ids + specific_users_ids)))
     compute_cosine_similarities(gv.config["embedding_folder"], interesting_users_ids)
     for user_id in interesting_users_ids:
         try:

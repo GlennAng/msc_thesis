@@ -1,4 +1,5 @@
 from data_handling import get_base_papers_ids_for_user, get_rated_papers_ids_for_user
+from data_handling import get_global_cache_papers_ids, get_cache_papers_ids_for_user, get_ranking_papers_ids_for_user
 from embedding import Embedding
 from enum import Enum, auto
 import numpy as np
@@ -32,10 +33,11 @@ def load_zerorated_for_user(embedding : Embedding, user_id : int, paper_removal 
     return zerorated_ids, zerorated_idxs, zerorated_n, y_zerorated
 
 def load_global_cache(embedding : Embedding, max_cache : int = None, random_state : int = None, draw_cache_from_users_ratings : bool = False) -> tuple:
-    global_cache_idxs = embedding.get_global_cache_idxs(max_cache, random_state, draw_cache_from_users_ratings)
+    global_cache_ids = load_global_cache_papers_ids(max_cache, random_state, draw_cache_from_users_ratings)
+    global_cache_idxs = embedding.get_idxs(global_cache_ids)
     global_cache_n = len(global_cache_idxs)
     y_global_cache = np.zeros(global_cache_n, dtype = LABEL_DTYPE)
-    return global_cache_idxs, global_cache_n, y_global_cache
+    return global_cache_ids, global_cache_idxs, global_cache_n, y_global_cache
 
 def load_filtered_cache_for_user(embedding : Embedding, cache_type : Cache_Type, user_id : int, max_cache : int, random_state : int, 
                                  pos_n : int, negrated_n : int, target_ratio : float = None, draw_cache_from_users_ratings : bool = False) -> tuple:
@@ -44,11 +46,18 @@ def load_filtered_cache_for_user(embedding : Embedding, cache_type : Cache_Type,
     elif cache_type == Cache_Type.USER_FILTERED_BALANCE:
         pos_neg_ratio = pos_n / (pos_n + negrated_n)
         max_cache = max(0, round(pos_n / target_ratio) - pos_n - negrated_n)
-    user_filtered_cache_idxs = embedding.get_cache_idxs_for_user(user_id, max_cache, random_state, draw_cache_from_users_ratings)
+    user_filtered_cache_ids = get_cache_papers_ids_for_user(user_id, max_cache, random_state, draw_cache_from_users_ratings)
+    user_filtered_cache_idxs = embedding.get_idxs(user_filtered_cache_ids)
     user_filtered_cache_n = len(user_filtered_cache_idxs)
     y_user_filtered_cache = np.zeros(user_filtered_cache_n, dtype = LABEL_DTYPE)
-    return user_filtered_cache_idxs, user_filtered_cache_n, y_user_filtered_cache
+    return user_filtered_cache_ids, user_filtered_cache_idxs, user_filtered_cache_n, y_user_filtered_cache
 
+def load_ranking_embeddings_for_user(embedding : Embedding, n_ranking_papers : int, random_state : int,
+                                     rated_ids : list, base_ids : list, zerorated_ids : list, cache_ids : list) -> tuple:
+    excluded_papers = rated_ids + base_ids + zerorated_ids + cache_ids
+    ranking_ids = get_ranking_papers_ids_for_user(n_ranking_papers, random_state, excluded_papers)
+    return ranking_ids, embedding.matrix[embedding.get_idxs(ranking_ids)]
+   
 def load_training_data_for_user(embedding : Embedding, include_base : bool, include_zerorated : bool, include_cache : bool, train_rated_idxs : np.ndarray, y_train_rated : np.ndarray, 
                                 base_idxs : np.ndarray, y_base : np.ndarray, zerorated_idxs : np.ndarray, y_zerorated : np.ndarray, cache_idxs : np.ndarray, y_cache : np.ndarray) -> tuple:
     X_idxs, y = train_rated_idxs, y_train_rated

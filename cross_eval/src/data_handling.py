@@ -18,7 +18,7 @@ def get_paper_removal_from_arg(paper_removal_arg : str) -> Paper_Removal:
         raise ValueError(f"Invalid argument {paper_removal_arg} 'paper_removal'. Possible values: {valid_paper_removal_args}.")
     return Paper_Removal[paper_removal_arg.upper()]
 
-DB_NAME = os.getenv('DB_NAME') if os.getenv('DB_NAME') is not None else "maindb"
+DB_NAME = "postgres"
 DB_USER = os.getenv('DB_USER') if os.getenv('DB_USER') is not None else "scholar"
 DB_PASSWORD = os.getenv('DB_PASSWORD') if os.getenv('DB_PASSWORD') is not None else "scholar"
 DB_HOST = os.getenv('DB_HOST') if os.getenv('DB_HOST') is not None else "localhost"
@@ -195,7 +195,7 @@ def get_cache_papers_ids_for_user(user_id : int, max_cache : int = None, random_
                     WHERE user_id = :user_id)
                 """
     else:
-        query = f"""
+        query = """
                 SELECT paper_id FROM cache_papers
                 WHERE paper_id NOT IN (
                     SELECT paper_id FROM users_ratings
@@ -215,6 +215,29 @@ def get_cache_papers_ids_for_user(user_id : int, max_cache : int = None, random_
         cache = rng.sample(cache, max_cache)
     return sorted(cache)
 
+def get_ranking_papers_ids_for_user(n_ranking_papers : int, random_state : int, excluded_papers : list = None) -> list:
+    if excluded_papers:
+        excluded_papers_str = f"({', '.join([str(x) for x in excluded_papers])})"
+        query = f"""
+                SELECT paper_id FROM papers
+                WHERE digest_date IS NOT NULL
+                AND paper_id NOT IN {excluded_papers_str};
+                """
+    else:
+        query = """
+                SELECT paper_id FROM papers
+                WHERE digest_date IS NOT NULL;
+                """
+    digest_papers = [t[0] for t in sql_execute(query)]
+    n_digest_papers = len(digest_papers)
+    if n_digest_papers < n_ranking_papers:
+        raise ValueError(f"Required ranking papers ({n_ranking_papers}) is greater than the number of valid digest papers ({n_digest_papers}).")
+    elif n_digest_papers > n_ranking_papers:
+        digest_papers = sorted(digest_papers)
+        rng = random.Random(random_state)
+        digest_papers = rng.sample(digest_papers, n_ranking_papers)
+    return sorted(digest_papers)
+
 def get_title_and_abstract(paper_id : int) -> str:
     query = '''
     SELECT title, abstract FROM papers WHERE paper_id = :paper_id;
@@ -229,6 +252,14 @@ def get_titles_and_abstracts(papers_ids : list = None) -> str:
             """
     papers = sql_execute(query)
     return sorted(papers, key = lambda x: x[0])
+
+def get_users_survey_ratings() -> pd.DataFrame:
+    query = """SELECT user_id, rating 
+                FROM survey_answers 
+                WHERE rating IS NOT NULL
+                ORDER BY user_id;"""
+    tuple_list = sql_execute(query)
+    return pd.DataFrame(tuple_list, columns = ["user_id", "survey_rating"])
 
 def get_db_name() -> str:
     return DB_NAME

@@ -1,5 +1,6 @@
 from algorithm import get_algorithm_from_arg, get_evaluation_from_arg, Score
 from data_handling import get_users_ids_with_sufficient_votes, get_paper_removal_from_arg, get_db_backup_date, get_db_name
+from data_handling import get_users_survey_ratings
 from embedding import Embedding
 from evaluation import Evaluator
 from pathlib import Path
@@ -17,9 +18,7 @@ import time
 def thesis_assertions(config : dict) -> None:
     assert config["save_tfidf_coefs"] == False, "Config: save_tfidf_coefs must be False."
     assert config["weights"] == "global:cache_v", "Config: weights must be 'global:cache_v'."
-    assert config["include_base"] == False, "Config: include_base must be False."
     assert config["include_cache"] == True, "Config: include_cache must be True."
-    assert config["max_cache"] == 5000, "Config: max_cache must be 5000."
     assert config["stratified"] == True, "Config: stratified must be True."
     assert config["k_folds"] == 5, "Config: k_folds must be 5."
     assert config["test_size"] == 0.2, "Config: test_size must be 0.2."
@@ -67,12 +66,14 @@ def create_outputs_folder(config : dict, continue_from_previous : bool) -> None:
     if config["save_users_predictions"]:
         os.makedirs(experiment_dir / "users_predictions", exist_ok = True)
 
-def get_users_ids(users_selection : str, max_users : int = None, min_n_posrated : int = 20, min_n_negrated : int = 20, take_complement : bool = False, random_state : int = None) -> pd.DataFrame:
-    users_selection = users_selection.lower()
-    if users_selection not in ["random", "largest_n", "smallest_n"]:
-        raise ValueError("Users Selection: users_selection must be one of ['random', 'largest_n', 'smallest_n'].")
-
+def get_users_ids(users_selection : str, max_users : int = None, min_n_posrated : int = 20, min_n_negrated : int = 20, take_complement : bool = False, 
+                  random_state : int = None, survey : bool = False) -> pd.DataFrame:
     users_ids_with_sufficient_votes = get_users_ids_with_sufficient_votes(min_n_posrated = min_n_posrated, min_n_negrated = min_n_negrated, sort_ids = False)
+    if users_selection not in ["random", "largest_n", "smallest_n"]:
+        users_ids_with_sufficient_votes = users_ids_with_sufficient_votes[users_ids_with_sufficient_votes["user_id"].isin(list(users_selection))]
+    if survey:
+        survey_participants = get_users_survey_ratings()["user_id"]
+        users_ids_with_sufficient_votes = users_ids_with_sufficient_votes[users_ids_with_sufficient_votes["user_id"].isin(survey_participants)]
     n_users_with_sufficient_votes = len(users_ids_with_sufficient_votes)
     max_users = n_users_with_sufficient_votes if max_users is None else min(max_users, n_users_with_sufficient_votes)
     if max_users >= n_users_with_sufficient_votes:
@@ -112,7 +113,6 @@ def load_hyperparameters(config : dict, wh : Weights_Handler) -> list:
     hyperparameters = {param: index for index, param in enumerate(hyperparameters_ranges.keys())}
     hyperparameters_combinations = list(itertools.product(*list(hyperparameters_ranges.values())))
     config["hyperparameters"] = hyperparameters
-    print(hyperparameters_combinations)
     return hyperparameters_combinations
 
 def init_scores(config : dict) -> None:
@@ -201,7 +201,7 @@ if __name__ == "__main__":
         continue_from_previous = False
     create_outputs_folder(config, continue_from_previous)
     users_ids = get_users_ids(users_selection = config["users_selection"], max_users = config["max_users"], min_n_posrated = config["min_n_posrated"], min_n_negrated = config["min_n_negrated"], 
-                              take_complement = config["take_complement_of_users"], random_state = config["random_state"])
+                              take_complement = config["take_complement_of_users"], random_state = config["random_state"], survey = config["survey"])
     users_ids = users_ids["user_id"].tolist()
     remaining_users_ids = get_users_not_yet_evaluated(config, users_ids, continue_from_previous)
 
@@ -212,6 +212,7 @@ if __name__ == "__main__":
     config["embedding_is_sparse"], config["embedding_n_dimensions"] = embedding.is_sparse, embedding.n_dimensions
     config_copy = config.copy()
     save_hyperparameters_combinations(config, hyperparameters_combinations)
+    
     evaluator = Evaluator(config, remaining_users_ids, hyperparameters_combinations, wh)
     evaluator.evaluate_embedding(embedding)
     merge_users_infos(config, users_ids)

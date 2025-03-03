@@ -184,12 +184,16 @@ class Global_Visualizer:
         print_third_page(pdf, self.n_users, users_info_table, self.config["users_selection"], self.users_ids)
 
     def generate_fourth_page(self, pdf : PdfPages) -> None:
-        hyperparameters_combinations_table = get_hyperparameters_combinations_table(self.val_upper_bounds, self.score, self.best_global_hyperparameters_combinations_idxs, 
-                                                                                    self.results_after_averaging_over_users, self.hyperparameters_combinations)
-        print_fourth_page(pdf, hyperparameters_combinations_table, self.score, self.hyperparameters)
+        hyperparameters_combinations_table_validation = get_hyperparameters_combinations_table(self.val_upper_bounds, self.score, self.best_global_hyperparameters_combinations_idxs, 
+                                                                                    self.results_after_averaging_over_users, self.hyperparameters_combinations, validation = True)
+        hyperparameters_combinations_table_training = get_hyperparameters_combinations_table(self.val_upper_bounds, self.score, self.best_global_hyperparameters_combinations_idxs,
+                                                                                    self.results_after_averaging_over_users, self.hyperparameters_combinations, validation = False)
+        print_fourth_page(pdf, hyperparameters_combinations_table_validation, self.score, self.hyperparameters, validation = True)
+        print_fourth_page(pdf, hyperparameters_combinations_table_training, self.score, self.hyperparameters, validation = False)
+        
 
-    def generate_fifth_page(self, pdf : PdfPages) -> None:
-        title = f"Breakdown of the Best Global Hyperparameters Combi {self.best_global_hyperparameters_combination_idx}"
+    def generate_fifth_page(self, pdf : PdfPages, ranking : bool) -> None:
+        title = f"{'Ranking' if ranking else 'Classification'} Scores of the Best Global Hyperparameters Combi {self.best_global_hyperparameters_combination_idx}"
         best_global_hyperparameters_combination = self.hyperparameters_combinations[self.hyperparameters_combinations["combination_idx"] == self.best_global_hyperparameters_combination_idx]
         for i, hyperparameter in enumerate(self.hyperparameters):
             title += " (" if i == 0 else ", "
@@ -197,12 +201,12 @@ class Global_Visualizer:
             title += f" = {best_global_hyperparameters_combination[hyperparameter].values[0]}"
         title += "):"
         legend_text = "Legend:   "
-        legend_text += f"All: All {self.n_users} Users | HiVotes/LoVotes: The {len(self.high_votes_users)} Users with the highest/lowest number of positively + negatively rated Papers\n"
-        legend_text += f"HiRatio/LoRatio: The {len(self.high_ratio_users)} Users with the highest/lowest ratio of positively to negatively rated Papers | "
+        legend_text += f"All: All {self.n_users} Users | HiVote/LoVote: The {len(self.high_votes_users)} Users with the highest/lowest number of positively + negatively rated Papers\n"
+        legend_text += f"HiPosi/LoPosi: The {len(self.high_ratio_users)} Users with the highest/lowest ratio of positively to negatively rated Papers | "
         legend_text += f"Tail: The {self.n_tail_users} Users with the worst Validation Performance on the Score in the grey Row."
         best_global_hyperparameters_combination_table = get_best_global_hyperparameters_combination_table(self.best_global_hyperparameters_combination_df, self.tail_users,
-                                                        self.high_votes_users, self.low_votes_users, self.high_ratio_users, self.low_ratio_users)
-        print_fifth_page(pdf, title, legend_text, best_global_hyperparameters_combination_table, self.score)
+                                                        self.high_votes_users, self.low_votes_users, self.high_ratio_users, self.low_ratio_users, ranking)
+        print_fifth_page(pdf, title, legend_text, best_global_hyperparameters_combination_table, self.score, ranking)
 
     def generate_sixth_page(self, pdf : PdfPages) -> None:
         title = "Worst"
@@ -229,13 +233,14 @@ class Global_Visualizer:
         plot_hyperparameter_for_all_combinations(pdf, self.hyperparameters, self.hyperparameters_combinations_with_explicit_X_hyperparameter, plot_df, plot_tail_df)
 
     def generate_pdf(self):
-        file_name = f"{self.folder}/global_visu_{SCORES_DICT[self.score]['abbreviation']}.pdf"
+        file_name = f"{self.folder}/global_visu_{SCORES_DICT[self.score]['abbreviation'].lower()}.pdf"
         with PdfPages(file_name) as pdf:
             self.generate_first_page(pdf)
             self.generate_second_page(pdf)
             self.generate_third_page(pdf)
             self.generate_fourth_page(pdf)
-            self.generate_fifth_page(pdf)
+            self.generate_fifth_page(pdf, ranking = False)
+            self.generate_fifth_page(pdf, ranking = True)
             self.generate_sixth_page(pdf)
             self.generate_seventh_page(pdf)
             self.generate_eighth_page(pdf)
@@ -248,6 +253,17 @@ class Global_Visualizer:
         results_before_averaging_over_folds = results_before_averaging_over_folds.groupby(group_columns).mean()
         print(results_before_averaging_over_folds["val_balanced_accuracy"].std())
         print(results_before_averaging_over_folds["val_cel"].std())
+
+    def print_survey_correlations(self):
+        from data_handling import get_users_survey_ratings
+        survey_ratings = get_users_survey_ratings()
+        survey_ratings = survey_ratings.drop_duplicates(subset=["user_id"], keep = "last")
+        users_ids_with_sufficient_votes = self.best_global_hyperparameters_combination_df["user_id"].values
+        survey_ratings = survey_ratings[survey_ratings["user_id"].isin(users_ids_with_sufficient_votes)]
+        survey_ratings = survey_ratings.merge(self.best_global_hyperparameters_combination_df, on = "user_id")
+        for score in list(Score):
+            print(f"Correlation between {score.name} and Survey Ratings: {survey_ratings[f'val_{score.name.lower()}'].corr(survey_ratings['survey_rating'])}")
+        
 
 if __name__ == '__main__':
     args_dict = parse_args()

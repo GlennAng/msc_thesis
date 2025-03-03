@@ -1,9 +1,10 @@
-from algorithm import Algorithm, Evaluation, Score, get_score, derive_score, SCORES_DICT
+from algorithm import Algorithm, Evaluation, Score, get_score, derive_score, get_ranking_scores, SCORES_DICT, CLASSIFICATION_SCORES
 from algorithm import get_cross_val, get_model
 from compute_tfidf import load_vectorizer
-from data_handling import get_rated_papers_ids_for_user, get_voting_weight_for_user
+from data_handling import get_rated_papers_ids_for_user, get_voting_weight_for_user, get_ranking_papers_ids_for_user
 from embedding import Embedding
-from training_data import load_base_for_user, load_zerorated_for_user, load_global_cache, load_filtered_cache_for_user, load_training_data_for_user, Cache_Type, LABEL_DTYPE
+from training_data import load_base_for_user, load_zerorated_for_user, load_global_cache, load_filtered_cache_for_user, load_ranking_embeddings_for_user
+from training_data import load_training_data_for_user, Cache_Type, LABEL_DTYPE
 from weights_handler import Weights_Handler
 
 from joblib import Parallel, delayed
@@ -24,7 +25,7 @@ class Evaluator:
         self.random_state, self.cache_random_state = config["random_state"], config["cache_random_state"]
         self.scores, self.scores_n = config["scores"], len(config["scores"])
         self.non_derivable_scores, self.derivable_scores = [], []
-        for score in Score:
+        for score in CLASSIFICATION_SCORES:
             self.derivable_scores.append(score) if SCORES_DICT[score]["derivable"] else self.non_derivable_scores.append(score)
         self.users_voting_weights = {user_id : get_voting_weight_for_user(user_id) for user_id in users_ids} if wh.need_voting_weight else None
         self.include_global_cache = self.config["include_cache"] and self.config["cache_type"] == Cache_Type.GLOBAL
@@ -43,8 +44,8 @@ class Evaluator:
             if self.config["evaluation"] != Evaluation.TRAIN_TEST_SPLIT:
                 raise ValueError("Coefficient saving is only supported with train-test split evaluation.")
         if self.include_global_cache:
-            self.global_cache_idxs, self.global_cache_n, self.y_global_cache = load_global_cache(self.embedding, self.config["max_cache"], 
-                                                                                                 self.cache_random_state, self.draw_cache_from_users_ratings)
+            self.global_cache_ids, self.global_cache_idxs, self.global_cache_n, self.y_global_cache = load_global_cache(self.embedding, 
+                                                           self.config["max_cache"], self.cache_random_state, self.draw_cache_from_users_ratings)
         if self.config["n_jobs"] == 1:
             for user_id in self.users_ids:
                 self.evaluate_user(user_id)
@@ -70,21 +71,25 @@ class Evaluator:
             zerorated_ids, zerorated_idxs, zerorated_n, y_zerorated = load_zerorated_for_user(self.embedding, user_id, self.config["rated_paper_removal"],
                                                                                               self.config["remaining_percentage"], self.random_state)
         user_predictions_dict["zerorated_ids"] = zerorated_ids
-        cache_idxs, cache_n, y_cache = self.set_cache_for_user(user_id, posrated_n, negrated_n, base_n)
+        cache_ids, cache_idxs, cache_n, y_cache = self.set_cache_for_user(user_id, posrated_n, negrated_n, base_n)
+        
         user_info = self.store_user_info(user_id, posrated_n, negrated_n, base_n, zerorated_n, cache_n)
-
+        ranking_ids, ranking_embeddings = load_ranking_embeddings_for_user(self.embedding, self.config["n_ranking_papers"], self.random_state, 
+                                                              rated_ids, base_ids, zerorated_ids, cache_ids)
+        user_predictions_dict["ranking_ids"] = ranking_ids
         if self.config["evaluation"] == Evaluation.TRAIN_TEST_SPLIT:
             train_rated_ids, val_rated_ids, y_train_rated, y_val = train_test_split(rated_ids, rated_labels, test_size = self.config["test_size"], random_state = self.random_state,
                                                                                     stratify = rated_labels if self.config["stratified"] else None)
             train_rated_idxs, val_rated_idxs = self.embedding.get_idxs(train_rated_ids), self.embedding.get_idxs(val_rated_ids)
             X_train_rated, X_val, X_train, y_train = self.load_data_for_user(train_rated_idxs, val_rated_idxs, y_train_rated, base_idxs, y_base, zerorated_idxs, y_zerorated, cache_idxs, y_cache)
             user_data_statistics = self.get_data_statistics_for_user(y_train_rated, base_n, zerorated_n, cache_n)
-            user_results, user_predictions, user_coefs = self.train_model_for_user(X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, user_data_statistics, user_info["voting_weight"])
+            user_results, user_predictions, user_coefs = self.train_model_for_user(X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, user_data_statistics, 
+                                                                                   ranking_embeddings = ranking_embeddings, voting_weight = user_info["voting_weight"])
             user_results_dict[0] = user_results
             if self.config["save_users_predictions"]:
                 user_predictions_dict[0] = {**self.get_papers_ids(train_rated_idxs, y_train_rated, val_rated_idxs, y_val), 
                                             **{"train_predictions": user_predictions["train_predictions"], "val_predictions": user_predictions["val_predictions"], 
-                                               "tfidf_coefs": user_predictions["tfidf_coefs"]}}
+                                               "ranking_predictions": user_predictions["ranking_predictions"], "tfidf_coefs": user_predictions["tfidf_coefs"]}}
 
         elif self.config["evaluation"] == Evaluation.CROSS_VALIDATION:
             rated_idxs = self.embedding.get_idxs(rated_ids)
@@ -94,12 +99,13 @@ class Evaluator:
                 y_train_rated, y_val = rated_labels[fold_train_idxs], rated_labels[fold_val_idxs]
                 X_train_rated, X_val, X_train, y_train = self.load_data_for_user(train_rated_idxs, val_rated_idxs, y_train_rated, base_idxs, y_base, zerorated_idxs, y_zerorated, cache_idxs, y_cache)
                 user_data_statistics = self.get_data_statistics_for_user(y_train_rated, base_n, zerorated_n, cache_n)
-                fold_results, fold_predictions, _ = self.train_model_for_user(X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, user_data_statistics, user_info["voting_weight"])
+                fold_results, fold_predictions, _ = self.train_model_for_user(X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, user_data_statistics,
+                                                                              ranking_embeddings = ranking_embeddings, voting_weight = user_info["voting_weight"])
                 user_results_dict[fold_idx] = fold_results
                 if self.config["save_users_predictions"]:
                     user_predictions_dict[fold_idx] = {**self.get_papers_ids(train_rated_idxs, y_train_rated, val_rated_idxs, y_val),
                                                        **{"train_predictions": fold_predictions["train_predictions"], "val_predictions": fold_predictions["val_predictions"], 
-                                                          "tfidf_coefs": fold_predictions["tfidf_coefs"]}}
+                                                          "ranking_predictions": fold_predictions["ranking_predictions"], "tfidf_coefs": fold_predictions["tfidf_coefs"]}}
         self.save_user_info(user_id, user_info)
         self.save_user_results(user_id, user_results_dict)
         if self.config["save_users_predictions"]:
@@ -111,16 +117,16 @@ class Evaluator:
     def set_cache_for_user(self, user_id : int, posrated_n : int, negrated_n : int, base_n) -> tuple:
         pos_n = posrated_n + base_n
         if self.include_global_cache:
-            cache_idxs, cache_n, y_cache = self.global_cache_idxs, self.global_cache_n, self.y_global_cache
+            cache_ids, cache_idxs, cache_n, y_cache = self.global_cache_ids, self.global_cache_idxs, self.global_cache_n, self.y_global_cache
         else:
             if self.config["include_cache"]:
                 target_ratio = self.config["target_ratio"] if "target_ratio" in self.config else None
                 assert target_ratio is None or (target_ratio > 0 and target_ratio < 1)
-                cache_idxs, cache_n, y_cache = load_filtered_cache_for_user(self.embedding, self.config["cache_type"], user_id, self.config["max_cache"], self.cache_random_state, 
-                                                                            pos_n, negrated_n, target_ratio, self.draw_cache_from_users_ratings)
+                cache_ids, cache_idxs, cache_n, y_cache = load_filtered_cache_for_user(self.embedding, self.config["cache_type"], user_id, self.config["max_cache"], 
+                                                                        self.cache_random_state, pos_n, negrated_n, target_ratio, self.draw_cache_from_users_ratings)
             else:
-                cache_idxs, cache_n, y_cache = [], 0, []
-        return cache_idxs, cache_n, y_cache
+                cache_ids, cache_idxs, cache_n, y_cache = [], [], 0, []
+        return cache_ids, cache_idxs, cache_n, y_cache
         
     def store_user_info(self, user_id : int, posrated_n : int, negrated_n : int, base_n : int = 0, zerorated_n = 0, cache_n = 0) -> dict:
         return {"voting_weight" : self.users_voting_weights[user_id] if self.wh.need_voting_weight else None,
@@ -144,8 +150,8 @@ class Evaluator:
         return user_data_statistics
     
     def train_model_for_user(self, X_train : np.ndarray, y_train : np.ndarray, X_train_rated : np.ndarray, y_train_rated : np.ndarray, 
-                             X_val : np.ndarray, y_val : np.ndarray, user_data_statistics : dict, voting_weight : float = None) -> tuple:
-        user_results, user_predictions, user_coefs = {}, {"train_predictions": {}, "val_predictions": {}, "tfidf_coefs": {}}, None
+                             X_val : np.ndarray, y_val : np.ndarray, user_data_statistics : dict, ranking_embeddings : np.ndarray, voting_weight : float = None) -> tuple:
+        user_results, user_predictions, user_coefs = {}, {"train_predictions": {}, "val_predictions": {}, "ranking_predictions": {}, "tfidf_coefs": {}}, None
         sample_weights = np.empty(user_data_statistics["total_n"], dtype = np.float64)
         for combination_idx, hyperparameters_combination in enumerate(self.hyperparameters_combinations):
             w_p, w_n, w_b, w_z, w_c = self.wh.load_weights_for_user(self.hyperparameters, hyperparameters_combination, voting_weight, user_data_statistics["train_posrated_n"], 
@@ -161,11 +167,13 @@ class Evaluator:
             y_train_rated_pred, y_val_pred = model.predict(X_train_rated), model.predict(X_val)
             y_train_rated_proba = model.predict_proba(X_train_rated)[:, 1].tolist()
             y_val_proba = model.predict_proba(X_val)[:, 1].tolist()
-            scores = self.get_scores_for_user(y_train_rated, y_train_rated_pred, np.array(y_train_rated_proba), y_val, y_val_pred, np.array(y_val_proba))
+            y_ranking_proba = model.predict_proba(ranking_embeddings)[:, 1].tolist()
+            scores = self.get_scores_for_user(y_train_rated, y_train_rated_pred, np.array(y_train_rated_proba), y_val, y_val_pred, np.array(y_val_proba), np.array(y_ranking_proba))
             user_results[combination_idx] = scores
             if self.config["save_users_predictions"]:
                 user_predictions["train_predictions"][combination_idx] = y_train_rated_proba
                 user_predictions["val_predictions"][combination_idx] = y_val_proba
+                user_predictions["ranking_predictions"][combination_idx] = y_ranking_proba
             if self.config["save_tfidf_coefs"]:
                 user_predictions["tfidf_coefs"][combination_idx] = model.coef_[0].tolist()
             if "save_coefs" in self.config and self.config["save_coefs"]:
@@ -179,7 +187,7 @@ class Evaluator:
                          svm_kernel = self.config["svm_kernel"] if self.config["algorithm"] == Algorithm.SVM else None)
     
     def get_scores_for_user(self, y_train_rated : np.ndarray, y_train_rated_pred : np.ndarray, y_train_rated_proba : np.ndarray,
-                                  y_val : np.ndarray, y_val_pred : np.ndarray, y_val_proba : np.ndarray) -> tuple:
+                                  y_val : np.ndarray, y_val_pred : np.ndarray, y_val_proba : np.ndarray, y_ranking_proba : np.ndarray) -> tuple:
         user_scores = [None, ] * self.scores_n
         for score in self.non_derivable_scores:
             user_scores[self.scores[f"train_{score.name.lower()}"]] = get_score(score, y_train_rated, y_train_rated_pred, y_train_rated_proba)
@@ -188,6 +196,9 @@ class Evaluator:
         for score in self.derivable_scores:
             user_scores[self.scores[f"train_{score.name.lower()}"]] = derive_score(score, user_scores_copy, self.scores, validation = False)
             user_scores[self.scores[f"val_{score.name.lower()}"]] = derive_score(score, user_scores_copy, self.scores, validation = True)
+        ranking_scores = get_ranking_scores(y_train_rated, y_train_rated_proba, y_val, y_val_proba, y_ranking_proba)
+        for score in ranking_scores:
+            user_scores[self.scores[score]] = ranking_scores[score]
         return tuple(user_scores)
     
     def get_papers_ids(self, train_rated_idxs : np.ndarray, y_train_rated : np.ndarray, val_rated_idxs : np.ndarray, y_val : np.ndarray) -> dict:
