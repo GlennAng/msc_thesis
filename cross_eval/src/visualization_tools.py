@@ -16,13 +16,13 @@ import numpy as np
 import pandas as pd
 import re
 
-HYPERPARAMETERS_ABBREVIATIONS = {"clf_C": "C", "weights_cache_v": "v", "weights_negrated_importance": "v", "weights_cache_v1_v2": "v1_v2"}
+HYPERPARAMETERS_ABBREVIATIONS = {"clf_C": "C", "weights_cache_v": "v", "weights_negrated_importance": "v", "weights_cache_v1_v2": "v1_v2", "weights_neg_scale": "S"}
 
 PLOT_CONSTANTS = {"FIG_SIZE": (11, 8.5), "ALPHA_PLOT": 0.5, "ALPHA_FILL": 0.2, "LINE_WIDTH": 2.5, "X_HYPERPARAMETER": "clf_C",
                   "N_PAPERS_PER_PAGE": 7, "N_PAPERS_IN_TOTAL" : 70, "MAX_LINES": 5, "LINE_HEIGHT": 0.025, "WORD_SPACING": 0.0075, "X_LOCATION": -0.125, 
                   "PLOT_SCORES" : [Score.BALANCED_ACCURACY, Score.RECALL, Score.PRECISION, Score.SPECIFICITY]}
-PRINT_SCORES = [Score.RECALL, Score.SPECIFICITY, Score.BALANCED_ACCURACY, Score.PRECISION, Score.NDCG_NEG, Score.CEL, Score.CONFIDENCE_POS_GT, Score.CONFIDENCE_POS_GT_LOWEST_25_PERCENT, 
-                Score.CONFIDENCE_NEG_GT_HIGHEST_25_PERCENT, Score.CONFIDENCE_RANKING_MAX_3, Score.ACCURACY_RANKING, Score.NDCG]
+PRINT_SCORES = [Score.RECALL, Score.SPECIFICITY, Score.BALANCED_ACCURACY, Score.NDCG_NEG, Score.CEL, Score.POS_ABOVE_THRESHOLD, Score.NEG_ABOVE_THRESHOLD,
+                Score.SAMPLES_ABOVE_THRESHOLD, Score.CONFIDENCE_RANKING_MAX_3, Score.ACCURACY_RANKING, Score.NDCG]
 CONFIDENCE_SCORES = [score for score in list(Score) if score.name.lower().startswith("confidence") and not SCORES_DICT[score]["ranking"]]
 RANKING_SCORES = CONFIDENCE_SCORES + RANKING_SCORES
 CLASSIFICATION_SCORES = [score for score in CLASSIFICATION_SCORES if score not in CONFIDENCE_SCORES]

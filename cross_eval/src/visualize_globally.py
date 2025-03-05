@@ -193,7 +193,7 @@ class Global_Visualizer:
         
 
     def generate_fifth_page(self, pdf : PdfPages, ranking : bool) -> None:
-        title = f"{'Ranking' if ranking else 'Classification'} Scores of the Best Global Hyperparameters Combi {self.best_global_hyperparameters_combination_idx}"
+        title = f"{'Ranking' if ranking else 'Classification'} Scores of the Best Global Combi {self.best_global_hyperparameters_combination_idx}"
         best_global_hyperparameters_combination = self.hyperparameters_combinations[self.hyperparameters_combinations["combination_idx"] == self.best_global_hyperparameters_combination_idx]
         for i, hyperparameter in enumerate(self.hyperparameters):
             title += " (" if i == 0 else ", "

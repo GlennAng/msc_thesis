@@ -6,6 +6,8 @@ from sklearn.svm import SVC
 import numpy as np
 import random
 
+THRESHOLD = 0.1
+
 class Score(Enum):
     POSITIVE_GT_RATIO = auto()
     POSITIVE_PRED_RATIO = auto()
@@ -19,6 +21,9 @@ class Score(Enum):
     BALANCED_ACCURACY = auto()
     PRECISION = auto()
     F1_SCORE = auto()
+    POS_ABOVE_THRESHOLD = auto()
+    NEG_ABOVE_THRESHOLD = auto()
+    SAMPLES_ABOVE_THRESHOLD = auto()
     AUROC = auto()
     NDCG_NEG = auto()
     CEL = auto()
@@ -38,8 +43,6 @@ class Score(Enum):
     CONFIDENCE_RANKING = auto()
     CONFIDENCE_RANKING_MAX_3 = auto()
     ACCURACY_RANKING = auto()
-    SAMPLING_PRECISION = auto()
-    SAMPLING_F1_SCORE = auto()
     NDCG = auto()
     PRECISION_AT_1 = auto()
     HIT_RATE_AT_3 = auto()
@@ -56,8 +59,9 @@ SCORES_DICT = { Score.POSITIVE_GT_RATIO : {"name": "Positive Ground Truth Ratio"
                 Score.BALANCED_ACCURACY : {"name": "Balanced Accuracy", "abbreviation": "BAL", "increase_better": True, "derivable": True, "ranking": False},
                 Score.PRECISION : {"name": "Precision", "abbreviation": "PRE", "increase_better": True, "derivable": False, "ranking": False},
                 Score.F1_SCORE : {"name": "F1 Score", "abbreviation": "F1", "increase_better": True, "derivable": True, "ranking": False},
-                Score.NEGATIVE_PRECISION : {"name": "Negative Precision", "abbreviation": "NPRE", "increase_better": True, "derivable": False, "ranking": False},
-                Score.NEGATIVE_F1_SCORE : {"name": "Negative F1 Score", "abbreviation": "NF1", "increase_better": True, "derivable": True, "ranking": False},
+                Score.POS_ABOVE_THRESHOLD : {"name": "Positive Predictions above Threshold", "abbreviation": "PAT", "increase_better": True, "derivable": False, "ranking": False},
+                Score.NEG_ABOVE_THRESHOLD : {"name": "Negative Predictions above Threshold", "abbreviation": "NAT", "increase_better": False, "derivable": False, "ranking": False},
+                Score.SAMPLES_ABOVE_THRESHOLD : {"name": "Samples above Threshold", "abbreviation": "SAT", "increase_better": True, "derivable": False, "ranking": True},
                 Score.AUROC : {"name": "Area under Roc Curve", "abbreviation": "AUC", "increase_better": True, "derivable": False, "ranking": False},
                 Score.CEL : {"name": "Cross-Entropy Loss", "abbreviation": "CEL", "increase_better": False, "derivable": False, "ranking": False},
                 Score.CEL_POS : {"name": "CEL among positive GT", "abbreviation": "CELP", "increase_better": False, "derivable": False, "ranking": False},
@@ -116,8 +120,10 @@ def get_score(score : Score, y_true : np.ndarray, y_pred : np.ndarray, y_proba :
         return specificity_score(y_true, y_pred)
     elif score == Score.PRECISION:
         return precision_score(y_true, y_pred, zero_division = 0)
-    elif score == Score.NEGATIVE_PRECISION:
-        return precision_score(y_true, y_pred, pos_label = 0, zero_division = 0)
+    elif score == Score.POS_ABOVE_THRESHOLD:
+        return np.mean(y_proba[y_true == 1] > THRESHOLD)
+    elif score == Score.NEG_ABOVE_THRESHOLD:
+        return np.mean(y_proba[y_true == 0] > THRESHOLD)
     elif score == Score.AUROC:
         return roc_auc_score(y_true, y_proba)
     elif score == Score.CEL:
@@ -176,12 +182,6 @@ def derive_score(score : Score, user_scores : list, scores_indices_dict : dict, 
         if precision == 0 and recall == 0:
             return 0
         return 2 * (precision * recall) / (precision + recall)
-    elif score == Score.NEGATIVE_F1_SCORE:
-        negative_precision = user_scores[scores_indices_dict[f"{'val' if validation else 'train'}_{Score.NEGATIVE_PRECISION.name.lower()}"]]
-        specificity = user_scores[scores_indices_dict[f"{'val' if validation else 'train'}_{Score.SPECIFICITY.name.lower()}"]]
-        if negative_precision == 0 and specificity == 0:
-            return 0
-        return 2 * (negative_precision * specificity) / (negative_precision + specificity)
 
 def get_ranking_scores(y_train_rated: np.ndarray, y_train_rated_proba: np.ndarray, y_val_rated: np.ndarray, y_val_rated_proba: np.ndarray, 
                        y_ranking_proba: np.ndarray) -> dict:
@@ -215,7 +215,7 @@ def get_ranking_score(ranking_score : Score, y_proba : np.ndarray, y_ranking : n
     elif ranking_score == Score.ACCURACY_RANKING:
         return accuracy_score(y_ranking[1:], y_proba[1:] > 0.5)
     elif ranking_score == Score.NDCG:
-        return ndcg_score(y_ranking.reshape(1, -1), y_proba.reshape(1, -1), )
+        return ndcg_score(y_ranking.reshape(1, -1), y_proba.reshape(1, -1))
     elif ranking_score == Score.PRECISION_AT_1:
         top_idx = np.argmax(y_proba)
         return float(y_ranking[top_idx] > 0)
@@ -230,6 +230,8 @@ def get_ranking_score(ranking_score : Score, y_proba : np.ndarray, y_ranking : n
         return 0.0
     elif ranking_score == Score.NDCG_NEG:
         return ndcg_score(y_ranking_neg.reshape(1, -1), y_proba_neg.reshape(1, -1))
+    elif ranking_score == Score.SAMPLES_ABOVE_THRESHOLD:
+        return np.mean(y_proba[1:] > THRESHOLD)
    
 class Algorithm(Enum):
     LOGREG = auto()

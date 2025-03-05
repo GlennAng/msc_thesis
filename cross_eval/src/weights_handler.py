@@ -120,10 +120,11 @@ class Weights_Handler():
         
     def load_weights_hyperparameters_global(self, weights_scheme : Weights_Scheme, config : dict) -> dict:
         if weights_scheme == Weights_Scheme.CACHE_V:
+            hyperparameters_global = {"weights_neg_scale": load_hyperparameter_range(config["weights_neg_scale"])}
             if config["include_zerorated"]:
-                return {"weights_cache_v1_v2": load_hyperparameter_range(config["weights_cache_v1_v2"])}
+                return {**hyperparameters_global, "weights_cache_v1_v2": load_hyperparameter_range(config["weights_cache_v1_v2"])}
             else:
-                return {"weights_cache_v" : load_hyperparameter_range(config["weights_cache_v"])}
+                return {**hyperparameters_global, "weights_cache_v": load_hyperparameter_range(config["weights_cache_v"])}
     
     def load_weights_hyperparameters_label(self, weights_scheme : Weights_Scheme, is_positive : bool, config : dict) -> dict:
         if weights_scheme == Weights_Scheme.UNWEIGHTED:
@@ -149,6 +150,10 @@ class Weights_Handler():
                                                         train_posrated_n, train_negrated_n, base_n, zerorated_n, cache_n, is_positive = True)
             w_n, w_z, w_c = self.load_weights_for_user_label(hyperparameters, hyperparameters_combination, voting_weight,
                                                              train_posrated_n, train_negrated_n, base_n, zerorated_n, cache_n, is_positive = False)
+        if "weights_neg_scale" in hyperparameters:
+            w_n *= hyperparameters_combination[hyperparameters["weights_neg_scale"]]
+            w_c *= hyperparameters_combination[hyperparameters["weights_neg_scale"]]
+            w_z = w_z * hyperparameters_combination[hyperparameters["weights_neg_scale"]] if w_z is not None else None
         return w_p, w_n, w_b, w_z, w_c
 
     def load_weights_for_user_global(self, hyperparameters : dict, hyperparameters_combination : tuple, voting_weight : float,
