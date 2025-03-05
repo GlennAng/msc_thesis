@@ -215,7 +215,7 @@ def get_cache_papers_ids_for_user(user_id : int, max_cache : int = None, random_
         cache = rng.sample(cache, max_cache)
     return sorted(cache)
 
-def get_ranking_papers_ids_for_user(n_ranking_papers : int, random_state : int, excluded_papers : list = None) -> list:
+def get_negative_samples_ids_for_user(n_negative_samples : int, random_state : int, excluded_papers : list = None) -> list:
     if excluded_papers:
         excluded_papers_str = f"({', '.join([str(x) for x in excluded_papers])})"
         query = f"""
@@ -230,12 +230,12 @@ def get_ranking_papers_ids_for_user(n_ranking_papers : int, random_state : int, 
                 """
     digest_papers = [t[0] for t in sql_execute(query)]
     n_digest_papers = len(digest_papers)
-    if n_digest_papers < n_ranking_papers:
-        raise ValueError(f"Required ranking papers ({n_ranking_papers}) is greater than the number of valid digest papers ({n_digest_papers}).")
-    elif n_digest_papers > n_ranking_papers:
+    if n_digest_papers < n_negative_samples:
+        raise ValueError(f"Required negative samples ({n_negative_samples}) is greater than the number of valid digest papers ({n_digest_papers}).")
+    elif n_digest_papers > n_negative_samples:
         digest_papers = sorted(digest_papers)
         rng = random.Random(random_state)
-        digest_papers = rng.sample(digest_papers, n_ranking_papers)
+        digest_papers = rng.sample(digest_papers, n_negative_samples)
     return sorted(digest_papers)
 
 def get_title_and_abstract(paper_id : int) -> str:

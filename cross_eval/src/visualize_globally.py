@@ -154,6 +154,7 @@ class Global_Visualizer:
         config_string.append(f"Training Data includes Cache: {'Yes' if include_cache else 'No'}.")
         if include_cache:
             config_string.append(get_cache_type_str(self.config["cache_type"], self.config["max_cache"], self.config["draw_cache_from_users_ratings"]))
+        config_string.append(f"Number of Negative Samples per User: {self.config['n_negative_samples']}.")
         config_string.append("\n")
 
         config_string.append(f"Minimum Number of required negative Votes per User: {self.config['min_n_negrated']}.")
@@ -184,16 +185,12 @@ class Global_Visualizer:
         print_third_page(pdf, self.n_users, users_info_table, self.config["users_selection"], self.users_ids)
 
     def generate_fourth_page(self, pdf : PdfPages) -> None:
-        hyperparameters_combinations_table_validation = get_hyperparameters_combinations_table(self.val_upper_bounds, self.score, self.best_global_hyperparameters_combinations_idxs, 
-                                                                                    self.results_after_averaging_over_users, self.hyperparameters_combinations, validation = True)
-        hyperparameters_combinations_table_training = get_hyperparameters_combinations_table(self.val_upper_bounds, self.score, self.best_global_hyperparameters_combinations_idxs,
-                                                                                    self.results_after_averaging_over_users, self.hyperparameters_combinations, validation = False)
-        print_fourth_page(pdf, hyperparameters_combinations_table_validation, self.score, self.hyperparameters, validation = True)
-        print_fourth_page(pdf, hyperparameters_combinations_table_training, self.score, self.hyperparameters, validation = False)
-        
+        hyperparameters_combinations_table = get_hyperparameters_combinations_table(self.val_upper_bounds, self.score, self.best_global_hyperparameters_combinations_idxs, 
+                                                                                    self.results_after_averaging_over_users, self.hyperparameters_combinations)
+        print_fourth_page(pdf, hyperparameters_combinations_table, self.score, self.hyperparameters)
 
-    def generate_fifth_page(self, pdf : PdfPages, ranking : bool) -> None:
-        title = f"{'Ranking' if ranking else 'Classification'} Scores of the Best Global Combi {self.best_global_hyperparameters_combination_idx}"
+    def generate_fifth_page(self, pdf : PdfPages) -> None:
+        title = f"Scores of the Best Global Combi {self.best_global_hyperparameters_combination_idx}"
         best_global_hyperparameters_combination = self.hyperparameters_combinations[self.hyperparameters_combinations["combination_idx"] == self.best_global_hyperparameters_combination_idx]
         for i, hyperparameter in enumerate(self.hyperparameters):
             title += " (" if i == 0 else ", "
@@ -204,9 +201,14 @@ class Global_Visualizer:
         legend_text += f"All: All {self.n_users} Users | HiVote/LoVote: The {len(self.high_votes_users)} Users with the highest/lowest number of positively + negatively rated Papers\n"
         legend_text += f"HiPosi/LoPosi: The {len(self.high_ratio_users)} Users with the highest/lowest ratio of positively to negatively rated Papers | "
         legend_text += f"Tail: The {self.n_tail_users} Users with the worst Validation Performance on the Score in the grey Row."
-        best_global_hyperparameters_combination_table = get_best_global_hyperparameters_combination_table(self.best_global_hyperparameters_combination_df, self.tail_users,
-                                                        self.high_votes_users, self.low_votes_users, self.high_ratio_users, self.low_ratio_users, ranking)
-        print_fifth_page(pdf, title, legend_text, best_global_hyperparameters_combination_table, self.score, ranking)
+        scores_tables = get_best_global_hyperparameters_combination_table(self.best_global_hyperparameters_combination_df, self.tail_users,
+                                                                          self.high_votes_users, self.low_votes_users, self.high_ratio_users, self.low_ratio_users)
+        score_index = list(Score).index(self.score)
+        optimizer_page, optimizer_row = score_index // (n_scores_halved), score_index % (n_scores_halved)
+        for s in range(len(scores_tables)):
+            s_title = f"{s + 1}/{len(scores_tables)}   -   {title}"
+            grey_row = optimizer_row + 1 if s == optimizer_page else -1
+            print_fifth_page(pdf, s_title, legend_text, scores_tables[s], grey_row)
 
     def generate_sixth_page(self, pdf : PdfPages) -> None:
         title = "Worst"
@@ -239,8 +241,7 @@ class Global_Visualizer:
             self.generate_second_page(pdf)
             self.generate_third_page(pdf)
             self.generate_fourth_page(pdf)
-            self.generate_fifth_page(pdf, ranking = False)
-            self.generate_fifth_page(pdf, ranking = True)
+            self.generate_fifth_page(pdf)
             self.generate_sixth_page(pdf)
             self.generate_seventh_page(pdf)
             self.generate_eighth_page(pdf)

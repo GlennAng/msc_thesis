@@ -1,5 +1,5 @@
 from data_handling import get_base_papers_ids_for_user, get_rated_papers_ids_for_user
-from data_handling import get_global_cache_papers_ids, get_cache_papers_ids_for_user, get_ranking_papers_ids_for_user
+from data_handling import get_global_cache_papers_ids, get_cache_papers_ids_for_user, get_negative_samples_ids_for_user
 from embedding import Embedding
 from enum import Enum, auto
 import numpy as np
@@ -52,11 +52,11 @@ def load_filtered_cache_for_user(embedding : Embedding, cache_type : Cache_Type,
     y_user_filtered_cache = np.zeros(user_filtered_cache_n, dtype = LABEL_DTYPE)
     return user_filtered_cache_ids, user_filtered_cache_idxs, user_filtered_cache_n, y_user_filtered_cache
 
-def load_ranking_embeddings_for_user(embedding : Embedding, n_ranking_papers : int, random_state : int,
+def load_negative_samples_embeddings_for_user(embedding : Embedding, n_negative_samples : int, random_state : int,
                                      rated_ids : list, base_ids : list, zerorated_ids : list, cache_ids : list) -> tuple:
     excluded_papers = rated_ids + base_ids + zerorated_ids + cache_ids
-    ranking_ids = get_ranking_papers_ids_for_user(n_ranking_papers, random_state, excluded_papers)
-    return ranking_ids, embedding.matrix[embedding.get_idxs(ranking_ids)]
+    negative_samples_ids = get_negative_samples_ids_for_user(n_negative_samples, random_state, excluded_papers)
+    return negative_samples_ids, embedding.matrix[embedding.get_idxs(negative_samples_ids)]
    
 def load_training_data_for_user(embedding : Embedding, include_base : bool, include_zerorated : bool, include_cache : bool, train_rated_idxs : np.ndarray, y_train_rated : np.ndarray, 
                                 base_idxs : np.ndarray, y_base : np.ndarray, zerorated_idxs : np.ndarray, y_zerorated : np.ndarray, cache_idxs : np.ndarray, y_cache : np.ndarray) -> tuple:
