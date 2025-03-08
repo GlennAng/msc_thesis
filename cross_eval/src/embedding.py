@@ -1,7 +1,8 @@
 from data_handling import get_base_papers_ids_for_user, get_global_cache_papers_ids, get_cache_papers_ids_for_user, get_rated_papers_ids_for_user
-from data_handling import sql_execute
+from data_handling import get_negative_samples_ids_for_user, sql_execute
 from scipy import sparse
 from scipy.sparse import load_npz
+import json
 import numpy as np
 import os
 import pandas as pd
@@ -82,13 +83,6 @@ class Embedding:
     
     def get_papers_ids(self, idxs : np.ndarray) -> list:
         return self.papers_idxs_to_ids[idxs].tolist()
-    
-    def compute_cosine_similarities(self, idxs : np.ndarray) -> np.ndarray:
-        embeddings = self.matrix[idxs]
-        if sparse.isspmatrix(embeddings):
-            embeddings = embeddings.toarray()
-        normalized = embeddings / np.linalg.norm(embeddings, axis = 1, keepdims = True)
-        return np.dot(normalized, normalized.T)
 
     def test_tfidf(self, paper_id : int) -> None:
         vectorizer_path = f"{self.embedding_folder}/vectorizer.pkl"
@@ -104,3 +98,32 @@ class Embedding:
         feature_names = v.get_feature_names_out()
         for index, value in zip(non_zero_indices, non_zero_values):
             print(f"{feature_names[index]}: {value}")
+
+def compute_cosine_similarities(embedding_folder : str, users_ids : list, predictions_folder : str) -> None:
+    embedding = Embedding(embedding_folder)
+    for user_id in users_ids:
+        posrated_ids, negrated_ids = get_rated_papers_ids_for_user(user_id, 1), get_rated_papers_ids_for_user(user_id, -1)
+        user_predictions = json.load(open(f"{predictions_folder}/user_{user_id}/user_predictions.json", "r"))
+        negative_samples_ids = user_predictions["negative_samples_ids"]
+        rated_ids = posrated_ids + negrated_ids
+        rated_matrix = embedding.matrix[embedding.get_idxs(rated_ids)]
+        negative_samples_matrix = embedding.matrix[embedding.get_idxs(negative_samples_ids)]
+        if sparse.isspmatrix(rated_matrix):
+            rated_matrix = rated_matrix.toarray()
+        if sparse.isspmatrix(negative_samples_matrix):
+            negative_samples_matrix = negative_samples_matrix.toarray()
+        rated_matrix = rated_matrix / np.linalg.norm(rated_matrix, axis = 1, keepdims = True)
+        negative_samples_matrix = negative_samples_matrix / np.linalg.norm(negative_samples_matrix, axis = 1, keepdims = True)
+        rated_cosine_similarities = np.dot(rated_matrix, rated_matrix.T)
+        negative_samples_cosine_similarities = np.dot(negative_samples_matrix, rated_matrix.T)
+        user_folder = f"{embedding_folder}/cosine_similarities/user_{user_id}"
+        if not os.path.exists(user_folder):
+            os.makedirs(user_folder, exist_ok = True)
+        np.save(f"{user_folder}/rated_cosine_similarities", rated_cosine_similarities)
+        np.save(f"{user_folder}/negative_samples_cosine_similarities", negative_samples_cosine_similarities)
+        with open(f"{user_folder}/posrated_ids.pkl", "wb") as f:
+            pickle.dump(posrated_ids, f)
+        with open(f"{user_folder}/negrated_ids.pkl", "wb") as f:
+            pickle.dump(negrated_ids, f)
+        with open(f"{user_folder}/negative_samples_ids.pkl", "wb") as f:
+            pickle.dump(negative_samples_ids, f)

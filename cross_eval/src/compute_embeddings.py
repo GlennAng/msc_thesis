@@ -4,6 +4,7 @@ from transformers import pipeline
 import argparse
 import gc
 import numpy as np
+from adapters import AutoAdapterModel
 import os
 import pickle
 import time
@@ -21,7 +22,12 @@ def parse_args() -> argparse.Namespace:
 
 def load_model_and_tokenizer(model_path : str) -> tuple:
     tokenizer = AutoTokenizer.from_pretrained(model_path)
-    model = AutoModel.from_pretrained(model_path, trust_remote_code = True, unpad_inputs = True, torch_dtype = "auto").to(device)
+    if model_path == "allenai/specter2_base":
+        model = AutoAdapterModel.from_pretrained(model_path)
+        model.load_adapter("allenai/specter2", source = "hf", load_as = "specter2", set_active = True)
+        model = model.to(device)
+    else:
+        model = AutoModel.from_pretrained(model_path, trust_remote_code = True, unpad_inputs = True, torch_dtype = "auto").to(device)
     model.eval()
     return model, tokenizer
 
@@ -69,6 +75,7 @@ def tokenize_and_encode_papers_in_batches(embeddings_folder : str, papers : list
                 upper_bound = min(n_papers, n_papers_processed + batch_size)
                 batch_papers = papers[n_papers_processed : upper_bound]
                 batch_papers_ids, batch_tokenized_papers = tokenize_papers(batch_papers, tokenizer, max_sequence_length)
+                
                 with torch.autocast(device_type = device.type, dtype = torch.float16):
                     with torch.inference_mode():
                         batch_papers_outputs = model(**batch_tokenized_papers.to(device))

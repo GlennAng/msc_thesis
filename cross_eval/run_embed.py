@@ -1,18 +1,22 @@
-MODEL_NAME = "gte-base-en-v1.5"
+MODEL_NAME = "specter2_base"
 EMBEDDINGS_FOLDER = "/home/scholar/glenn_rp/msc_thesis/data/embeddings/before_pca"
 MAX_BATCH_SIZE = 500
-MAX_SEQUENCE_LENGTH = 1024
+MAX_SEQUENCE_LENGTH = 512
 
 from src.data_handling import get_db_backup_date
 import os
-VALID_MODEL_NAMES = ["gte-base-en-v1.5", "gte-large-en-v1.5"]
+VALID_MODEL_NAMES = ["gte-base-en-v1.5", "gte-large-en-v1.5", "specter2_base"]
 if MODEL_NAME not in VALID_MODEL_NAMES:
     raise ValueError(f"Invalid model name. Pick one of {VALID_MODEL_NAMES}.")
-model_path = f"Alibaba-NLP/{MODEL_NAME}"
 if MODEL_NAME == "gte-base-en-v1.5":
     model_abbreviation = "gte_base"
+    model_path = f"Alibaba-NLP/{MODEL_NAME}"
 elif MODEL_NAME == "gte-large-en-v1.5":
     model_abbreviation = "gte_large"
+    model_path = f"Alibaba-NLP/{MODEL_NAME}"
+elif MODEL_NAME == "specter2_base":
+    model_abbreviation = "specter2"
+    model_path = f"allenai/{MODEL_NAME}"
 db_backup_date = get_db_backup_date()
 embeddings_folder = EMBEDDINGS_FOLDER + f"/{model_abbreviation}_{db_backup_date}"  
 

@@ -56,7 +56,7 @@ class User_Papers_Visualizer:
         self.user_results_after_averaging_over_folds_best_individual_hyperparameters_combination = average_over_folds(self.user_results_before_averaging_over_folds_best_individual_hyperparameters_combination) 
 
     def load_cosine_similarities_for_user(self) -> None:
-        cosine_folder = f"{gv.config['embedding_folder']}/cosine_similarities/{self.user_id}"
+        cosine_folder = f"{gv.config['embedding_folder']}/cosine_similarities/user_{self.user_id}"
         self.cosine_similarities = {"similarities": np.load(f"{cosine_folder}/cosine.npy")}
         if not gv.config['embedding_is_sparse']:
             self.cosine_similarities["similarities"] = (self.cosine_similarities["similarities"] + 1) / 2
@@ -128,7 +128,7 @@ class User_Papers_Visualizer:
                 plot_training_papers(pdf, pos_train_papers_selection, n_pos_train_papers_full, neg_train_papers_selection, n_neg_train_papers_full, wc_words_scores)
                 plot_true_validation_papers(pdf, true_pos_val_papers_selection, n_true_pos_val_papers_full, true_neg_val_papers_selection, n_true_neg_val_papers_full, wc_words_scores)
                 plot_false_validation_papers(pdf, false_pos_val_papers_selection, n_false_pos_val_papers_full, false_neg_val_papers_selection, n_false_neg_val_papers_full, wc_words_scores,
-                                                self.cosine_similarities, pos_train_papers_selection, neg_train_papers_selection)
+                                             self.cosine_similarities, pos_train_papers_selection, neg_train_papers_selection)
         
 def select_interesting_users(worst_users : bool) -> list:
     selection_criterion = args.worst_users_selection_criterion if worst_users else args.best_users_selection_criterion

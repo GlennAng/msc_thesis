@@ -18,7 +18,7 @@ def get_paper_removal_from_arg(paper_removal_arg : str) -> Paper_Removal:
         raise ValueError(f"Invalid argument {paper_removal_arg} 'paper_removal'. Possible values: {valid_paper_removal_args}.")
     return Paper_Removal[paper_removal_arg.upper()]
 
-DB_NAME = "postgres"
+DB_NAME = "backup_2025_02_23"
 DB_USER = os.getenv('DB_USER') if os.getenv('DB_USER') is not None else "scholar"
 DB_PASSWORD = os.getenv('DB_PASSWORD') if os.getenv('DB_PASSWORD') is not None else "scholar"
 DB_HOST = os.getenv('DB_HOST') if os.getenv('DB_HOST') is not None else "localhost"

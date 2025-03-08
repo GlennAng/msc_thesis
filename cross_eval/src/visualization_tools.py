@@ -390,47 +390,68 @@ def get_user_info_table(user_info : pd.DataFrame) -> tuple:
     data = [[format_number(user_info["voting_weight"].iloc[0]), user_info["n_posrated"].iloc[0], user_info["n_negrated"].iloc[0], user_info["n_base"].iloc[0], user_info["n_cache"].iloc[0]]]
     return columns, data
 
-def get_user_folds_table(user_results_before_averaging_over_folds : pd.DataFrame, user_results_after_averaging_over_folds : pd.DataFrame) -> tuple:
-    columns = ["Fold"]
-    for score in PRINT_SCORES:
-        columns.append(f"Train_{SCORES_DICT[score]['abbreviation']}")
-        columns.append(f"Val_{SCORES_DICT[score]['abbreviation']}")
-    first_row = ["Mean"]
-    for score in PRINT_SCORES:
-        first_row.append(format_number(user_results_after_averaging_over_folds[f"train_{score.name.lower()}"].values[0]))
-        first_row.append(format_number(user_results_after_averaging_over_folds[f"val_{score.name.lower()}"].values[0]))
-    data = [first_row]
+def get_user_folds_tables(user_results_before_averaging_over_folds : pd.DataFrame, user_results_after_averaging_over_folds : pd.DataFrame) -> tuple:
+    columns_1, columns_2 = ["Fold"], ["Fold"]
+    for i, score in enumerate(list(Score)):
+        score_abbreviation = SCORES_DICT[score]["abbreviation"]
+        if score == Score.CONFIDENCE_BOTTOM_25_PERCENT_POS_GT:
+            score_abbreviation = "CPGT\nB.25"
+        elif score == Score.CONFIDENCE_TOP_25_PERCENT_NEG_GT:
+            score_abbreviation = "CNGT\nT.25"
+        elif "_S" in score_abbreviation:
+            score_abbreviation = score_abbreviation.replace("_S", "\nSmpl")
+        if i < n_scores_halved:
+            columns_1.append(score_abbreviation)
+        else:
+            columns_2.append(score_abbreviation)
+    val_first_row_1, val_first_row_2, train_first_row_1, train_first_row_2 = ["μ"], ["μ"], ["μ"], ["μ"]
+    for i, score in enumerate(list(Score)):
+        if i < n_scores_halved:
+            val_first_row_1.append(format_number(user_results_after_averaging_over_folds[f"val_{score.name.lower()}_mean"].values[0]))
+            train_first_row_1.append(format_number(user_results_after_averaging_over_folds[f"train_{score.name.lower()}_mean"].values[0]))
+        else:
+            val_first_row_2.append(format_number(user_results_after_averaging_over_folds[f"val_{score.name.lower()}_mean"].values[0]))
+            train_first_row_2.append(format_number(user_results_after_averaging_over_folds[f"train_{score.name.lower()}_mean"].values[0]))
+    val_table_1, val_table_2, train_table_1, train_table_2 = [val_first_row_1], [val_first_row_2], [train_first_row_1], [train_first_row_2]
     n_folds = len(user_results_before_averaging_over_folds)
     for fold_idx in range(n_folds):
-        row = [fold_idx]
-        for score in PRINT_SCORES:
-            row.append(format_number(user_results_before_averaging_over_folds.loc[user_results_before_averaging_over_folds["fold_idx"] == fold_idx, f"train_{score.name.lower()}"].values[0]))
-            row.append(format_number(user_results_before_averaging_over_folds.loc[user_results_before_averaging_over_folds["fold_idx"] == fold_idx, f"val_{score.name.lower()}"].values[0]))
-        data.append(row)
-    return columns, data
+        val_row_1, val_row_2, train_row_1, train_row_2 = [fold_idx], [fold_idx], [fold_idx], [fold_idx]
+        for i, score in enumerate(list(Score)):
+            if i < n_scores_halved:
+                val_row_1.append(format_number(user_results_before_averaging_over_folds.loc[user_results_before_averaging_over_folds["fold_idx"] == fold_idx, f"val_{score.name.lower()}"].values[0]))
+                train_row_1.append(format_number(user_results_before_averaging_over_folds.loc[user_results_before_averaging_over_folds["fold_idx"] == fold_idx, f"train_{score.name.lower()}"].values[0]))
+            else:
+                val_row_2.append(format_number(user_results_before_averaging_over_folds.loc[user_results_before_averaging_over_folds["fold_idx"] == fold_idx, f"val_{score.name.lower()}"].values[0]))
+                train_row_2.append(format_number(user_results_before_averaging_over_folds.loc[user_results_before_averaging_over_folds["fold_idx"] == fold_idx, f"train_{score.name.lower()}"].values[0]))
+        val_table_1.append(val_row_1)
+        val_table_2.append(val_row_2)
+        train_table_1.append(train_row_1)
+        train_table_2.append(train_row_2)
+    val_last_row_1, val_last_row_2, train_last_row_1, train_last_row_2 = ["σ"], ["σ"], ["σ"], ["σ"]
+    for i, score in enumerate(list(Score)):
+        if i < n_scores_halved:
+            val_last_row_1.append(format_number(user_results_after_averaging_over_folds[f"val_{score.name.lower()}_std"].values[0]))
+            train_last_row_1.append(format_number(user_results_after_averaging_over_folds[f"train_{score.name.lower()}_std"].values[0]))
+        else:
+            val_last_row_2.append(format_number(user_results_after_averaging_over_folds[f"val_{score.name.lower()}_std"].values[0]))
+            train_last_row_2.append(format_number(user_results_after_averaging_over_folds[f"train_{score.name.lower()}_std"].values[0]))
+    val_table_1.append(val_last_row_1)
+    val_table_2.append(val_last_row_2)
+    train_table_1.append(train_last_row_1)
+    train_table_2.append(train_last_row_2)
+    return columns_1, val_table_1, train_table_1, columns_2, val_table_2, train_table_2
+
     
-def print_first_page_for_user(pdf : PdfPages, user_id : int, user_info_table : tuple, user_optimizer_column : int,
-                              user_folds_table_best_global_hyperparameters_combination : tuple, user_folds_table_best_individual_hyperparameters_combination : tuple,
-                              best_global_hyperparameters_combination_idx : int, best_individual_hyperparameters_combination_idx : int) -> None:
-    fig, ax = plt.subplots(figsize = PLOT_CONSTANTS["FIG_SIZE"])
+def print_first_page_for_user(pdf : PdfPages, title : str, user_info_table : tuple, columns : list, val_table : list, train_table : list) -> None:
+    fig, ax = plt.subplots(figsize = (13, 8.5))
     ax.axis("off")
-    ax.text(0.5, 1.11, f"User {user_id} Info:", fontsize = 16, ha = 'center', va = 'center', fontweight = 'bold')
-    columns, data = user_info_table
-    print_table(data, [-0.125, 0.98, 1.2, 0.075], columns, 5 * [0.2])
-
-    ax.text(0.5, 0.925, f"Performance on best Global Hyperparameters Combination {best_global_hyperparameters_combination_idx}:", fontsize = 14, ha = 'center', va = 'top', fontweight = 'bold')
-    columns, data = user_folds_table_best_global_hyperparameters_combination
-    print_table(data, [-0.125, 0.51, 1.2, 0.37], columns, [0.125] + (2 * len(Score) * [0.15]), bold_row = 1, grey_column = user_optimizer_column)
-
-    ax.text(0.5, 0.425, f"Performance on best Individual Hyperparameters Combination {best_individual_hyperparameters_combination_idx}:", fontsize = 14, ha = 'center', va = 'top', fontweight = 'bold')
-    columns, data = user_folds_table_best_individual_hyperparameters_combination
-    print_table(data, [-0.125, 0.01, 1.2, 0.37], columns, [0.125] + (2 * len(Score) * [0.15]), bold_row = 1, grey_column = user_optimizer_column)
-
-    legend_text = "Legend:   "
-    for i, score in enumerate(PRINT_SCORES):
-        legend_text += f"{SCORES_DICT[score]['abbreviation']}: {SCORES_DICT[score]['name']}{' | ' if i < len(Score) - 1 else '.'}"
-    legend_text += "\nThe grey column represents the score according to which the hyperparameters were optimized."
-    ax.text(0.5, -0.05, legend_text, fontsize = 8, ha = 'center', va = 'center')
+    ax.text(0.5, 1.11, title, fontsize = 16, ha = 'center', va = 'center', fontweight = 'bold')
+    user_info_columns, data = user_info_table
+    print_table(data, [-0.125, 0.98, 1.2, 0.075], user_info_columns, 5 * [0.2])
+    ax.text(0.5, 0.945, f"Validation Scores:", fontsize = 13, ha = 'center', va = 'top', fontweight = 'bold')
+    print_table(val_table, [-0.155, 0.45, 1.275, 0.46], columns, [0.1] + (len(columns) - 1) * [0.15], bold_row = 1)
+    ax.text(0.5, 0.42, f"Training Scores:", fontsize = 13, ha = 'center', va = 'top', fontweight = 'bold')
+    print_table(train_table, [-0.155, -0.075, 1.275, 0.46], columns, [0.1] + (len(columns) - 1) * [0.15], bold_row = 1)
     pdf.savefig(fig)
     plt.close(fig)
 
@@ -524,11 +545,19 @@ def select_n_most_extreme_val_papers_outcome(fold_predictions_df : pd.DataFrame,
     data = get_papers_table_data(fold_predictions_df_classification_outcome)
     return data, n_val_papers_outcome_full
 
-def train_wordclouds(train_ids : list, train_labels : list, val_ids : list, base_ids : list, n_tfidf_features : int) -> tuple:
-    paper_ids = train_ids + val_ids + base_ids
+def select_n_most_extreme_val_pos_papers(fold_predictions_df : pd.DataFrame) -> tuple:
+    fold_predictions_df_pos = fold_predictions_df[fold_predictions_df["gt_label"] == 1]
+    n_val_pos_papers_full = len(fold_predictions_df_pos)
+    n_val_pos_papers_selection = min(100, n_val_pos_papers_full)
+    fold_predictions_df_pos = fold_predictions_df_pos.nsmallest(n_val_pos_papers_selection, "class_1_proba").sort_values(by = "class_1_proba", ascending = False)
+    data = get_papers_table_data(fold_predictions_df_pos)
+    return data, n_val_pos_papers_full
+
+def train_wordclouds(train_ids : list, train_labels : list, val_ids : list,  n_tfidf_features : int = 5000) -> tuple:
+    paper_ids = train_ids + val_ids
     v = train_vectorizer_for_user(paper_ids, n_tfidf_features)
     features = v.get_feature_names_out()
-    pos_train_ids = [paper_id for paper_id, label in zip(train_ids, train_labels) if label == 1] + base_ids
+    pos_train_ids = [paper_id for paper_id, label in zip(train_ids, train_labels) if label == 1]
     neg_train_ids = [paper_id for paper_id, label in zip(train_ids, train_labels) if label == 0]
     pos_train_mean_embedding, neg_train_mean_embedding = get_mean_embedding(v, pos_train_ids), get_mean_embedding(v, neg_train_ids)
     pos_train_scores = {word: score for word, score in zip(features, pos_train_mean_embedding.A1)}
@@ -536,7 +565,7 @@ def train_wordclouds(train_ids : list, train_labels : list, val_ids : list, base
     return pos_train_scores, neg_train_scores
 
 def generate_wordclouds(pdf : PdfPages, wc_pos_train_scores : dict, wc_neg_train_scores : dict, use_tfidf_coefs : bool,
-                        include_base : bool = False, n_pos_train_papers_full : int = None, n_neg_train_papers_full : int = None,
+                        n_pos_train_papers_full : int = None, n_neg_train_papers_full : int = None,
                         largest_pos_tfidf_coef : float = None, largest_neg_tfidf_coef : float = None) -> None:
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize = PLOT_CONSTANTS["FIG_SIZE"])
     suptitle = "Word Clouds based on Coefficients of TF-IDF Classifer." if use_tfidf_coefs else "Word Clouds based on Mean Embeddings of Training Set."
@@ -555,12 +584,11 @@ def generate_wordclouds(pdf : PdfPages, wc_pos_train_scores : dict, wc_neg_train
         ax.axis('off')
         ax.set_title(title, fontweight = 'bold', pad = 15)
         
-    base_string = " + Base" if include_base else ""
     if use_tfidf_coefs:
         pos_title = f"Positive TF-IDF Classifier Coefficients\n (Total N = {len(wc_pos_train_scores)}, Largest Coef = {format_number(largest_pos_tfidf_coef, 3)})."
         neg_title = f"Negative TF-IDF Classifier Coefficients\n (Total N = {len(wc_neg_train_scores)}, Largest Coef = {format_number(largest_neg_tfidf_coef, 3)})."
     else:
-        pos_title = f"Positively Rated Training{base_string} Papers\n (Total N = {n_pos_train_papers_full})."
+        pos_title = f"Positively Rated Training Papers\n (Total N = {n_pos_train_papers_full})."
         neg_title = f"Negatively Rated Training Papers\n (Total N = {n_neg_train_papers_full})."
     generate_wordcloud(wc_pos_train_scores, ax1, pos_title)
     generate_wordcloud(wc_neg_train_scores, ax2, neg_title)
@@ -681,10 +709,68 @@ def plot_false_validation_papers(pdf : PdfPages, false_pos_val_papers_selection 
                                                         pos_train_papers_selection, neg_train_papers_selection, Classification_Outcome.FALSE_POSITIVE)
     plot_false_validation_papers_classification_outcome(pdf, false_neg_val_papers_selection, n_false_neg_val_papers_full, word_scores, cosine_similarities, 
                                                         pos_train_papers_selection, neg_train_papers_selection, Classification_Outcome.FALSE_NEGATIVE)
-    
-def preprocess_cosine_similarities(paper_id : int, cosine_similarities : dict, pos_train_papers_selection : list, neg_train_papers_selection : list) -> tuple:
+
+def plot_negative_samples(pdf : PdfPages, negative_samples_selection : list, n_negative_samples_full : int, pos_val_papers_selection : list, n_pos_val_papers_full : int, 
+                          words_scores : dict, cosine_similarities : dict, pos_train_papers_selection : list, neg_train_papers_selection : list) -> None:
+    plot_negative_samples_overview(pdf, negative_samples_selection, n_negative_samples_full, pos_val_papers_selection, n_pos_val_papers_full)
+    n_negative_samples_selection = min(25, len(negative_samples_selection))
+    title = (f"Collection of the {n_negative_samples_selection} Most Highly Rated Negative Samples (Total N = {n_negative_samples_full})")
+    for i in range(n_negative_samples_selection):
+        plot_single_paper(pdf, negative_samples_selection[i], title, words_scores, cosine_similarities, pos_train_papers_selection, neg_train_papers_selection, samples = True)
+
+def plot_negative_samples_overview(pdf : PdfPages, negative_samples_selection : list, n_negative_samples_full : int, pos_val_papers_selection : list, n_pos_val_papers_full : int) -> None:
+    fig, ax = plt.subplots(figsize = PLOT_CONSTANTS["FIG_SIZE"])
+    ax.axis('off')
+
+    colors = ['#ffffff', '#fff7ec', '#fee8c8', '#fdd49e', '#fdbb84', '#fc8d59', '#ef6548', '#d7301f', '#b30000']
+    n_bins = len(colors)
+    custom_cmap = LinearSegmentedColormap.from_list('custom_YlOrRd', colors, N = n_bins)
+
+    neg_samples_ax = fig.add_axes([0.01, 0.52, 1.1, 0.45])
+    neg_samples_data = reshape_to_n_rows_10_cols(np.array([neg_sample[2] for neg_sample in negative_samples_selection]), 10)
+    im_neg_samples = neg_samples_ax.imshow(neg_samples_data, cmap = custom_cmap, vmin=0, vmax=1, aspect='auto')
+    add_grid_lines(neg_samples_ax, neg_samples_data)
+    counter = 1
+    for j in range(neg_samples_data.shape[1]):
+        for i in range(neg_samples_data.shape[0]):
+            formatted_number = format_number(neg_samples_data[i, j], max_decimals = 3)
+            if formatted_number != "nan":
+                neg_samples_ax.text(j, i, f"#{counter}:  {formatted_number}\n ID: {negative_samples_selection[counter-1][1]}", ha='center', va='center', color = 'black', fontsize=8)
+            counter += 1     
+    neg_samples_ax.set_title(f'Model Probabilities for the {len(negative_samples_selection)} Most Highly Rated Negative Samples (Total N = {n_negative_samples_full})', pad = 3, fontsize = 9, fontweight = 'bold')
+    neg_samples_ax.set_xticks([])
+    neg_samples_ax.set_yticks([])
+    cbar_neg_samples = plt.colorbar(im_neg_samples, ax=neg_samples_ax, orientation='vertical', pad = 0.01)
+    cbar_neg_samples.ax.tick_params(labelsize=9)
+
+    pos_val_ax = fig.add_axes([0.01, 0.03, 1.1, 0.45])
+    pos_val_data = reshape_to_n_rows_10_cols(np.array([pos_val_paper[2] for pos_val_paper in pos_val_papers_selection]), 10)
+    im_pos_val = pos_val_ax.imshow(pos_val_data, cmap = custom_cmap, vmin=0, vmax=1, aspect='auto')
+    add_grid_lines(pos_val_ax, pos_val_data)
+    counter = 1
+    for j in range(pos_val_data.shape[1]):
+        for i in range(pos_val_data.shape[0]):
+            formatted_number = format_number(pos_val_data[i, j], max_decimals = 3)
+            if formatted_number != "nan":
+                pos_val_ax.text(j, i, f"#{counter}:  {formatted_number}\n ID: {pos_val_papers_selection[counter-1][1]}", ha='center', va='center', color = 'black', fontsize=8)
+            counter += 1
+    pos_val_ax.set_title(f'Model Probabilities for the {len(pos_val_papers_selection)} Least Highly Rated Validation GT-Positives (Total N = {n_pos_val_papers_full})', pad = 3, fontsize = 9, fontweight = 'bold')
+    pos_val_ax.set_xticks([])
+    pos_val_ax.set_yticks([])
+    cbar_pos_val = plt.colorbar(im_pos_val, ax=pos_val_ax, orientation='vertical', pad = 0.01)
+    cbar_pos_val.ax.tick_params(labelsize=9)
+
+    pdf.savefig(fig)
+    plt.close()
+
+
+def preprocess_cosine_similarities(paper_id : int, cosine_similarities : dict, pos_train_papers_selection : list, neg_train_papers_selection : list, samples : bool = False) -> tuple:
     ids_to_idxs = {paper_id: idx for idx, paper_id in enumerate(cosine_similarities["posrated_ids"] + cosine_similarities["negrated_ids"])}
-    relevant_row = cosine_similarities["similarities"][ids_to_idxs[paper_id]]
+    if samples:
+        ids_to_idxs_samples = {paper_id: idx for idx, paper_id in enumerate(cosine_similarities["negative_samples_ids"])}
+        relevant_row = cosine_similarities["negative_samples_cosine_similarities"][ids_to_idxs_samples[paper_id]]
+    else:
+        relevant_row = cosine_similarities["rated_cosine_similarities"][ids_to_idxs[paper_id]]
     pos_relevant_row, neg_relevant_row = np.zeros(len(pos_train_papers_selection)), np.zeros(len(neg_train_papers_selection))
     for i in range(len(pos_relevant_row)):
         pos_relevant_row[i] = relevant_row[ids_to_idxs[pos_train_papers_selection[i][1]]]
@@ -692,8 +778,28 @@ def preprocess_cosine_similarities(paper_id : int, cosine_similarities : dict, p
         neg_relevant_row[i] = relevant_row[ids_to_idxs[neg_train_papers_selection[i][1]]]
     return pos_relevant_row, neg_relevant_row
 
-def plot_single_paper(pdf: PdfPages, table_data: list, page_title: str, word_scores: dict,cosine_similarities: dict, pos_train_papers_selection: list, neg_train_papers_selection: list) -> None:
-    pos_relevant_row, neg_relevant_row = preprocess_cosine_similarities(table_data[1], cosine_similarities, pos_train_papers_selection, neg_train_papers_selection)
+def reshape_to_n_rows_10_cols(arr, n):
+    result = np.full((n, 10), np.nan)
+    n_entries = len(arr)
+    n_full_cols = min(n_entries // n, 10)
+    for col in range(n_full_cols):
+        result[:, col] = arr[col*n:(col+1)*n]    
+    remaining_entries = n_entries - (n_full_cols * n)
+    if remaining_entries > 0 and n_full_cols < 10:
+        result[:remaining_entries, n_full_cols] = arr[n_full_cols*n:n_entries]
+    return result
+
+def add_grid_lines(ax, data):
+        # Add vertical lines between columns
+        for x in range(data.shape[1] + 1):
+            ax.axvline(x - 0.5, color='black', linewidth=0.5, alpha=0.5)
+        # Add horizontal lines between rows
+        for y in range(data.shape[0] + 1):
+            ax.axhline(y - 0.5, color='black', linewidth=0.5, alpha=0.5)
+
+def plot_single_paper(pdf: PdfPages, table_data: list, page_title: str, word_scores: dict, cosine_similarities: dict, pos_train_papers_selection: list, neg_train_papers_selection: list,
+                      samples : bool = False) -> None:
+    pos_relevant_row, neg_relevant_row = preprocess_cosine_similarities(table_data[1], cosine_similarities, pos_train_papers_selection, neg_train_papers_selection, samples)
     plt.rcParams["text.usetex"] = False
     fig, ax = plt.subplots(figsize = PLOT_CONSTANTS["FIG_SIZE"])
     ax.axis('off')
@@ -723,35 +829,13 @@ def plot_single_paper(pdf: PdfPages, table_data: list, page_title: str, word_sco
             y -= PLOT_CONSTANTS["LINE_HEIGHT"]
         word_counter += 1
 
-    def reshape_to_7_rows_10_cols(arr):
-        result = np.full((7, 10), np.nan)
-        n_entries = len(arr)
-        n_full_cols = min(n_entries // 7, 10)
-        
-        for col in range(n_full_cols):
-            result[:, col] = arr[col*7:(col+1)*7]
-            
-        remaining_entries = n_entries - (n_full_cols * 7)
-        if remaining_entries > 0 and n_full_cols < 10:
-            result[:remaining_entries, n_full_cols] = arr[n_full_cols*7:n_entries]
-            
-        return result
-    
     colors = ['#ffffff', '#fff7ec', '#fee8c8', '#fdd49e', '#fdbb84', '#fc8d59', '#ef6548', '#d7301f', '#b30000']
     n_bins = len(colors)
     custom_cmap = LinearSegmentedColormap.from_list('custom_YlOrRd', colors, N=n_bins)
 
-    def add_grid_lines(ax, data):
-        # Add vertical lines between columns
-        for x in range(data.shape[1] + 1):
-            ax.axvline(x - 0.5, color='black', linewidth=0.5, alpha=0.5)
-        # Add horizontal lines between rows
-        for y in range(data.shape[0] + 1):
-            ax.axhline(y - 0.5, color='black', linewidth=0.5, alpha=0.5)
-
     # Add positive similarities heatmap
     pos_ax = fig.add_axes([0.01, 0.33, 1.1, 0.29])  # [left, bottom, width, height]
-    pos_data = reshape_to_7_rows_10_cols(pos_relevant_row)
+    pos_data = reshape_to_n_rows_10_cols(pos_relevant_row, 7)
     im_pos = pos_ax.imshow(pos_data, cmap = custom_cmap, vmin=0, vmax=1, aspect='auto')
     add_grid_lines(pos_ax, pos_data)
 
@@ -771,7 +855,7 @@ def plot_single_paper(pdf: PdfPages, table_data: list, page_title: str, word_sco
 
     # Add negative similarities heatmap
     neg_ax = fig.add_axes([0.01, 0.01, 1.1, 0.29])  # [left, bottom, width, height]
-    neg_data = reshape_to_7_rows_10_cols(neg_relevant_row)
+    neg_data = reshape_to_n_rows_10_cols(neg_relevant_row, 7)
     im_neg = neg_ax.imshow(neg_data, cmap = custom_cmap, vmin=0, vmax=1, aspect='auto')
     add_grid_lines(neg_ax, neg_data)
 

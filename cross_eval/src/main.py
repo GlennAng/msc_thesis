@@ -63,8 +63,7 @@ def create_outputs_folder(config : dict, continue_from_previous : bool) -> None:
         else:
             os.system(f"rm -r {path}")
     os.makedirs(experiment_dir / "tmp", exist_ok = True)
-    if config["save_users_predictions"]:
-        os.makedirs(experiment_dir / "users_predictions", exist_ok = True)
+    os.makedirs(experiment_dir / "users_predictions", exist_ok = True)
 
 def get_users_ids(users_selection : str, max_users : int = None, min_n_posrated : int = 20, min_n_negrated : int = 20, take_complement : bool = False, 
                   random_state : int = None, survey : bool = False) -> pd.DataFrame:
@@ -100,7 +99,7 @@ def get_users_not_yet_evaluated(config : dict, users_ids : list, continue_from_p
     for user_id in users_ids:
         exists_user_info = os.path.exists(outputs_dir / f"tmp/user_{user_id}/user_info.json")
         exists_user_results = os.path.exists(outputs_dir / f"tmp/user_{user_id}/user_results.json")
-        exists_user_predictions = os.path.exists(outputs_dir / f"users_predictions/user_{user_id}/user_predictions.json") if config["save_users_predictions"] else True
+        exists_user_predictions = os.path.exists(outputs_dir / f"users_predictions/user_{user_id}/user_predictions.json")
         if exists_user_info and exists_user_results and exists_user_predictions:
             users_already_evaluated.append(user_id)
     return [user_id for user_id in users_ids if user_id not in users_already_evaluated]

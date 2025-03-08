@@ -86,10 +86,10 @@ class Evaluator:
             user_results, user_predictions, user_coefs = self.train_model_for_user(X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, user_data_statistics, 
                                                                                    negative_samples_embeddings = negative_samples_embeddings, voting_weight = user_info["voting_weight"])
             user_results_dict[0] = user_results
+            user_predictions_dict[0] = self.get_papers_ids(train_rated_idxs, y_train_rated, val_rated_idxs, y_val)
             if self.config["save_users_predictions"]:
-                user_predictions_dict[0] = {**self.get_papers_ids(train_rated_idxs, y_train_rated, val_rated_idxs, y_val), 
-                                            **{"train_predictions": user_predictions["train_predictions"], "val_predictions": user_predictions["val_predictions"], 
-                                               "negative_samples_predictions": user_predictions["negative_samples_predictions"], "tfidf_coefs": user_predictions["tfidf_coefs"]}}
+                 user_predictions_dict[0].update({"train_predictions": user_predictions["train_predictions"], "val_predictions": user_predictions["val_predictions"],
+                                                  "negative_samples_predictions": user_predictions["negative_samples_predictions"], "tfidf_coefs": user_predictions["tfidf_coefs"]})
 
         elif self.config["evaluation"] == Evaluation.CROSS_VALIDATION:
             rated_idxs = self.embedding.get_idxs(rated_ids)
@@ -102,14 +102,13 @@ class Evaluator:
                 fold_results, fold_predictions, _ = self.train_model_for_user(X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, user_data_statistics,
                                                                               negative_samples_embeddings = negative_samples_embeddings, voting_weight = user_info["voting_weight"])
                 user_results_dict[fold_idx] = fold_results
+                user_predictions_dict[fold_idx] = self.get_papers_ids(train_rated_idxs, y_train_rated, val_rated_idxs, y_val)
                 if self.config["save_users_predictions"]:
-                    user_predictions_dict[fold_idx] = {**self.get_papers_ids(train_rated_idxs, y_train_rated, val_rated_idxs, y_val),
-                                                       **{"train_predictions": fold_predictions["train_predictions"], "val_predictions": fold_predictions["val_predictions"], 
-                                                          "negative_samples_predictions": fold_predictions["negative_samples_predictions"], "tfidf_coefs": fold_predictions["tfidf_coefs"]}}
+                    user_predictions_dict[fold_idx].update({"train_predictions": fold_predictions["train_predictions"], "val_predictions": fold_predictions["val_predictions"],
+                                                            "negative_samples_predictions": fold_predictions["negative_samples_predictions"], "tfidf_coefs": fold_predictions["tfidf_coefs"]})
         self.save_user_info(user_id, user_info)
         self.save_user_results(user_id, user_results_dict)
-        if self.config["save_users_predictions"]:
-            self.save_users_predictions(user_id, user_predictions_dict)
+        self.save_users_predictions(user_id, user_predictions_dict)
         if "save_coefs" in self.config and self.config["save_coefs"]:
             self.save_user_coefs(user_id, user_coefs)
         print(f"User {user_id} done.")
