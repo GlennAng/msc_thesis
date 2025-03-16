@@ -33,6 +33,8 @@ class Weights_Scheme(Enum):
     UNWEIGHTED = auto()
     CACHE_V = auto()
 
+    NO_V = auto()
+
     BOTH_CONSTANT_VW, BOTH_CONSTANT_HYP = auto(), auto()
     BOTH_CUBE_ROOT_VW, BOTH_CUBE_ROOT_HYP = auto(), auto()
     BOTH_LOGARITHM_VW, BOTH_LOGARITHM_HYP = auto(), auto()
@@ -125,6 +127,9 @@ class Weights_Handler():
                 return {**hyperparameters_global, "weights_cache_v1_v2": load_hyperparameter_range(config["weights_cache_v1_v2"])}
             else:
                 return {**hyperparameters_global, "weights_cache_v": load_hyperparameter_range(config["weights_cache_v"])}
+        elif weights_scheme == Weights_Scheme.NO_V:
+            hyperparameters_global = {"cache_scale": load_hyperparameter_range(config["cache_scale"])}
+            return hyperparameters_global
     
     def load_weights_hyperparameters_label(self, weights_scheme : Weights_Scheme, is_positive : bool, config : dict) -> dict:
         if weights_scheme == Weights_Scheme.UNWEIGHTED:
@@ -174,6 +179,11 @@ class Weights_Handler():
                 shared_scalar = correction / (v1 * train_negrated_n + v2 * zerorated_n + v3 * cache_n)
                 w_n, w_z, w_c = v1 * shared_scalar, v2 * shared_scalar, v3 * shared_scalar
                 return w_p, w_n, w_b, w_z, w_c
+        elif self.global_weights_scheme == Weights_Scheme.NO_V:
+            w_p = 1 / train_posrated_n if train_posrated_n > 0 else 0.0
+            w_n = 1 / train_negrated_n if train_negrated_n > 0 else 0.0
+            w_c = hyperparameters_combination[hyperparameters["cache_scale"]] / cache_n if cache_n > 0 else 0.0
+            return w_p, w_n, None, None, w_c
 
     def load_weights_for_user_label(self, hyperparameters : dict, hyperparameters_combination : tuple, voting_weight : float,
                                     train_posrated_n : int, train_negrated_n : int, base_n : int, cache_n : int, nonrated_n : int, is_positive : bool) -> tuple:

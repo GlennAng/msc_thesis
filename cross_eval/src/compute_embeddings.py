@@ -43,9 +43,14 @@ def get_gpu_info() -> str:
 
 def tokenize_papers(batch_papers : list, tokenizer : AutoTokenizer, max_sequence_length : int) -> dict:
     sep_token = tokenizer.sep_token
-    batch_papers_ids, batch_papers_titles, batch_papers_abstracts = zip(*batch_papers)
-    batch_papers_ids, batch_papers_titles, batch_papers_abstracts = list(batch_papers_ids), list(batch_papers_titles), list(batch_papers_abstracts)
-    batch_papers_titles_abstracts = [f"{title} {sep_token} {abstract}" for title, abstract in zip(batch_papers_titles, batch_papers_abstracts)]
+    if len(batch_papers[0]) == 3:
+        batch_papers_ids, batch_papers_titles, batch_papers_abstracts = zip(*batch_papers)
+        batch_papers_ids, batch_papers_titles, batch_papers_abstracts = list(batch_papers_ids), list(batch_papers_titles), list(batch_papers_abstracts)
+        batch_papers_titles_abstracts = [f"{title} {sep_token} {abstract}" for title, abstract in zip(batch_papers_titles, batch_papers_abstracts)]
+    else:
+        batch_papers_ids, batch_papers_titles, batch_papers_abstracts, batch_papers_categories = zip(*batch_papers)
+        batch_papers_ids, batch_papers_titles, batch_papers_abstracts, batch_papers_categories = list(batch_papers_ids), list(batch_papers_titles), list(batch_papers_abstracts), list(batch_papers_categories)
+        batch_papers_titles_abstracts = [f"{title} {sep_token} {abstract} {sep_token} {category}" for title, abstract, category in zip(batch_papers_titles, batch_papers_abstracts, batch_papers_categories)]
     batch_tokenized_papers = tokenizer(text = batch_papers_titles_abstracts, max_length = max_sequence_length, padding = True, truncation = True, return_tensors = "pt")
     return batch_papers_ids, batch_tokenized_papers
 

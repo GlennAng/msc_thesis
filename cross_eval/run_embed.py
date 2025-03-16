@@ -1,7 +1,7 @@
-MODEL_NAME = "specter2_base"
-EMBEDDINGS_FOLDER = "/home/scholar/glenn_rp/msc_thesis/data/embeddings/before_pca"
+MODEL_NAME = "gte-large-en-v1.5"
+EMBEDDINGS_FOLDER = "/home/scholar/glenn_rp/msc_thesis/data/embeddings/"
 MAX_BATCH_SIZE = 500
-MAX_SEQUENCE_LENGTH = 512
+MAX_SEQUENCE_LENGTH = 1024
 
 from src.data_handling import get_db_backup_date
 import os

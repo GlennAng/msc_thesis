@@ -15,7 +15,7 @@ def parse_args() -> dict:
     parser.add_argument('--users', type = str, nargs = '+', default = "all")
     parser.add_argument('--hyperparameters_combination', type = int, default = -1)
     parser.add_argument('--folds', type = str, default = '0')
-    parser.add_argument('--visualize_papers', action = 'store_true', default = False)
+    parser.add_argument('--visualize_papers', action = 'store_true', default = True)
     args = parser.parse_args()
     return vars(args)
 

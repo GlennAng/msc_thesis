@@ -220,13 +220,13 @@ def get_negative_samples_ids_for_user(n_negative_samples : int, random_state : i
         excluded_papers_str = f"({', '.join([str(x) for x in excluded_papers])})"
         query = f"""
                 SELECT paper_id FROM papers
-                WHERE digest_date IS NOT NULL
+                WHERE digest_date is not null
                 AND paper_id NOT IN {excluded_papers_str};
                 """
     else:
         query = """
                 SELECT paper_id FROM papers
-                WHERE digest_date IS NOT NULL;
+                WHERE arxiv_category = 'hep-ph';
                 """
     digest_papers = [t[0] for t in sql_execute(query)]
     n_digest_papers = len(digest_papers)
@@ -244,14 +244,18 @@ def get_title_and_abstract(paper_id : int) -> str:
     '''
     return sql_execute(query, paper_id = paper_id)[0]
 
-def get_titles_and_abstracts(papers_ids : list = None) -> str:
+def get_titles_and_abstracts(papers_ids : list = None, include_arxiv_categories : bool = False) -> list:
     query = f"""
-            SELECT paper_id, title, abstract FROM papers
+            SELECT paper_id, title, abstract {', arxiv_category' if include_arxiv_categories else ''} FROM papers
             {f'WHERE paper_id IN ({", ".join([str(x) for x in papers_ids])})' if papers_ids else ''}
             ORDER BY paper_id;
             """
     papers = sql_execute(query)
-    return sorted(papers, key = lambda x: x[0])
+    papers = sorted(papers, key = lambda x: x[0])
+    if include_arxiv_categories:
+        from arxiv import arxiv_categories
+        papers = [(paper_id, title, abstract, arxiv_categories[category.lower() if category else category]) for paper_id, title, abstract, category in papers]
+    return papers
 
 def get_users_survey_ratings() -> pd.DataFrame:
     query = """SELECT user_id, rating 

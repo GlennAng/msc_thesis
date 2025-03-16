@@ -264,7 +264,17 @@ class Global_Visualizer:
         survey_ratings = survey_ratings.merge(self.best_global_hyperparameters_combination_df, on = "user_id")
         for score in list(Score):
             print(f"Correlation between {score.name} and Survey Ratings: {survey_ratings[f'val_{score.name.lower()}'].corr(survey_ratings['survey_rating'])}")
-        
+
+    def print_negative_samples(self):
+        outputs_folder_2 = "outputs/tfidf2"
+        config2, users_info2, hyperparameters_combinations2, results_before_averaging_over_folds2 = load_outputs_files(outputs_folder_2)
+        global_visualizer2 = Global_Visualizer(config2, users_info2, hyperparameters_combinations2, results_before_averaging_over_folds2, outputs_folder_2,
+                                                self.score, self.tail)
+        df_merged = self.best_global_hyperparameters_combination_df.merge(global_visualizer2.best_global_hyperparameters_combination_df, on = "user_id")
+        metric = "val_ndcg_samples"
+        df_merged[metric] = df_merged[f"{metric}_x"] - df_merged[f"{metric}_y"]
+        with pd.option_context('display.max_rows', None):
+            print(df_merged[["user_id", f"{metric}_x", f"{metric}_y", metric]].sort_values(metric))
 
 if __name__ == '__main__':
     args_dict = parse_args()

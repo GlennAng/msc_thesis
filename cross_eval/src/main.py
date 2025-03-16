@@ -17,7 +17,6 @@ import time
 
 def thesis_assertions(config : dict) -> None:
     assert config["save_tfidf_coefs"] == False, "Config: save_tfidf_coefs must be False."
-    assert config["weights"] == "global:cache_v", "Config: weights must be 'global:cache_v'."
     assert config["include_cache"] == True, "Config: include_cache must be True."
     assert config["stratified"] == True, "Config: stratified must be True."
     assert config["k_folds"] == 5, "Config: k_folds must be 5."
@@ -82,7 +81,7 @@ def get_users_ids(users_selection : str, max_users : int = None, min_n_posrated 
             users_ids_with_sufficient_votes_complement = users_ids_with_sufficient_votes.copy()
         if users_selection == "random":
             users_ids_with_sufficient_votes = users_ids_with_sufficient_votes.sort_values(by = "user_id")
-            users_ids_with_sufficient_votes = users_ids_with_sufficient_votes.sample(n = max_users, random_state = random_state)
+            users_ids_with_sufficient_votes = users_ids_with_sufficient_votes.sample(n = max_users, random_state = 42)
         elif users_selection in ["largest_n", "smallest_n"]:
             smallest_n_bool = (users_selection == "smallest_n")
             users_ids_with_sufficient_votes = users_ids_with_sufficient_votes.sort_values(["n_rated", "n_posrated", "user_id"], 
