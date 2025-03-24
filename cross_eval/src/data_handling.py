@@ -215,12 +215,29 @@ def get_cache_papers_ids_for_user(user_id : int, max_cache : int = None, random_
         cache = rng.sample(cache, max_cache)
     return sorted(cache)
 
+def get_negative_samples_ids(n_negative_samples : int, random_state : int) -> list:
+    from arxiv import ARXIV_CATEGORIES, ARXIV_RATIOS
+    rng = random.Random(random_state)
+    exclude_query = """
+    SELECT paper_id FROM users_ratings UNION SELECT paper_id FROM base_papers UNION SELECT paper_id FROM cache_papers"""
+    negative_samples_ids = []
+    papers_to_exclude = set([t[0] for t in sql_execute(exclude_query)])
+    samples_per_category = [int(n_negative_samples * ratio) for ratio in ARXIV_RATIOS]
+    for category in ARXIV_CATEGORIES:
+        n_samples_category = samples_per_category.pop(0)
+        if n_samples_category == 0:
+            continue
+        query = f"SELECT paper_id FROM papers WHERE arxiv_category LIKE '{category}%'"
+        papers = sorted([t[0] for t in sql_execute(query) if t[0] not in papers_to_exclude])
+        negative_samples_ids += rng.sample(papers, n_samples_category)
+    return sorted(negative_samples_ids)
+
 def get_negative_samples_ids_for_user(n_negative_samples : int, random_state : int, excluded_papers : list = None) -> list:
     if excluded_papers:
         excluded_papers_str = f"({', '.join([str(x) for x in excluded_papers])})"
         query = f"""
                 SELECT paper_id FROM papers
-                WHERE digest_date is not null
+                WHERE arxiv_category = 'hep-ph'
                 AND paper_id NOT IN {excluded_papers_str};
                 """
     else:

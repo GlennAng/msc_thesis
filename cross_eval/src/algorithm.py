@@ -205,7 +205,8 @@ def derive_score(score : Score, user_scores : list, scores_indices_dict : dict, 
         return 2 * (precision_samples * recall_samples) / (precision_samples + recall_samples)
 
 def get_ranking_scores(y_train_rated: np.ndarray, y_train_rated_proba: np.ndarray, y_val: np.ndarray, y_val_proba: np.ndarray, 
-                       y_negative_samples_proba: np.ndarray) -> dict:
+                       y_negative_samples_proba: np.ndarray, min_n_negrated : int) -> dict:
+    min_n_negrated = min(min_n_negrated, 4)
     ranking_scores = {}
     y_train_pos_proba, y_val_pos_proba = y_train_rated_proba[y_train_rated == 1], y_val_proba[y_val == 1]
     y_train_pos_proba_n, y_val_pos_proba_n = len(y_train_pos_proba), len(y_val_pos_proba)
@@ -214,8 +215,10 @@ def get_ranking_scores(y_train_rated: np.ndarray, y_train_rated_proba: np.ndarra
         ranking_scores[f"train_{ranking_score.name.lower()}"] = np.zeros(max(1, y_train_pos_proba_n))
         ranking_scores[f"val_{ranking_score.name.lower()}"] = np.zeros(max(1, y_val_pos_proba_n))
     y_val_neg_proba = y_val_proba[y_val == 0]
-    y_val_neg_proba_n = len(y_val_neg_proba)
-    y_ranking = np.concatenate(([1], np.zeros(y_val_neg_proba_n, dtype = y_train_rated.dtype)))
+    np.random.seed(0)
+    np.random.shuffle(y_val_neg_proba)
+    y_val_neg_proba = y_val_neg_proba[:min_n_negrated]
+    y_ranking = np.concatenate(([1], np.zeros(min_n_negrated, dtype = y_train_rated.dtype)))
     y_ranking_samples = np.concatenate(([1], np.zeros(len(y_negative_samples_proba), dtype = y_train_rated.dtype)))
     for i, y_pos_prob in enumerate(y_pos_proba):
         y_proba = np.concatenate(([y_pos_prob], y_val_neg_proba))
@@ -232,7 +235,7 @@ def get_ranking_score(ranking_score : Score, y_ranking : np.ndarray, y_proba : n
     if ranking_score == Score.NDCG:
         return ndcg_score(y_ranking.reshape(1, -1), y_proba.reshape(1, -1))
     elif ranking_score == Score.NDCG_SAMPLES:
-        return ndcg_score(y_ranking_samples.reshape(1, -1), y_proba_samples.reshape(1, -1))
+        return ndcg_score(y_ranking_samples.reshape(1, -1), y_proba_samples.reshape(1, -1), k = 5)
     elif ranking_score == Score.HIT_RATE_AT_1:
         top_1_idx = np.argmax(y_proba)
         return float(y_ranking[top_1_idx] > 0)

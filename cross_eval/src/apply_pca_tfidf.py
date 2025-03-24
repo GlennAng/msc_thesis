@@ -22,7 +22,7 @@ def l2_normalize_rows(matrix):
 
 if __name__ == "__main__":
     EMBEDDINGS_INPUT_FOLDER = "/home/scholar/glenn_rp/msc_thesis/data/embeddings/tfidf/tfidf_10k_2025-02-23"
-    PCA_DIM = 192
+    PCA_DIM = 1024
 
     embeddings_base_folder = EMBEDDINGS_INPUT_FOLDER.split("/embeddings")[0] + "/embeddings"
     embeddings_name = EMBEDDINGS_INPUT_FOLDER.split("/")[-1]

@@ -1,5 +1,9 @@
-arxiv_categories = {
-    None: "No Category",
+ARXIV_CATEGORIES = ["cs", "math", "cond-mat", "hep", "astro-ph", "physics", "eess", "stat", "nucl", "q-bio", "nlin", "q-fin", "econ"]
+ARXIV_RATIOS = [0.0, 0.25, 0.20, 0.20, 0.15, 0.12, 0.0, 0.0, 0.03, 0.02, 0.01, 0.01, 0.01]
+
+def get_arxiv_categories() -> dict:
+    return {
+        None: "No Category",
     "q-alg": "Quantum Algebra",
     "adap-org": "Adaptation, Noise, and Self-Organizing Systems",
     "alg-geom": "Algebraic Geometry",
@@ -166,3 +170,54 @@ arxiv_categories = {
     "stat.ot": "Statistics - Other Statistics",
     "stat.th": "Statistics - Statistics Theory"
 } 
+
+def get_arxiv_distribution_papers() -> tuple:
+    from data_handling import sql_execute
+    query = """
+    SELECT arxiv_category, count(*) as count
+    FROM papers
+    GROUP BY arxiv_category
+    ORDER BY count DESC;
+    """
+    result = sql_execute(query)
+    categories_counts = {category: 0 for category in ARXIV_CATEGORIES}
+    n_total = 0
+    for row in result:
+        if row[0] is None:
+            continue
+        for category in ARXIV_CATEGORIES:
+            if row[0].startswith(category):
+                categories_counts[category] += row[1]
+                n_total += row[1]
+                break
+    categories_counts = {category: count / n_total for category, count in categories_counts.items()}
+    return categories_counts, n_total
+
+def get_arxiv_distribution_ratings() -> tuple:
+    from data_handling import sql_execute
+    query = """
+    SELECT p.arxiv_category, COUNT(*) as count
+    FROM users_ratings u 
+    INNER JOIN papers p ON u.paper_id = p.paper_id
+    GROUP BY p.arxiv_category
+    ORDER BY count DESC;
+    """
+    result = sql_execute(query)
+    categories = ["cs", "math", "physics", "econ", "eess", "astro-ph", "cond-mat", "hep", "nucl", "q-bio", "q-fin", "nlin", "stat"]
+    categories_counts = {category: 0 for category in ARXIV_CATEGORIES}
+    n_total = 0
+    for row in result:
+        if row[0] is None:
+            continue
+        for category in ARXIV_CATEGORIES:
+            if row[0].startswith(category):
+                categories_counts[category] += row[1]
+                n_total += row[1]
+                break
+    categories_counts = {category: count / n_total for category, count in categories_counts.items()}
+    return categories_counts, n_total
+
+
+if __name__ == "__main__":
+    print(get_arxiv_distribution_papers())
+    print(get_arxiv_distribution_ratings())

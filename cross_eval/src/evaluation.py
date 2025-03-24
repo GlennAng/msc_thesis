@@ -3,7 +3,7 @@ from algorithm import get_cross_val, get_model
 from compute_tfidf import load_vectorizer
 from data_handling import get_rated_papers_ids_for_user, get_voting_weight_for_user
 from embedding import Embedding
-from training_data import load_base_for_user, load_zerorated_for_user, load_global_cache, load_filtered_cache_for_user, load_negative_samples_embeddings_for_user
+from training_data import load_base_for_user, load_zerorated_for_user, load_global_cache, load_filtered_cache_for_user, load_negative_samples_embeddings
 from training_data import load_training_data_for_user, Cache_Type, LABEL_DTYPE
 from weights_handler import Weights_Handler
 
@@ -32,6 +32,10 @@ class Evaluator:
         self.draw_cache_from_users_ratings = self.config["include_cache"] and self.config["draw_cache_from_users_ratings"]
         if self.config["evaluation"] == Evaluation.CROSS_VALIDATION:
             self.cross_val = get_cross_val(config["stratified"], config["k_folds"], self.random_state)
+            self.min_n_negrated = self.config["min_n_negrated"] // self.config["k_folds"]
+        elif self.config["evaluation"] == Evaluation.TRAIN_TEST_SPLIT:
+            self.min_n_negrated = int(self.config["min_n_negrated"] * self.config["test_size"])
+        
 
     def evaluate_embedding(self, embedding : Embedding) -> None:
         self.embedding = embedding
@@ -46,6 +50,8 @@ class Evaluator:
         if self.include_global_cache:
             self.global_cache_ids, self.global_cache_idxs, self.global_cache_n, self.y_global_cache = load_global_cache(self.embedding, 
                                                            self.config["max_cache"], self.cache_random_state, self.draw_cache_from_users_ratings)
+        self.negative_samples_ids, self.negative_samples_embeddings = load_negative_samples_embeddings(self.embedding, self.config["n_negative_samples"], self.random_state)
+        
         if self.config["n_jobs"] == 1:
             for user_id in self.users_ids:
                 self.evaluate_user(user_id)
@@ -72,19 +78,15 @@ class Evaluator:
                                                                                               self.config["remaining_percentage"], self.random_state)
         user_predictions_dict["zerorated_ids"] = zerorated_ids
         cache_ids, cache_idxs, cache_n, y_cache = self.set_cache_for_user(user_id, posrated_n, negrated_n, base_n)
-        
         user_info = self.store_user_info(user_id, posrated_n, negrated_n, base_n, zerorated_n, cache_n)
-        negative_samples_ids, negative_samples_embeddings = load_negative_samples_embeddings_for_user(self.embedding, self.config["n_negative_samples"], self.random_state,
-                                                                                                      rated_ids, base_ids, zerorated_ids, cache_ids)
-        user_predictions_dict["negative_samples_ids"] = negative_samples_ids
+        user_predictions_dict["negative_samples_ids"] = self.negative_samples_ids
         if self.config["evaluation"] == Evaluation.TRAIN_TEST_SPLIT:
             train_rated_ids, val_rated_ids, y_train_rated, y_val = train_test_split(rated_ids, rated_labels, test_size = self.config["test_size"], random_state = self.random_state,
                                                                                     stratify = rated_labels if self.config["stratified"] else None)
             train_rated_idxs, val_rated_idxs = self.embedding.get_idxs(train_rated_ids), self.embedding.get_idxs(val_rated_ids)
             X_train_rated, X_val, X_train, y_train = self.load_data_for_user(train_rated_idxs, val_rated_idxs, y_train_rated, base_idxs, y_base, zerorated_idxs, y_zerorated, cache_idxs, y_cache)
             user_data_statistics = self.get_data_statistics_for_user(y_train_rated, base_n, zerorated_n, cache_n)
-            user_results, user_predictions, user_coefs = self.train_model_for_user(X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, user_data_statistics, 
-                                                                                   negative_samples_embeddings = negative_samples_embeddings, voting_weight = user_info["voting_weight"])
+            user_results, user_predictions, user_coefs = self.train_model_for_user(X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, user_data_statistics, user_info["voting_weight"])
             user_results_dict[0] = user_results
             user_predictions_dict[0] = self.get_papers_ids(train_rated_idxs, y_train_rated, val_rated_idxs, y_val)
             if self.config["save_users_predictions"]:
@@ -99,8 +101,7 @@ class Evaluator:
                 y_train_rated, y_val = rated_labels[fold_train_idxs], rated_labels[fold_val_idxs]
                 X_train_rated, X_val, X_train, y_train = self.load_data_for_user(train_rated_idxs, val_rated_idxs, y_train_rated, base_idxs, y_base, zerorated_idxs, y_zerorated, cache_idxs, y_cache)
                 user_data_statistics = self.get_data_statistics_for_user(y_train_rated, base_n, zerorated_n, cache_n)
-                fold_results, fold_predictions, _ = self.train_model_for_user(X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, user_data_statistics,
-                                                                              negative_samples_embeddings = negative_samples_embeddings, voting_weight = user_info["voting_weight"])
+                fold_results, fold_predictions, _ = self.train_model_for_user(X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, user_data_statistics, user_info["voting_weight"])
                 user_results_dict[fold_idx] = fold_results
                 user_predictions_dict[fold_idx] = self.get_papers_ids(train_rated_idxs, y_train_rated, val_rated_idxs, y_val)
                 if self.config["save_users_predictions"]:
@@ -149,7 +150,7 @@ class Evaluator:
         return user_data_statistics
     
     def train_model_for_user(self, X_train : np.ndarray, y_train : np.ndarray, X_train_rated : np.ndarray, y_train_rated : np.ndarray, 
-                             X_val : np.ndarray, y_val : np.ndarray, user_data_statistics : dict, negative_samples_embeddings : np.ndarray, voting_weight : float = None) -> tuple:
+                             X_val : np.ndarray, y_val : np.ndarray, user_data_statistics : dict, voting_weight : float = None) -> tuple:
         user_results, user_predictions, user_coefs = {}, {"train_predictions": {}, "val_predictions": {}, "negative_samples_predictions": {}, "tfidf_coefs": {}}, None
         sample_weights = np.empty(user_data_statistics["total_n"], dtype = np.float64)
         for combination_idx, hyperparameters_combination in enumerate(self.hyperparameters_combinations):
@@ -163,10 +164,10 @@ class Evaluator:
             sample_weights[user_data_statistics["train_rated_base_zerorated_n"]:user_data_statistics["total_n"]] = w_c
             model = self.get_model_for_user(hyperparameters_combination)
             model.fit(X_train, y_train, sample_weight = sample_weights)
-            y_train_rated_pred, y_val_pred, y_negative_samples_pred = model.predict(X_train_rated), model.predict(X_val), model.predict(negative_samples_embeddings)
+            y_train_rated_pred, y_val_pred, y_negative_samples_pred = model.predict(X_train_rated), model.predict(X_val), model.predict(self.negative_samples_embeddings)
             y_train_rated_proba = model.predict_proba(X_train_rated)[:, 1].tolist()
             y_val_proba = model.predict_proba(X_val)[:, 1].tolist()
-            y_negative_samples_proba = model.predict_proba(negative_samples_embeddings)[:, 1].tolist()
+            y_negative_samples_proba = model.predict_proba(self.negative_samples_embeddings)[:, 1].tolist()
             scores = self.get_scores_for_user(y_train_rated, y_train_rated_pred, np.array(y_train_rated_proba), y_val, y_val_pred, np.array(y_val_proba), 
                                               y_negative_samples_pred, np.array(y_negative_samples_proba))
             user_results[combination_idx] = scores
@@ -195,7 +196,7 @@ class Evaluator:
                                                                                     y_negative_samples_pred, y_negative_samples_proba)
                 user_scores[self.scores[f"val_{score.name.lower()}"]] = get_score(score, y_val, y_val_pred, y_val_proba, 
                                                                                   y_negative_samples_pred, y_negative_samples_proba)
-        ranking_scores = get_ranking_scores(y_train_rated, y_train_rated_proba, y_val, y_val_proba, y_negative_samples_proba)
+        ranking_scores = get_ranking_scores(y_train_rated, y_train_rated_proba, y_val, y_val_proba, y_negative_samples_proba, self.min_n_negrated)
         for ranking_score in ranking_scores:
             user_scores[self.scores[ranking_score]] = ranking_scores[ranking_score]
         user_scores_copy = user_scores.copy()
