@@ -216,15 +216,16 @@ def get_cache_papers_ids_for_user(user_id : int, max_cache : int = None, random_
     return sorted(cache)
 
 def get_negative_samples_ids(n_negative_samples : int, random_state : int) -> list:
-    from arxiv import ARXIV_CATEGORIES, ARXIV_RATIOS
+    arxiv_ratios = {"cs": 0.0, "math": 0.25, "cond-mat": 0.20, "hep": 0.20, "astro-ph": 0.15, "physics": 0.12, "eess": 0.0, "stat": 0.0, "nucl": 0.03, "q-bio": 0.02, "nlin": 0.01, "q-fin": 0.01, "econ": 0.01}
+    samples_per_category = {category: int(n_negative_samples * ratio) for category, ratio in arxiv_ratios.items()}
+    negative_samples_ids = []
+
     rng = random.Random(random_state)
     exclude_query = """
     SELECT paper_id FROM users_ratings UNION SELECT paper_id FROM base_papers UNION SELECT paper_id FROM cache_papers"""
-    negative_samples_ids = []
     papers_to_exclude = set([t[0] for t in sql_execute(exclude_query)])
-    samples_per_category = [int(n_negative_samples * ratio) for ratio in ARXIV_RATIOS]
-    for category in ARXIV_CATEGORIES:
-        n_samples_category = samples_per_category.pop(0)
+    for category in list(arxiv_ratios.keys()):
+        n_samples_category = samples_per_category[category]
         if n_samples_category == 0:
             continue
         query = f"SELECT paper_id FROM papers WHERE arxiv_category LIKE '{category}%'"
@@ -289,3 +290,93 @@ def get_db_backup_date() -> str:
     query = '''SELECT MAX(time) FROM users_ratings;'''
     backup_date = str(sql_execute(query)[0][0])
     return backup_date.split(" ")[0]
+
+class Arxiv_Category(Enum):
+    none = 0
+    cs = 1
+    econ = 2
+    eess = 3
+    math = 4
+    physics = 5
+    q_bio = 6
+    q_fin = 7
+    stat = 8
+
+arxiv_categories_names = {
+    Arxiv_Category.none: "No Category",
+    Arxiv_Category.cs: "Computer Science",
+    Arxiv_Category.econ: "Economics",
+    Arxiv_Category.eess: "Electrical Engineering and Systems Science",
+    Arxiv_Category.math: "Mathematics",
+    Arxiv_Category.physics: "Physics",
+    Arxiv_Category.q_bio: "Quantitative Biology",
+    Arxiv_Category.q_fin: "Quantitative Finance",
+    Arxiv_Category.stat: "Statistics"
+}
+
+def get_arxiv_category(category_arg : str) -> Arxiv_Category:
+    if category_arg is None:
+        return Arxiv_Category.none
+    category_arg = category_arg.lower()
+    category = category_arg.split(".")[0]
+    physics_subcategories = ["astro-ph", "cond-mat", "gr-qc", "hep-ex", "hep-lat", "hep-ph", "hep-th", "math-ph", "nlin", "nucl-ex", "nucl-th", "physics", "quant-ph", 
+                             "chao-dyn", "solv-int", "patt-sol", "adap-org"]
+    if category == "cs":
+        return Arxiv_Category.cs
+    elif category == "econ":
+        return Arxiv_Category.econ
+    elif category == "eess":
+        return Arxiv_Category.eess
+    elif category in ["math", "q-alg", "alg-geom", "funct-an", "dg-ga"]:
+        return Arxiv_Category.math
+    elif category in physics_subcategories:
+        return Arxiv_Category.physics
+    elif category == "q-bio":
+        return Arxiv_Category.q_bio
+    elif category == "q-fin":
+        return Arxiv_Category.q_fin
+    elif category == "stat":
+        return Arxiv_Category.stat
+    else:
+        raise ValueError(f"Unknown category: {category}")
+
+def get_arxiv_distribution_papers() -> tuple:
+    query = """
+    SELECT arxiv_category, count(*) as count
+    FROM papers
+    GROUP BY arxiv_category
+    ORDER BY count DESC;
+    """
+    result = sql_execute(query)
+    categories_counts = {category: 0 for category in list(Arxiv_Category)}
+    n_total = 0
+    for row in result:
+        categories_counts[get_arxiv_category(row[0])] += row[1]
+        n_total += row[1]
+    categories_counts = {category: count / n_total for category, count in categories_counts.items()}
+    return categories_counts, n_total
+
+def get_arxiv_distribution_ratings() -> tuple:
+    from data_handling import sql_execute
+    query = """
+    SELECT p.arxiv_category, COUNT(*) as count
+    FROM users_ratings u 
+    INNER JOIN papers p ON u.paper_id = p.paper_id
+    GROUP BY p.arxiv_category
+    ORDER BY count DESC;
+    """
+    result = sql_execute(query)
+    categories_counts = {category: 0 for category in list(Arxiv_Category)}
+    n_total = 0
+    for row in result:
+        categories_counts[get_arxiv_category(row[0])] += row[1]
+        n_total += row[1]
+    categories_counts = {category: count / n_total for category, count in categories_counts.items()}
+    return categories_counts, n_total
+
+def get_arxiv_categories() -> dict:
+    query = """
+    SELECT paper_id, arxiv_category
+    FROM papers"""
+    result = sql_execute(query)
+    return {paper_id: get_arxiv_category(arxiv_category) for paper_id, arxiv_category in result}

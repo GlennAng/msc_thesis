@@ -20,7 +20,7 @@ HYPERPARAMETERS_ABBREVIATIONS = {"clf_C": "C", "weights_cache_v": "v", "weights_
 
 PLOT_CONSTANTS = {"FIG_SIZE": (11, 8.5), "ALPHA_PLOT": 0.5, "ALPHA_FILL": 0.2, "LINE_WIDTH": 2.5, "X_HYPERPARAMETER": "clf_C",
                   "N_PAPERS_PER_PAGE": 7, "N_PAPERS_IN_TOTAL" : 70, "MAX_LINES": 5, "LINE_HEIGHT": 0.025, "WORD_SPACING": 0.0075, "X_LOCATION": -0.125, 
-                  "PLOT_SCORES" : [Score.BALANCED_ACCURACY, Score.RECALL, Score.NDCG_SAMPLES, Score.SPECIFICITY]}
+                  "PLOT_SCORES" : [Score.BALANCED_ACCURACY, Score.RECALL, Score.F1_SCORE_SAMPLES, Score.SPECIFICITY]}
 PRINT_SCORES = [Score.RECALL, Score.SPECIFICITY, Score.BALANCED_ACCURACY, Score.CEL_POS, Score.CEL_NEG, Score.AUROC, 
                 Score.F1_SCORE_SAMPLES, Score.SPECIFICITY_SAMPLES, Score.NDCG_SAMPLES, Score.MRR_SAMPLES]
 n_scores_halved = len(Score) // 2

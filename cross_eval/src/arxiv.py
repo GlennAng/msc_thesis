@@ -1,5 +1,86 @@
-ARXIV_CATEGORIES = ["cs", "math", "cond-mat", "hep", "astro-ph", "physics", "eess", "stat", "nucl", "q-bio", "nlin", "q-fin", "econ"]
-ARXIV_RATIOS = [0.0, 0.25, 0.20, 0.20, 0.15, 0.12, 0.0, 0.0, 0.03, 0.02, 0.01, 0.01, 0.01]
+from data_handling import *
+from embedding import *
+import os
+embedding_path = "../data/embeddings/after_pca/gte_large_2025-02-23_256"
+embedding = Embedding(embedding_path)
+arxiv_categories = get_arxiv_categories()
+
+def one_hot_encoding() -> None:
+    n_papers = embedding.matrix.shape[0]
+    n_categories = len(Arxiv_Category)
+    one_hot_matrix = np.zeros((n_papers, n_categories - 1), dtype = embedding.matrix.dtype)
+    for paper_id in arxiv_categories.keys():
+        arxiv_category = arxiv_categories[paper_id]
+        if arxiv_category == Arxiv_Category.none:
+            continue
+        else:
+            arxiv_category_int = arxiv_category.value - 1
+            one_hot_matrix[embedding.papers_ids_to_idxs[paper_id], arxiv_category_int] = 1
+    one_hot_matrix = np.concatenate((embedding.matrix, one_hot_matrix), axis = 1)
+    os.makedirs(embedding_path + "_onehot", exist_ok = True)
+    os.system(f"cp {embedding_path}/abs_paper_ids_to_idx.pkl {embedding_path}_onehot/abs_paper_ids_to_idx.pkl")
+    np.save(embedding_path + "_onehot/abs_X.npy", one_hot_matrix)
+
+def load_glove_embeddings(dim : int) -> dict:
+    from tqdm import tqdm
+    glove_path = f"../data/embeddings/glove/glove.6B.{dim}d.txt"
+    embeddings = {}
+    with open(glove_path, 'r', encoding='utf-8') as f:
+        for line in tqdm(f, desc = "Loading GloVe embeddings"):
+            parts = line.split()
+            word = parts[0]
+            vector = np.array(parts[1:], dtype = np.float32)
+            embeddings[word] = vector
+    return embeddings
+
+def normalize_embedding(glove_embedding : np.ndarray, normalization : str = "none") -> np.ndarray:
+    if normalization == "none":
+        return glove_embedding
+    elif normalization == "l2_unit":
+        return glove_embedding / np.linalg.norm(glove_embedding)
+    elif normalization == "l2_proportional":
+        proportionality = glove_embedding.shape[0] / (glove_embedding.shape[0] + embedding.matrix.shape[1])
+        return glove_embedding / np.linalg.norm(glove_embedding) * proportionality
+    elif normalization == "l2_05":
+        return glove_embedding / np.linalg.norm(glove_embedding) * 0.5
+
+def get_glove_category_embeddings(dim : int, normalization : str = "none") -> dict:
+    glove_embeddings = load_glove_embeddings(dim)
+    glove_category_embeddings = {}
+    for arxiv_category in list(Arxiv_Category):
+        if arxiv_category == Arxiv_Category.none:
+            glove_category_embeddings[arxiv_category] = np.zeros(dim, dtype = embedding.matrix.dtype)
+        else:
+            if arxiv_category == Arxiv_Category.cs:
+                glove_embedding = 0.7 * glove_embeddings["computer"] + 0.3 * glove_embeddings["science"]
+            elif arxiv_category == Arxiv_Category.econ:
+                glove_embedding = glove_embeddings["economics"]
+            elif arxiv_category == Arxiv_Category.eess:
+                glove_embedding = 0.5 * glove_embeddings["electrical"] + 0.3 * glove_embeddings["engineering"] + 0.2 * glove_embeddings["systems"]
+            elif arxiv_category == Arxiv_Category.math:
+                glove_embedding = glove_embeddings["mathematics"]
+            elif arxiv_category == Arxiv_Category.physics:
+                glove_embedding = glove_embeddings["physics"]
+            elif arxiv_category == Arxiv_Category.q_bio:
+                glove_embedding = 0.25 * glove_embeddings["quantitative"] + 0.75 * glove_embeddings["biology"]
+            elif arxiv_category == Arxiv_Category.q_fin:
+                glove_embedding = 0.35 * glove_embeddings["quantitative"] + 0.65 * glove_embeddings["finance"]
+            elif arxiv_category == Arxiv_Category.stat:
+                glove_embedding = glove_embeddings["statistics"]
+            glove_category_embeddings[arxiv_category] = normalize_embedding(glove_embedding, normalization)
+    return glove_category_embeddings
+
+def glove_embeddings(dim : int, normalization : str = "none") -> None:
+    n_papers = embedding.matrix.shape[0]
+    glove_category_embeddings = get_glove_category_embeddings(dim, normalization)
+    glove_matrix = np.zeros((n_papers, dim), dtype = embedding.matrix.dtype)
+    for paper_id in arxiv_categories.keys():
+        arxiv_category = arxiv_categories[paper_id]
+        glove_matrix[embedding.papers_ids_to_idxs[paper_id], :] = glove_category_embeddings[arxiv_category]
+    glove_matrix = np.concatenate((embedding.matrix, glove_matrix), axis = 1)
+    os.makedirs(embedding_path + f"_glove_{dim}_{normalization}", exist_ok = True)
+    os.system(f"cp {embedding_path}/abs_paper_ids_to_idx.pkl {embedding_path}_glove_{dim}_{normalization}/abs_paper_ids_to_idx.pkl")
+    np.save(f"{embedding_path}_glove_{dim}_{normalization}/abs_X.npy", glove_matrix)
 
 def get_arxiv_categories() -> dict:
     return {
@@ -171,53 +252,34 @@ def get_arxiv_categories() -> dict:
     "stat.th": "Statistics - Statistics Theory"
 } 
 
-def get_arxiv_distribution_papers() -> tuple:
-    from data_handling import sql_execute
-    query = """
-    SELECT arxiv_category, count(*) as count
-    FROM papers
-    GROUP BY arxiv_category
-    ORDER BY count DESC;
-    """
-    result = sql_execute(query)
-    categories_counts = {category: 0 for category in ARXIV_CATEGORIES}
-    n_total = 0
-    for row in result:
-        if row[0] is None:
-            continue
-        for category in ARXIV_CATEGORIES:
-            if row[0].startswith(category):
-                categories_counts[category] += row[1]
-                n_total += row[1]
-                break
-    categories_counts = {category: count / n_total for category, count in categories_counts.items()}
-    return categories_counts, n_total
 
-def get_arxiv_distribution_ratings() -> tuple:
-    from data_handling import sql_execute
-    query = """
-    SELECT p.arxiv_category, COUNT(*) as count
-    FROM users_ratings u 
-    INNER JOIN papers p ON u.paper_id = p.paper_id
-    GROUP BY p.arxiv_category
-    ORDER BY count DESC;
-    """
-    result = sql_execute(query)
-    categories = ["cs", "math", "physics", "econ", "eess", "astro-ph", "cond-mat", "hep", "nucl", "q-bio", "q-fin", "nlin", "stat"]
-    categories_counts = {category: 0 for category in ARXIV_CATEGORIES}
-    n_total = 0
-    for row in result:
-        if row[0] is None:
-            continue
-        for category in ARXIV_CATEGORIES:
-            if row[0].startswith(category):
-                categories_counts[category] += row[1]
-                n_total += row[1]
-                break
-    categories_counts = {category: count / n_total for category, count in categories_counts.items()}
-    return categories_counts, n_total
 
+
+
+def download_glove_embeddings() -> None:
+    from tqdm import tqdm
+    from zipfile import ZipFile
+    import os
+    import requests
+    save_dir = "../data/embeddings/glove"
+    available_dims = [50, 100, 200, 300]
+    os.makedirs(save_dir, exist_ok = True)
+    for dim in available_dims:
+        zip_path = os.path.join(save_dir, f"glove.6B.{dim}d.zip")
+        url = f"https://nlp.stanford.edu/data/glove.6B.zip"
+        response = requests.get(url, stream = True)
+        total_size = int(response.headers.get("content-length", 0))
+        print(f"Downloading GloVe embeddings with {dim} dimensions...")
+        with open(zip_path, 'wb') as f:
+            with tqdm(total = total_size, unit = 'B', unit_scale = True, desc = "Downloading") as pbar:
+                for chunk in response.iter_content(chunk_size = 1024):
+                    if chunk:
+                        f.write(chunk)
+                        pbar.update(len(chunk))
+        print(f"Extracting embeddings to {save_dir}")
+        with ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extract(f"glove.6B.{dim}d.txt", save_dir)
+        os.remove(zip_path)
 
 if __name__ == "__main__":
-    print(get_arxiv_distribution_papers())
-    print(get_arxiv_distribution_ratings())
+    glove_embeddings(100, "l2_unit")
