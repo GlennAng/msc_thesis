@@ -157,8 +157,8 @@ class Evaluator:
             w_p, w_n, w_b, w_z, w_c = self.wh.load_weights_for_user(self.hyperparameters, hyperparameters_combination, voting_weight, user_data_statistics["train_posrated_n"], 
                                                                user_data_statistics["train_negrated_n"], user_data_statistics["base_n"], user_data_statistics["zerorated_n"],
                                                                user_data_statistics["cache_n"])
-            sample_weights[:user_data_statistics["train_posrated_n"]] = w_p
-            sample_weights[user_data_statistics["train_posrated_n"]:user_data_statistics["train_rated_n"]] = w_n
+            sample_weights[:user_data_statistics["train_rated_n"]][y_train_rated == 1] = w_p
+            sample_weights[:user_data_statistics["train_rated_n"]][y_train_rated == 0] = w_n
             sample_weights[user_data_statistics["train_rated_n"]:user_data_statistics["train_rated_base_n"]] = w_b
             sample_weights[user_data_statistics["train_rated_base_n"]:user_data_statistics["train_rated_base_zerorated_n"]] = w_z
             sample_weights[user_data_statistics["train_rated_base_zerorated_n"]:user_data_statistics["total_n"]] = w_c
