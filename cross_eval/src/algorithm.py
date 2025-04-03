@@ -25,10 +25,10 @@ class Score(Enum):
     CEL_POS = auto()
     CEL_NEG = auto()
     AUROC = auto()
-    NDCG = auto()
-    HIT_RATE_AT_1 = auto()
-    HIT_RATE_AT_3 = auto()
-    MRR = auto()
+    AUROC_RANKING_EXPLICIT = auto()
+    NDCG_EXPLICIT = auto()
+    MRR_EXPLICIT = auto()
+    HIT_RATE_AT_1_EXPLICIT = auto()
     CONFIDENCE_ALL = auto()
     CONFIDENCE_POS_GT = auto()
     CONFIDENCE_NEG_GT = auto()
@@ -45,10 +45,10 @@ class Score(Enum):
     CONFIDENCE_ALL_SAMPLES = auto()
     CONFIDENCE_TOP_1_SAMPLES = auto()
     CEL_SAMPLES = auto()
-    AUROC_SAMPLES = auto()
+    AUROC_RANKING_SAMPLES = auto()
     NDCG_SAMPLES = auto()
-    HIT_RATE_AT_3_SAMPLES = auto()
     MRR_SAMPLES = auto()
+    HIT_RATE_AT_1_SAMPLES = auto()
 SCORES_DICT = { Score.POSITIVE_GT_RATIO : {"name": "Positive Ground Truth Ratio", "abbreviation": "PGTRo", "increase_better": True, "derivable": False, "ranking": False},
                 Score.POSITIVE_PRED_RATIO : {"name": "Positive Prediction Ratio", "abbreviation": "PPRRo", "increase_better": True, "derivable": False, "ranking": False},
                 Score.TRUE_POSITIVE_RATIO : {"name": "True Positive Ratio", "abbreviation": "TPRo", "increase_better": True, "derivable": False, "ranking": False},
@@ -62,35 +62,35 @@ SCORES_DICT = { Score.POSITIVE_GT_RATIO : {"name": "Positive Ground Truth Ratio"
                 Score.PRECISION : {"name": "Precision", "abbreviation": "PRE", "increase_better": True, "derivable": False, "ranking": False},
                 Score.F1_SCORE : {"name": "F1 Score", "abbreviation": "F1", "increase_better": True, "derivable": True, "ranking": False},
                 Score.CEL : {"name": "Cross-Entropy Loss", "abbreviation": "CEL", "increase_better": False, "derivable": False, "ranking": False},
-                Score.CEL_POS : {"name": "CEL among positive GT", "abbreviation": "CELP", "increase_better": False, "derivable": False, "ranking": False},
-                Score.CEL_NEG : {"name": "CEL among negative GT", "abbreviation": "CELN", "increase_better": False, "derivable": False, "ranking": False},
+                Score.CEL_POS : {"name": "CEL positive GT", "abbreviation": "CELP", "increase_better": False, "derivable": False, "ranking": False},
+                Score.CEL_NEG : {"name": "CEL negative GT", "abbreviation": "CELN", "increase_better": False, "derivable": False, "ranking": False},
                 Score.AUROC : {"name": "Area under Roc Curve", "abbreviation": "AUC", "increase_better": True, "derivable": False, "ranking": False},
-                Score.NDCG : {"name": "Normalized Discounted Cumulative Gain", "abbreviation": "NDCG", "increase_better": True, "derivable": False, "ranking": True},
-                Score.HIT_RATE_AT_1 : {"name": "Hit Rate at 1", "abbreviation": "HR@1", "increase_better": True, "derivable": False, "ranking": True},
-                Score.HIT_RATE_AT_3 : {"name": "Hit Rate at 3", "abbreviation": "HR@3", "increase_better": True, "derivable": False, "ranking": True},
-                Score.MRR : {"name": "Mean Reciprocal Rank", "abbreviation": "MRR", "increase_better": True, "derivable": False, "ranking": True},
+                Score.AUROC_RANKING_EXPLICIT: {"name": "Area under Roc Curve Explicit (Ranking)", "abbreviation": "AUCR_E", "increase_better": True, "derivable": False, "ranking": True},
+                Score.NDCG_EXPLICIT : {"name": "Normalized Discounted Cumulative Gain Explicit", "abbreviation": "NDCG_E", "increase_better": True, "derivable": False, "ranking": True},
+                Score.MRR_EXPLICIT : {"name": "Mean Reciprocal Rank Explicit", "abbreviation": "MRR_E", "increase_better": True, "derivable": False, "ranking": True},
+                Score.HIT_RATE_AT_1_EXPLICIT: {"name": "Hit Rate at 1 Explicit", "abbreviation": "HR@1_E", "increase_better": True, "derivable": False, "ranking": True},
                 Score.CONFIDENCE_ALL : {"name": "Confidence All", "abbreviation": "CALL", "increase_better": True, "derivable": False, "ranking": False},
-                Score.CONFIDENCE_POS_GT : {"name": "Confidence among positive GT", "abbreviation": "CPGT", "increase_better": True, "derivable": False, "ranking": False},
-                Score.CONFIDENCE_NEG_GT : {"name": "Confidence among negative GT", "abbreviation": "CNGT", "increase_better": False, "derivable": False, "ranking": False},
-                Score.CONFIDENCE_BOTTOM_25_PERCENT_POS_GT : {"name": "Confidence among 25 Percent least confident positive GT", "abbreviation": "CPGT25", "increase_better": True, 
+                Score.CONFIDENCE_POS_GT : {"name": "Confidence positive GT", "abbreviation": "CPGT", "increase_better": True, "derivable": False, "ranking": False},
+                Score.CONFIDENCE_NEG_GT : {"name": "Confidence negative GT", "abbreviation": "CNGT", "increase_better": False, "derivable": False, "ranking": False},
+                Score.CONFIDENCE_BOTTOM_25_PERCENT_POS_GT : {"name": "Confidence 25 Percent least confident positive GT", "abbreviation": "CPGT25", "increase_better": True, 
                                                              "derivable": False, "ranking": False},
-                Score.CONFIDENCE_TOP_25_PERCENT_NEG_GT : {"name": "Confidence among 25 Percent most confident negative GT", "abbreviation": "CNGT25", "increase_better": False, 
+                Score.CONFIDENCE_TOP_25_PERCENT_NEG_GT : {"name": "Confidence 25 Percent most confident negative GT", "abbreviation": "CNGT25", "increase_better": False, 
                                                           "derivable": False, "ranking": False},
-                Score.CONFIDENCE_TP : {"name": "Confidence among True Positives", "abbreviation": "CTP", "increase_better": True, "derivable": False, "ranking": False},
-                Score.CONFIDENCE_FP : {"name": "Confidence among False Positives", "abbreviation": "CFP", "increase_better": False, "derivable": False, "ranking": False},
-                Score.CONFIDENCE_TN : {"name": "Confidence among True Negatives", "abbreviation": "CTN", "increase_better": True, "derivable": False, "ranking": False},
-                Score.CONFIDENCE_FN : {"name": "Confidence among False Negatives", "abbreviation": "CFN", "increase_better": False, "derivable": False, "ranking": False},
+                Score.CONFIDENCE_TP : {"name": "Confidence True Positives", "abbreviation": "CTP", "increase_better": True, "derivable": False, "ranking": False},
+                Score.CONFIDENCE_FP : {"name": "Confidence False Positives", "abbreviation": "CFP", "increase_better": False, "derivable": False, "ranking": False},
+                Score.CONFIDENCE_TN : {"name": "Confidence True Negatives", "abbreviation": "CTN", "increase_better": True, "derivable": False, "ranking": False},
+                Score.CONFIDENCE_FN : {"name": "Confidence False Negatives", "abbreviation": "CFN", "increase_better": False, "derivable": False, "ranking": False},
                 Score.POSITIVE_GT_ABOVE_THRESHOLD : {"name": "Positive Ground Truth Above Threshold", "abbreviation": "PGTAT", "increase_better": True, "derivable": False, "ranking": False},
-                Score.SPECIFICITY_SAMPLES : {"name": "Specificity among Samples", "abbreviation": "SPE_S", "increase_better": True, "derivable": False, "ranking": False},
-                Score.PRECISION_SAMPLES : {"name": "Precision among Samples", "abbreviation": "PRE_S", "increase_better": True, "derivable": False, "ranking": False},
-                Score.F1_SCORE_SAMPLES : {"name": "F1 Score among Samples", "abbreviation": "F1_S", "increase_better": True, "derivable": True, "ranking": False},
-                Score.CONFIDENCE_ALL_SAMPLES : {"name": "Confidence All among Samples", "abbreviation": "CALL_S", "increase_better": False, "derivable": False, "ranking": False},
-                Score.CONFIDENCE_TOP_1_SAMPLES : {"name": "Confidence among Top 1 Samples", "abbreviation": "CT1_S", "increase_better": False, "derivable": False, "ranking": False},
-                Score.CEL_SAMPLES : {"name": "Cross-Entropy Loss among Samples", "abbreviation": "CEL_S", "increase_better": False, "derivable": False, "ranking": False},
-                Score.AUROC_SAMPLES : {"name": "Area under Roc Curve among Samples", "abbreviation": "AUC_S", "increase_better": True, "derivable": False, "ranking": False},
-                Score.NDCG_SAMPLES : {"name": "Normalized Discounted Cumulative Gain among Samples", "abbreviation": "NDCG_S", "increase_better": True, "derivable": False, "ranking": True},
-                Score.HIT_RATE_AT_3_SAMPLES : {"name": "Hit Rate at 3 among Samples", "abbreviation": "HR@3_S", "increase_better": True, "derivable": False, "ranking": True},
-                Score.MRR_SAMPLES : {"name": "Mean Reciprocal Rank among Samples", "abbreviation": "MRR_S", "increase_better": True, "derivable": False, "ranking": True}}
+                Score.SPECIFICITY_SAMPLES : {"name": "Specificity Samples", "abbreviation": "SPE_S", "increase_better": True, "derivable": False, "ranking": False},
+                Score.PRECISION_SAMPLES : {"name": "Precision Samples", "abbreviation": "PRE_S", "increase_better": True, "derivable": False, "ranking": False},
+                Score.F1_SCORE_SAMPLES : {"name": "F1 Score Samples", "abbreviation": "F1_S", "increase_better": True, "derivable": True, "ranking": False},
+                Score.CONFIDENCE_ALL_SAMPLES : {"name": "Confidence All Samples", "abbreviation": "CALL_S", "increase_better": False, "derivable": False, "ranking": False},
+                Score.CONFIDENCE_TOP_1_SAMPLES : {"name": "Confidence Top 1 Samples", "abbreviation": "CT1_S", "increase_better": False, "derivable": False, "ranking": False},
+                Score.CEL_SAMPLES : {"name": "Cross-Entropy Loss Samples", "abbreviation": "CEL_S", "increase_better": False, "derivable": False, "ranking": False},
+                Score.AUROC_RANKING_SAMPLES : {"name": "Area under Roc Curve Samples (Ranking)", "abbreviation": "AUCR_S", "increase_better": True, "derivable": False, "ranking": True},
+                Score.NDCG_SAMPLES : {"name": "Normalized Discounted Cumulative Gain Samples", "abbreviation": "NDCG_S", "increase_better": True, "derivable": False, "ranking": True},
+                Score.MRR_SAMPLES : {"name": "Mean Reciprocal Rank Samples", "abbreviation": "MRR_S", "increase_better": True, "derivable": False, "ranking": True},
+                Score.HIT_RATE_AT_1_SAMPLES : {"name": "Hit Rate at 1 Samples", "abbreviation": "HR@1_S", "increase_better": True, "derivable": False, "ranking": True}}
 RANKING_SCORES = [score for score in Score if SCORES_DICT[score]["ranking"]]
 
 def get_score_from_arg(score_arg : str) -> Score:
@@ -205,8 +205,7 @@ def derive_score(score : Score, user_scores : list, scores_indices_dict : dict, 
         return 2 * (precision_samples * recall_samples) / (precision_samples + recall_samples)
 
 def get_ranking_scores(y_train_rated: np.ndarray, y_train_rated_proba: np.ndarray, y_val: np.ndarray, y_val_proba: np.ndarray, 
-                       y_negative_samples_proba: np.ndarray, min_n_negrated : int) -> dict:
-    min_n_negrated = min(min_n_negrated, 4)
+                       y_negrated_ranking_proba : np.ndarray, y_negative_samples_proba: np.ndarray) -> dict:
     ranking_scores = {}
     y_train_pos_proba, y_val_pos_proba = y_train_rated_proba[y_train_rated == 1], y_val_proba[y_val == 1]
     y_train_pos_proba_n, y_val_pos_proba_n = len(y_train_pos_proba), len(y_val_pos_proba)
@@ -214,14 +213,10 @@ def get_ranking_scores(y_train_rated: np.ndarray, y_train_rated_proba: np.ndarra
     for ranking_score in RANKING_SCORES:
         ranking_scores[f"train_{ranking_score.name.lower()}"] = np.zeros(max(1, y_train_pos_proba_n))
         ranking_scores[f"val_{ranking_score.name.lower()}"] = np.zeros(max(1, y_val_pos_proba_n))
-    y_val_neg_proba = y_val_proba[y_val == 0]
-    np.random.seed(0)
-    np.random.shuffle(y_val_neg_proba)
-    y_val_neg_proba = y_val_neg_proba[:min_n_negrated]
-    y_ranking = np.concatenate(([1], np.zeros(min_n_negrated, dtype = y_train_rated.dtype)))
-    y_ranking_samples = np.concatenate(([1], np.zeros(len(y_negative_samples_proba), dtype = y_train_rated.dtype)))
+    y_ranking = np.concatenate(([1], np.zeros_like(y_negrated_ranking_proba)))
+    y_ranking_samples = np.concatenate(([1], np.zeros_like(y_negative_samples_proba)))
     for i, y_pos_prob in enumerate(y_pos_proba):
-        y_proba = np.concatenate(([y_pos_prob], y_val_neg_proba))
+        y_proba = np.concatenate(([y_pos_prob], y_negrated_ranking_proba))
         y_proba_samples = np.concatenate(([y_pos_prob], y_negative_samples_proba))
         prefix, j = ("train", i) if i < y_train_pos_proba_n else ("val", i - y_train_pos_proba_n)
         for ranking_score in RANKING_SCORES:
@@ -232,25 +227,33 @@ def get_ranking_scores(y_train_rated: np.ndarray, y_train_rated_proba: np.ndarra
     return ranking_scores
 
 def get_ranking_score(ranking_score : Score, y_ranking : np.ndarray, y_proba : np.ndarray, y_ranking_samples : np.ndarray, y_proba_samples : np.ndarray) -> float:
-    if ranking_score == Score.NDCG:
-        return ndcg_score(y_ranking.reshape(1, -1), y_proba.reshape(1, -1))
+    if ranking_score in [Score.AUROC_RANKING_EXPLICIT, Score.AUROC_RANKING_SAMPLES]:
+        if ranking_score == Score.AUROC_RANKING_EXPLICIT:
+            ranking, proba = y_ranking, y_proba
+        elif ranking_score == Score.AUROC_RANKING_SAMPLES:
+            ranking, proba = y_ranking_samples, y_proba_samples
+        top5_indices = np.argsort(proba)[::-1][:5]
+        pos_in_top5 = np.where(ranking[top5_indices] == 1)[0]
+        if len(pos_in_top5) == 0:
+            return 0.0
+        else:
+            return (4 - pos_in_top5[0]) / 4
+    elif ranking_score == Score.NDCG_EXPLICIT:
+        return ndcg_score(y_ranking.reshape(1, -1), y_proba.reshape(1, -1), k = 5)
     elif ranking_score == Score.NDCG_SAMPLES:
         return ndcg_score(y_ranking_samples.reshape(1, -1), y_proba_samples.reshape(1, -1), k = 5)
-    elif ranking_score == Score.HIT_RATE_AT_1:
+    elif ranking_score == Score.HIT_RATE_AT_1_EXPLICIT:
         top_1_idx = np.argmax(y_proba)
         return float(y_ranking[top_1_idx] > 0)
-    elif ranking_score == Score.HIT_RATE_AT_3:
-        top_3_idxs = np.argsort(y_proba)[-3:]
-        return float(np.any(y_ranking[top_3_idxs] > 0))
-    elif ranking_score == Score.HIT_RATE_AT_3_SAMPLES:
-        top_3_idxs = np.argsort(y_proba_samples)[-3:]
-        return float(np.any(y_ranking_samples[top_3_idxs] > 0))
-    elif ranking_score in [Score.MRR, Score.MRR_SAMPLES]:
-        if ranking_score == Score.MRR:
+    elif ranking_score == Score.HIT_RATE_AT_1_SAMPLES:
+        top_1_idx = np.argmax(y_proba_samples)
+        return float(y_ranking_samples[top_1_idx] > 0)
+    elif ranking_score in [Score.MRR_EXPLICIT, Score.MRR_SAMPLES]:
+        if ranking_score == Score.MRR_EXPLICIT:
             ranking, proba = y_ranking, y_proba
         else:
             ranking, proba = y_ranking_samples, y_proba_samples
-        sorted_indices = np.argsort(proba)[::-1]
+        sorted_indices = np.argsort(proba)[::-1][:5]
         for rank, idx in enumerate(sorted_indices, 1):
             if ranking[idx] > 0:
                 return 1.0 / rank

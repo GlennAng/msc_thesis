@@ -20,8 +20,8 @@ HYPERPARAMETERS_ABBREVIATIONS = {"clf_C": "C", "weights_cache_v": "v", "weights_
 
 PLOT_CONSTANTS = {"FIG_SIZE": (11, 8.5), "ALPHA_PLOT": 0.5, "ALPHA_FILL": 0.2, "LINE_WIDTH": 2.5, "X_HYPERPARAMETER": "clf_C",
                   "N_PAPERS_PER_PAGE": 7, "N_PAPERS_IN_TOTAL" : 70, "MAX_LINES": 5, "LINE_HEIGHT": 0.025, "WORD_SPACING": 0.0075, "X_LOCATION": -0.125, 
-                  "PLOT_SCORES" : [Score.BALANCED_ACCURACY, Score.RECALL, Score.F1_SCORE_SAMPLES, Score.SPECIFICITY]}
-PRINT_SCORES = [Score.RECALL, Score.SPECIFICITY, Score.BALANCED_ACCURACY, Score.CEL_POS, Score.CEL_NEG, Score.AUROC, 
+                  "PLOT_SCORES" : [Score.BALANCED_ACCURACY, Score.RECALL, Score.AUROC, Score.SPECIFICITY]}
+PRINT_SCORES = [Score.RECALL, Score.SPECIFICITY, Score.BALANCED_ACCURACY, Score.AUROC, Score.NDCG_EXPLICIT, Score.MRR_EXPLICIT,
                 Score.F1_SCORE_SAMPLES, Score.SPECIFICITY_SAMPLES, Score.NDCG_SAMPLES, Score.MRR_SAMPLES]
 n_scores_halved = len(Score) // 2
 
@@ -37,11 +37,7 @@ def format_number(value : float, max_decimals : int = 4) -> str:
         return value
     if not is_number(value):
         return value
-    formatted = f"{value:.{max_decimals}f}"
-    stripped = formatted.rstrip('0')
-    if stripped.endswith('.'):
-        return stripped + '0'
-    return stripped
+    return f"{value:.{max_decimals}f}"
 
 def load_outputs_files(folder : str) -> tuple:
     folder = folder[-1] if folder[-1] == "/" else folder
@@ -96,7 +92,9 @@ def get_users_selection_str(users_selection : str, users_ids : list) -> str:
     elif users_selection == "smallest_n":
         s += "Smallest Number of rated Papers."
     else:
-        s += f"Specifically chosen. \n{users_ids}."
+        s += f"Specifically chosen."
+        if len(users_ids) <= 100:
+            s += f"\n{users_ids}."
     return s
 
 def print_first_page(pdf : PdfPages, config_str : str) -> None:
@@ -197,6 +195,8 @@ def get_best_global_hyperparameters_combination_table(best_global_hyperparameter
             score_abbreviation = "CPGT\nB.25"
         elif score == Score.CONFIDENCE_TOP_25_PERCENT_NEG_GT:
             score_abbreviation = "CNGT\nT.25"
+        elif "_E" in score_abbreviation:
+            score_abbreviation = score_abbreviation.replace("_E", "\nExpl")
         elif "_S" in score_abbreviation:
             score_abbreviation = score_abbreviation.replace("_S", "\nSmpl")
         row = [score_abbreviation]
@@ -710,15 +710,63 @@ def plot_false_validation_papers(pdf : PdfPages, false_pos_val_papers_selection 
     plot_false_validation_papers_classification_outcome(pdf, false_neg_val_papers_selection, n_false_neg_val_papers_full, word_scores, cosine_similarities, 
                                                         pos_train_papers_selection, neg_train_papers_selection, Classification_Outcome.FALSE_NEGATIVE)
 
-def plot_negative_samples(pdf : PdfPages, negative_samples_selection : list, n_negative_samples_full : int, pos_val_papers_selection : list, n_pos_val_papers_full : int, 
-                          words_scores : dict, cosine_similarities : dict, pos_train_papers_selection : list, neg_train_papers_selection : list) -> None:
-    plot_negative_samples_overview(pdf, negative_samples_selection, n_negative_samples_full, pos_val_papers_selection, n_pos_val_papers_full)
-    n_negative_samples_selection = min(25, len(negative_samples_selection))
-    title = (f"Collection of the {n_negative_samples_selection} Most Highly Rated Negative Samples (Total N = {n_negative_samples_full})")
-    for i in range(n_negative_samples_selection):
-        plot_single_paper(pdf, negative_samples_selection[i], title, words_scores, cosine_similarities, pos_train_papers_selection, neg_train_papers_selection, samples = True)
+def plot_ranking_predictions(pdf : PdfPages, papers_selection : list, n_papers_full : int, pos_val_papers_selection : list, n_pos_val_papers_full : int,
+                             words_scores : dict, cosine_similarities : dict, pos_train_papers_selection : list, neg_train_papers_selection : list, is_negrated_ranking : bool) -> None:
+    plot_ranking_overview(pdf, papers_selection, n_papers_full, pos_val_papers_selection, n_pos_val_papers_full)
+    n_papers_selection = min(25, len(papers_selection))
+    if is_negrated_ranking:
+        title = f"Collection of all randomly selected Explicit Negative Papers (Total N = {n_papers_full})"
+    else:
+        title = f"Collection of the {n_papers_selection} Most Highly Rated Papers (Total N = {n_papers_full})"
+    for i in range(n_papers_selection):
+        plot_single_paper(pdf, papers_selection[i], title, words_scores, cosine_similarities, pos_train_papers_selection, neg_train_papers_selection, samples = not is_negrated_ranking)
 
-def plot_negative_samples_overview(pdf : PdfPages, negative_samples_selection : list, n_negative_samples_full : int, pos_val_papers_selection : list, n_pos_val_papers_full : int) -> None:
+def plot_ranking_overview(pdf : PdfPages, papers_selection : list, n_papers_full : int, pos_val_papers_selection : list, n_pos_val_papers_full : int) -> None:
+    fig, ax = plt.subplots(figsize = PLOT_CONSTANTS["FIG_SIZE"])
+    ax.axis('off')
+
+    colors = ['#ffffff', '#fff7ec', '#fee8c8', '#fdd49e', '#fdbb84', '#fc8d59', '#ef6548', '#d7301f', '#b30000']
+    n_bins = len(colors)
+    custom_cmap = LinearSegmentedColormap.from_list('custom_YlOrRd', colors, N = n_bins)
+
+    papers_ax = fig.add_axes([0.01, 0.52, 1.1, 0.45])
+    papers_data = reshape_to_n_rows_10_cols(np.array([paper[2] for paper in papers_selection]), 10)
+    im_papers = papers_ax.imshow(papers_data, cmap = custom_cmap, vmin=0, vmax=1, aspect='auto')
+    add_grid_lines(papers_ax, papers_data)
+    counter = 1
+    for j in range(papers_data.shape[1]):
+        for i in range(papers_data.shape[0]):
+            formatted_number = format_number(papers_data[i, j], max_decimals = 3)
+            if formatted_number != "nan":
+                papers_ax.text(j, i, f"#{counter}:  {formatted_number}\n ID: {papers_selection[counter-1][1]}", ha='center', va='center', color = 'black', fontsize=8)
+            counter += 1     
+    papers_ax.set_title(f'Model Probabilities for the {len(papers_selection)} Most Highly Rated Papers (Total N = {n_papers_full})', pad = 3, fontsize = 9, fontweight = 'bold')
+    papers_ax.set_xticks([])
+    papers_ax.set_yticks([])
+    cbar_papers = plt.colorbar(im_papers, ax=papers_ax, orientation='vertical', pad = 0.01)
+    cbar_papers.ax.tick_params(labelsize=9)
+
+    pos_val_ax = fig.add_axes([0.01, 0.03, 1.1, 0.45])
+    pos_val_data = reshape_to_n_rows_10_cols(np.array([pos_val_paper[2] for pos_val_paper in pos_val_papers_selection]), 10)
+    im_pos_val = pos_val_ax.imshow(pos_val_data,
+                                   cmap = custom_cmap, vmin=0, vmax=1, aspect='auto')
+    add_grid_lines(pos_val_ax, pos_val_data)
+    counter = 1
+    for j in range(pos_val_data.shape[1]):
+        for i in range(pos_val_data.shape[0]):
+            formatted_number = format_number(pos_val_data[i, j], max_decimals = 3)
+            if formatted_number != "nan":
+                pos_val_ax.text(j, i, f"#{counter}:  {formatted_number}\n ID: {pos_val_papers_selection[counter-1][1]}", ha='center', va='center', color = 'black', fontsize=8)
+            counter += 1
+    pos_val_ax.set_title(f'Model Probabilities for the {len(pos_val_papers_selection)} Least Highly Rated Validation GT-Positives (Total N = {n_pos_val_papers_full})', pad = 3, fontsize = 9, fontweight = 'bold')
+    pos_val_ax.set_xticks([])
+    pos_val_ax.set_yticks([])
+    cbar_pos_val = plt.colorbar(im_pos_val, ax=pos_val_ax, orientation='vertical', pad = 0.01)
+    cbar_pos_val.ax.tick_params(labelsize=9)
+    pdf.savefig(fig)
+    plt.close()
+
+def plot_ranking_overview(pdf : PdfPages, negative_samples_selection : list, n_negative_samples_full : int, pos_val_papers_selection : list, n_pos_val_papers_full : int) -> None:
     fig, ax = plt.subplots(figsize = PLOT_CONSTANTS["FIG_SIZE"])
     ax.axis('off')
 
@@ -763,7 +811,6 @@ def plot_negative_samples_overview(pdf : PdfPages, negative_samples_selection : 
     pdf.savefig(fig)
     plt.close()
 
-
 def preprocess_cosine_similarities(paper_id : int, cosine_similarities : dict, pos_train_papers_selection : list, neg_train_papers_selection : list, samples : bool = False) -> tuple:
     ids_to_idxs = {paper_id: idx for idx, paper_id in enumerate(cosine_similarities["posrated_ids"] + cosine_similarities["negrated_ids"])}
     if samples:
@@ -772,11 +819,14 @@ def preprocess_cosine_similarities(paper_id : int, cosine_similarities : dict, p
     else:
         relevant_row = cosine_similarities["rated_cosine_similarities"][ids_to_idxs[paper_id]]
     pos_relevant_row, neg_relevant_row = np.zeros(len(pos_train_papers_selection)), np.zeros(len(neg_train_papers_selection))
+    pos_relevant_ids_row, neg_relevant_ids_row = np.zeros(len(pos_train_papers_selection), dtype = np.int32), np.zeros(len(neg_train_papers_selection), dtype = np.int32)
     for i in range(len(pos_relevant_row)):
         pos_relevant_row[i] = relevant_row[ids_to_idxs[pos_train_papers_selection[i][1]]]
+        pos_relevant_ids_row[i] = pos_train_papers_selection[i][1]
     for i in range(len(neg_relevant_row)):
         neg_relevant_row[i] = relevant_row[ids_to_idxs[neg_train_papers_selection[i][1]]]
-    return pos_relevant_row, neg_relevant_row
+        neg_relevant_ids_row[i] = neg_train_papers_selection[i][1]
+    return pos_relevant_row, pos_relevant_ids_row, neg_relevant_row, neg_relevant_ids_row
 
 def reshape_to_n_rows_10_cols(arr, n):
     result = np.full((n, 10), np.nan)
@@ -790,16 +840,15 @@ def reshape_to_n_rows_10_cols(arr, n):
     return result
 
 def add_grid_lines(ax, data):
-        # Add vertical lines between columns
         for x in range(data.shape[1] + 1):
             ax.axvline(x - 0.5, color='black', linewidth=0.5, alpha=0.5)
-        # Add horizontal lines between rows
         for y in range(data.shape[0] + 1):
             ax.axhline(y - 0.5, color='black', linewidth=0.5, alpha=0.5)
 
 def plot_single_paper(pdf: PdfPages, table_data: list, page_title: str, word_scores: dict, cosine_similarities: dict, pos_train_papers_selection: list, neg_train_papers_selection: list,
                       samples : bool = False) -> None:
-    pos_relevant_row, neg_relevant_row = preprocess_cosine_similarities(table_data[1], cosine_similarities, pos_train_papers_selection, neg_train_papers_selection, samples)
+    preprocess_cosine = preprocess_cosine_similarities(table_data[1], cosine_similarities, pos_train_papers_selection, neg_train_papers_selection, samples)
+    pos_relevant_row, pos_relevant_ids_row, neg_relevant_row, neg_relevant_ids_row = preprocess_cosine
     plt.rcParams["text.usetex"] = False
     fig, ax = plt.subplots(figsize = PLOT_CONSTANTS["FIG_SIZE"])
     ax.axis('off')
@@ -833,18 +882,18 @@ def plot_single_paper(pdf: PdfPages, table_data: list, page_title: str, word_sco
     n_bins = len(colors)
     custom_cmap = LinearSegmentedColormap.from_list('custom_YlOrRd', colors, N=n_bins)
 
-    # Add positive similarities heatmap
-    pos_ax = fig.add_axes([0.01, 0.33, 1.1, 0.29])  # [left, bottom, width, height]
+    pos_ax = fig.add_axes([0.01, 0.33, 1.1, 0.29])
     pos_data = reshape_to_n_rows_10_cols(pos_relevant_row, 7)
+    pos_data_ids = reshape_to_n_rows_10_cols(pos_relevant_ids_row, 7)
     im_pos = pos_ax.imshow(pos_data, cmap = custom_cmap, vmin=0, vmax=1, aspect='auto')
     add_grid_lines(pos_ax, pos_data)
 
     counter = 1
-    for j in range(pos_data.shape[1]):  # Iterate over columns first
-        for i in range(pos_data.shape[0]):  # Then over rows
+    for j in range(pos_data.shape[1]):
+        for i in range(pos_data.shape[0]):
             formatted_number = format_number(pos_data[i, j], max_decimals = 3)
             if formatted_number != "nan":
-                pos_ax.text(j, i, f"#{counter}:  {formatted_number}", ha='center', va='center', color = 'black', fontsize=8)
+                pos_ax.text(j, i, f"#{counter}:  {formatted_number}\nID: {int(pos_data_ids[i, j])}", ha='center', va='center', color = 'black', fontsize=8)
             counter += 1
             
     pos_ax.set_title(f'Cosine Similarities to the Selection of {len(pos_relevant_row)} positively rated Papers:', pad = 3, fontsize = 9, fontweight = 'bold')
@@ -853,18 +902,18 @@ def plot_single_paper(pdf: PdfPages, table_data: list, page_title: str, word_sco
     cbar_pos = plt.colorbar(im_pos, ax=pos_ax, orientation='vertical', pad = 0.01)
     cbar_pos.ax.tick_params(labelsize=9)
 
-    # Add negative similarities heatmap
-    neg_ax = fig.add_axes([0.01, 0.01, 1.1, 0.29])  # [left, bottom, width, height]
+    neg_ax = fig.add_axes([0.01, 0.01, 1.1, 0.29])
     neg_data = reshape_to_n_rows_10_cols(neg_relevant_row, 7)
+    neg_data_ids = reshape_to_n_rows_10_cols(neg_relevant_ids_row, 7)
     im_neg = neg_ax.imshow(neg_data, cmap = custom_cmap, vmin=0, vmax=1, aspect='auto')
     add_grid_lines(neg_ax, neg_data)
 
     counter = 1
-    for j in range(neg_data.shape[1]):  # Iterate over columns first
-        for i in range(neg_data.shape[0]):  # Then over rows
+    for j in range(neg_data.shape[1]):
+        for i in range(neg_data.shape[0]):
             formatted_number = format_number(neg_data[i, j], max_decimals = 3)
             if formatted_number != "nan":
-                neg_ax.text(j, i, f"#{counter}:  {formatted_number}", ha='center', va='center', color = 'black', fontsize=8)
+                neg_ax.text(j, i, f"#{counter}:  {formatted_number}\nID: {int(neg_data_ids[i, j])}", ha='center', va='center', color = 'black', fontsize=8)
             counter += 1
     neg_ax.set_title(f'Cosine Similarities to the Selection of {len(neg_relevant_row)} negatively rated Papers:', pad = 3, fontsize = 9, fontweight = 'bold')
     neg_ax.set_xticks([])

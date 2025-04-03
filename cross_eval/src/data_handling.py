@@ -219,7 +219,6 @@ def get_negative_samples_ids(n_negative_samples : int, random_state : int) -> li
     arxiv_ratios = {"cs": 0.0, "math": 0.25, "cond-mat": 0.20, "hep": 0.20, "astro-ph": 0.15, "physics": 0.12, "eess": 0.0, "stat": 0.0, "nucl": 0.03, "q-bio": 0.02, "nlin": 0.01, "q-fin": 0.01, "econ": 0.01}
     samples_per_category = {category: int(n_negative_samples * ratio) for category, ratio in arxiv_ratios.items()}
     negative_samples_ids = []
-
     rng = random.Random(random_state)
     exclude_query = """
     SELECT paper_id FROM users_ratings UNION SELECT paper_id FROM base_papers UNION SELECT paper_id FROM cache_papers"""

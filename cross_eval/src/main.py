@@ -27,6 +27,12 @@ def thesis_assertions(config : dict) -> None:
     assert config["logreg_solver"] == "lbfgs", "Config: logreg_solver must be 'lbfgs'."
     assert config["max_iter"] == 10000, "Config: max_iter must be 10000."
 
+def set_random_states(config : dict) -> None:
+    random_states = ["users_random_state", "model_random_state", "cache_random_state", "ranking_random_state"]
+    for random_state in random_states:
+        if random_state not in config or config[random_state] is None:
+            config[random_state] = config["random_state"]
+
 def load_config(config_file : str) -> dict:
     try:
         with open(config_file) as file:
@@ -73,6 +79,7 @@ def get_users_ids(users_selection : str, max_users : int = None, min_n_posrated 
         survey_participants = get_users_survey_ratings()["user_id"]
         users_ids_with_sufficient_votes = users_ids_with_sufficient_votes[users_ids_with_sufficient_votes["user_id"].isin(survey_participants)]
     n_users_with_sufficient_votes = len(users_ids_with_sufficient_votes)
+    print(n_users_with_sufficient_votes, "users with sufficient votes.")
     max_users = n_users_with_sufficient_votes if max_users is None else min(max_users, n_users_with_sufficient_votes)
     if max_users >= n_users_with_sufficient_votes:
         assert not take_complement, "Users Selection: take_complement must be False when all users are selected."
@@ -81,13 +88,14 @@ def get_users_ids(users_selection : str, max_users : int = None, min_n_posrated 
             users_ids_with_sufficient_votes_complement = users_ids_with_sufficient_votes.copy()
         if users_selection == "random":
             users_ids_with_sufficient_votes = users_ids_with_sufficient_votes.sort_values(by = "user_id")
-            users_ids_with_sufficient_votes = users_ids_with_sufficient_votes.sample(n = max_users, random_state = 42)
+            users_ids_with_sufficient_votes = users_ids_with_sufficient_votes.sample(n = max_users, random_state = random_state)
         elif users_selection in ["largest_n", "smallest_n"]:
             smallest_n_bool = (users_selection == "smallest_n")
             users_ids_with_sufficient_votes = users_ids_with_sufficient_votes.sort_values(["n_rated", "n_posrated", "user_id"], 
-                                                                            ascending = [smallest_n_bool, smallest_n_bool, False]).head(max_users)
+                                                                              ascending = [smallest_n_bool, smallest_n_bool, False]).head(max_users)
         if take_complement:
             users_ids_with_sufficient_votes = users_ids_with_sufficient_votes_complement[~users_ids_with_sufficient_votes_complement["user_id"].isin(users_ids_with_sufficient_votes["user_id"])]
+    print(len(users_ids_with_sufficient_votes), "users selected.")
     return users_ids_with_sufficient_votes.sort_values(by = "user_id")
 
 def get_users_not_yet_evaluated(config : dict, users_ids : list, continue_from_previous : bool) -> list:
@@ -172,7 +180,7 @@ def merge_users_results(config : dict, users_ids : list) -> None:
     users_results_df.to_csv(outputs_dir / "users_results.csv", index = False)
 
 def merge_users_coefs(config : dict, users_ids : list) -> None:
-    if "save_coefs" in config and config["save_coefs"]:
+    if "save_users_coefs" in config and config["save_users_coefs"]:
         outputs_dir = config["outputs_dir"]
         users_coefs_ids_to_idxs = {}
         for i, user_id in enumerate(users_ids):
@@ -192,6 +200,7 @@ if __name__ == "__main__":
     config = load_config(sys.argv[1])
     config["db_backup_date"], config["db_name"] = get_db_backup_date(), get_db_name()
     convert_enums(config)
+    set_random_states(config)
 
     if len(sys.argv) > 2:
         continue_from_previous = (sys.argv[2] == "continue_from_previous")
@@ -199,7 +208,7 @@ if __name__ == "__main__":
         continue_from_previous = False
     create_outputs_folder(config, continue_from_previous)
     users_ids = get_users_ids(users_selection = config["users_selection"], max_users = config["max_users"], min_n_posrated = config["min_n_posrated"], min_n_negrated = config["min_n_negrated"], 
-                              take_complement = config["take_complement_of_users"], random_state = config["random_state"], survey = config["survey"])
+                              take_complement = config["take_complement_of_users"], random_state = config["users_random_state"], survey = config["survey"])
     users_ids = users_ids["user_id"].tolist()
     remaining_users_ids = get_users_not_yet_evaluated(config, users_ids, continue_from_previous)
 

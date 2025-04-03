@@ -17,8 +17,9 @@ def l2_normalize_rows(matrix : np.ndarray) -> np.ndarray:
     return np.divide(matrix, norms[:, np.newaxis], where = mask[:, np.newaxis])
 
 if __name__ == "__main__":
-    EMBEDDINGS_INPUT_FOLDER = "/home/scholar/glenn_rp/msc_thesis/data/embeddings/before_pca/gte_large_2025-02-23_category"
-    PCA_DIM = 384
+    EMBEDDINGS_INPUT_FOLDER = "/home/scholar/glenn_rp/msc_thesis/data/embeddings/before_pca/gte_large_2025-02-23"
+    PCA_DIM = 256
+    APPLY_ZSCORE = False
 
     embeddings_base_folder = EMBEDDINGS_INPUT_FOLDER.split("/embeddings")[0] + "/embeddings"
     embeddings_name = EMBEDDINGS_INPUT_FOLDER.split("/")[-1]
@@ -27,16 +28,17 @@ if __name__ == "__main__":
     embeddings_output_folder = embeddings_base_folder + f"/after_pca/{embeddings_name}_{PCA_DIM}"
     print(f"Loaded embeddings matrix of shape {embeddings_matrix.shape} for PCA down to {PCA_DIM} dimensions.")
 
-    print("Performing Z-score normalization..")
-    start_time = time.time()
-    scaler = StandardScaler()
-    embeddings_matrix = scaler.fit_transform(embeddings_matrix)
-    scaler_params = np.vstack((scaler.mean_, scaler.scale_)) # Shape: (2, n_features)
-    mean_check = np.allclose(np.mean(embeddings_matrix, axis = 0), 0, atol = 1e-2)
-    std_check = np.allclose(np.std(embeddings_matrix, axis = 0), 1, atol = 1e-2)
-    if not mean_check or not std_check:
-        raise ValueError("The z-score normalization failed.")
-    print(f"Z-score normalization successful. Took {time.time() - start_time:.2f} seconds. New Shape: {embeddings_matrix.shape}.")
+    if APPLY_ZSCORE:
+        print("Performing Z-score normalization..")
+        start_time = time.time()
+        scaler = StandardScaler()
+        embeddings_matrix = scaler.fit_transform(embeddings_matrix)
+        scaler_params = np.vstack((scaler.mean_, scaler.scale_)) # Shape: (2, n_features)
+        mean_check = np.allclose(np.mean(embeddings_matrix, axis = 0), 0, atol = 1e-2)
+        std_check = np.allclose(np.std(embeddings_matrix, axis = 0), 1, atol = 1e-2)
+        if not mean_check or not std_check:
+            raise ValueError("The z-score normalization failed.")
+        print(f"Z-score normalization successful. Took {time.time() - start_time:.2f} seconds. New Shape: {embeddings_matrix.shape}.")
 
     if apply_pca:
         print("Performing PCA..")
@@ -44,6 +46,7 @@ if __name__ == "__main__":
         pca = PCA(n_components = PCA_DIM, random_state = 42)
         embeddings_matrix = pca.fit_transform(embeddings_matrix)
         pca_components = pca.components_
+        pca_mean = pca.mean_
         print(f"PCA successful. Took {time.time() - start_time:.2f} seconds. New Shape: {embeddings_matrix.shape}.")
     else:
         print("Skipping PCA..")
@@ -56,8 +59,10 @@ if __name__ == "__main__":
     print(f"L2 normalization successful. Took {time.time() - start_time:.2f} seconds. New Shape: {embeddings_matrix.shape}.")
 
     os.makedirs(embeddings_output_folder, exist_ok = True)
-    np.save(f"{embeddings_output_folder}/scaler_params.npy", scaler_params)
+    if APPLY_ZSCORE:
+        np.save(f"{embeddings_output_folder}/scaler_params.npy", scaler_params)
     if apply_pca:
         np.save(f"{embeddings_output_folder}/pca_components.npy", pca_components)
+        np.save(f"{embeddings_output_folder}/pca_mean.npy", pca_mean)
     np.save(f"{embeddings_output_folder}/abs_X.npy", embeddings_matrix)
     os.system(f"cp {EMBEDDINGS_INPUT_FOLDER + '/abs_paper_ids_to_idx.pkl'} {embeddings_output_folder + '/abs_paper_ids_to_idx.pkl'}")

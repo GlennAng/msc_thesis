@@ -3,6 +3,7 @@ from data_handling import get_global_cache_papers_ids, get_cache_papers_ids_for_
 from embedding import Embedding
 from enum import Enum, auto
 import numpy as np
+import random
 
 LABEL_DTYPE = np.int32
 
@@ -55,6 +56,14 @@ def load_filtered_cache_for_user(embedding : Embedding, cache_type : Cache_Type,
 def load_negative_samples_embeddings(embedding : Embedding, n_negative_samples : int, random_state : int) -> tuple:
     negative_samples_ids = get_negative_samples_ids(n_negative_samples, random_state)
     return negative_samples_ids, embedding.matrix[embedding.get_idxs(negative_samples_ids)]
+
+def load_negrated_ranking_ids_for_user(negrated_ids : list, random_state : int) -> list:
+    min_n_negrated = min(4, len(negrated_ids))
+    negrated_ids = sorted(negrated_ids)
+    random.seed(random_state)
+    random.shuffle(negrated_ids)
+    negrated_ids = negrated_ids[:min_n_negrated]
+    return sorted(negrated_ids)
    
 def load_training_data_for_user(embedding : Embedding, include_base : bool, include_zerorated : bool, include_cache : bool, train_rated_idxs : np.ndarray, y_train_rated : np.ndarray, 
                                 base_idxs : np.ndarray, y_base : np.ndarray, zerorated_idxs : np.ndarray, y_zerorated : np.ndarray, cache_idxs : np.ndarray, y_cache : np.ndarray) -> tuple:

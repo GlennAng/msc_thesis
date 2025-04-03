@@ -80,15 +80,20 @@ class User_Visualizer:
         hyperparameters_combination = str(args["hyperparameters_combination"])
         fold_train_predictions = fold_predictions["train_predictions"][hyperparameters_combination]
         fold_val_predictions = fold_predictions["val_predictions"][hyperparameters_combination]
+        negrated_ranking_predictions = fold_predictions["negrated_ranking_predictions"][hyperparameters_combination]
         negative_samples_predictions = fold_predictions["negative_samples_predictions"][hyperparameters_combination]
         fold_train_predictions_df = turn_predictions_into_df(fold_train_predictions, fold_predictions["train_ids"], fold_predictions["train_labels"])
         fold_val_predictions_df = turn_predictions_into_df(fold_val_predictions, fold_predictions["val_ids"], fold_predictions["val_labels"])
+        negrated_ranking_predictions_df = turn_predictions_into_df(negrated_ranking_predictions, fold_predictions["negrated_ranking_ids"], len(negrated_ranking_predictions) * [0])
+        n_negrated_ranking_full = len(negrated_ranking_predictions_df)
+        negrated_ranking_predictions_df = negrated_ranking_predictions_df.sort_values("class_1_proba", ascending = False)
+        negrated_ranking_selection = get_papers_table_data(negrated_ranking_predictions_df)
         negative_samples_predictions_df = turn_predictions_into_df(negative_samples_predictions, self.user_predictions["negative_samples_ids"], 
                                                                   [0] * len(negative_samples_predictions))
         n_negative_samples_full = len(negative_samples_predictions_df)
         negative_samples_predictions_df = negative_samples_predictions_df.nlargest(100, "class_1_proba").sort_values("class_1_proba", ascending = False)
         negative_samples_selection = get_papers_table_data(negative_samples_predictions_df)
-
+        
         pos_train_papers_selection, n_pos_train_papers_full = randomly_select_training_papers_label(fold_train_predictions_df, True)
         neg_train_papers_selection, n_neg_train_papers_full = randomly_select_training_papers_label(fold_train_predictions_df, False)
         true_pos_val_papers_selection, n_true_pos_val_papers_full = select_n_most_extreme_val_papers_outcome(fold_val_predictions_df, Classification_Outcome.TRUE_POSITIVE, True)
@@ -101,12 +106,14 @@ class User_Visualizer:
         plot_true_validation_papers(pdf, true_pos_val_papers_selection, n_true_pos_val_papers_full, true_neg_val_papers_selection, n_true_neg_val_papers_full, wc_words_scores)
         plot_false_validation_papers(pdf, false_pos_val_papers_selection, n_false_pos_val_papers_full, false_neg_val_papers_selection, n_false_neg_val_papers_full, wc_words_scores,
                                      self.cosine_similarities, pos_train_papers_selection, neg_train_papers_selection)
-        plot_negative_samples(pdf, negative_samples_selection, n_negative_samples_full, pos_val_papers_selection, n_pos_val_papers_full, wc_words_scores, 
-                              self.cosine_similarities, pos_train_papers_selection, neg_train_papers_selection)
+        plot_ranking_predictions(pdf, negrated_ranking_selection, n_negrated_ranking_full, pos_val_papers_selection, n_pos_val_papers_full, wc_words_scores,
+                                self.cosine_similarities, pos_train_papers_selection, neg_train_papers_selection, is_negrated_ranking = True)
+        plot_ranking_predictions(pdf, negative_samples_selection, n_negative_samples_full, pos_val_papers_selection, n_pos_val_papers_full, wc_words_scores, 
+                                self.cosine_similarities, pos_train_papers_selection, neg_train_papers_selection, is_negrated_ranking = False)
 
 if __name__ == "__main__":
     args = parse_args()
-    config, users_info, hyperparameters_combinations, results_before_averaging_over_folds = load_outputs_files(args["outputs_folder"])
+    config, users_info, hyperparameters_combinations, results_before_averaging_over_folds = load_outputs_files(args["outputs_folder"].rstrip("/"))
     gv = Global_Visualizer(config, users_info, hyperparameters_combinations, results_before_averaging_over_folds, args["outputs_folder"])
     preprocess_args(args, gv)
     if args["visualize_papers"]:
