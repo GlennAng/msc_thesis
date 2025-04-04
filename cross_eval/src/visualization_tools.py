@@ -22,8 +22,28 @@ PLOT_CONSTANTS = {"FIG_SIZE": (11, 8.5), "ALPHA_PLOT": 0.5, "ALPHA_FILL": 0.2, "
                   "N_PAPERS_PER_PAGE": 7, "N_PAPERS_IN_TOTAL" : 70, "MAX_LINES": 5, "LINE_HEIGHT": 0.025, "WORD_SPACING": 0.0075, "X_LOCATION": -0.125, 
                   "PLOT_SCORES" : [Score.BALANCED_ACCURACY, Score.RECALL, Score.AUROC, Score.SPECIFICITY]}
 PRINT_SCORES = [Score.RECALL, Score.SPECIFICITY, Score.BALANCED_ACCURACY, Score.AUROC, Score.NDCG_EXPLICIT, Score.MRR_EXPLICIT,
-                Score.F1_SCORE_SAMPLES, Score.SPECIFICITY_SAMPLES, Score.NDCG_SAMPLES, Score.MRR_SAMPLES]
+                Score.F1_SCORE_SAMPLES, Score.SPECIFICITY_SAMPLES, Score.NDCG_AT_5_SAMPLES, Score.MRR_AT_5_SAMPLES]
 n_scores_halved = len(Score) // 2
+
+def upgrade_scores_abbreviations():
+    for score in SCORES_DICT:
+        score_abbreviation = SCORES_DICT[score]["abbreviation"]
+        if "@" in score_abbreviation:
+            score_abbreviation = score_abbreviation.replace("@", "\n@")
+        if "_E" in score_abbreviation:
+            if "\n" in score_abbreviation:
+                score_abbreviation = score_abbreviation.replace("_E", " E")
+            else:
+                score_abbreviation = score_abbreviation.replace("_E", "\nE")
+        if "_S" in score_abbreviation:
+            if "\n" in score_abbreviation:
+                score_abbreviation = score_abbreviation.replace("_S", " S")
+            else:
+                score_abbreviation = score_abbreviation.replace("_S", "\nS")
+        if "AT_" in score_abbreviation:
+            score_abbreviation = score_abbreviation.replace("AT_", "AT\n")
+        SCORES_DICT[score]["abbreviation"] = score_abbreviation
+upgrade_scores_abbreviations()
 
 def is_number(string):
     try:
@@ -37,7 +57,11 @@ def format_number(value : float, max_decimals : int = 4) -> str:
         return value
     if not is_number(value):
         return value
-    return f"{value:.{max_decimals}f}"
+    formatted = f"{value:.{max_decimals}f}"
+    stripped = formatted.rstrip('0')
+    if stripped.endswith('.'):
+        return stripped + '0'
+    return stripped
 
 def load_outputs_files(folder : str) -> tuple:
     folder = folder[-1] if folder[-1] == "/" else folder
@@ -190,16 +214,7 @@ def get_best_global_hyperparameters_combination_table(best_global_hyperparameter
     tables = ([], [])
     for s, score in enumerate(list(Score)):
         score_name = score.name.lower()
-        score_abbreviation = SCORES_DICT[score]["abbreviation"]
-        if score == Score.CONFIDENCE_BOTTOM_25_PERCENT_POS_GT:
-            score_abbreviation = "CPGT\nB.25"
-        elif score == Score.CONFIDENCE_TOP_25_PERCENT_NEG_GT:
-            score_abbreviation = "CNGT\nT.25"
-        elif "_E" in score_abbreviation:
-            score_abbreviation = score_abbreviation.replace("_E", "\nExpl")
-        elif "_S" in score_abbreviation:
-            score_abbreviation = score_abbreviation.replace("_S", "\nSmpl")
-        row = [score_abbreviation]
+        row = [SCORES_DICT[score]["abbreviation"]]
         for i, df in enumerate(dfs):
             row.append(format_number(df[f"val_{score_name}_mean"].values[0]))
             row.append(format_number(df[f"train_{score_name}_mean"].values[0]))
@@ -394,12 +409,6 @@ def get_user_folds_tables(user_results_before_averaging_over_folds : pd.DataFram
     columns_1, columns_2 = ["Fold"], ["Fold"]
     for i, score in enumerate(list(Score)):
         score_abbreviation = SCORES_DICT[score]["abbreviation"]
-        if score == Score.CONFIDENCE_BOTTOM_25_PERCENT_POS_GT:
-            score_abbreviation = "CPGT\nB.25"
-        elif score == Score.CONFIDENCE_TOP_25_PERCENT_NEG_GT:
-            score_abbreviation = "CNGT\nT.25"
-        elif "_S" in score_abbreviation:
-            score_abbreviation = score_abbreviation.replace("_S", "\nSmpl")
         if i < n_scores_halved:
             columns_1.append(score_abbreviation)
         else:
@@ -717,7 +726,7 @@ def plot_ranking_predictions(pdf : PdfPages, papers_selection : list, n_papers_f
     if is_negrated_ranking:
         title = f"Collection of all randomly selected Explicit Negative Papers (Total N = {n_papers_full})"
     else:
-        title = f"Collection of the {n_papers_selection} Most Highly Rated Papers (Total N = {n_papers_full})"
+        title = f"Collection of the {n_papers_selection} Most Highly Rated Random Negative Samples (Total N = {n_papers_full})"
     for i in range(n_papers_selection):
         plot_single_paper(pdf, papers_selection[i], title, words_scores, cosine_similarities, pos_train_papers_selection, neg_train_papers_selection, samples = not is_negrated_ranking)
 
