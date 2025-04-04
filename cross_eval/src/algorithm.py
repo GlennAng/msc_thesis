@@ -237,7 +237,7 @@ def get_ranking_score(ranking_score : Score, y_ranking : np.ndarray, y_proba : n
         else:
             ranking, proba = y_ranking_samples, y_proba_samples
         n = 10 if ranking_score == Score.NDCG_AT_10_SAMPLES else 5
-        return ndcg_score(ranking.reshape(1, -1), proba.reshape(1, -1))
+        return ndcg_score(ranking.reshape(1, -1), proba.reshape(1, -1), k = n)
     elif ranking_score in [Score.MRR_EXPLICIT, Score.MRR_AT_5_SAMPLES, Score.MRR_AT_10_SAMPLES]:
         if ranking_score == Score.MRR_EXPLICIT:
             ranking, proba = y_ranking, y_proba
