@@ -20,30 +20,10 @@ HYPERPARAMETERS_ABBREVIATIONS = {"clf_C": "C", "weights_cache_v": "v", "weights_
 
 PLOT_CONSTANTS = {"FIG_SIZE": (11, 8.5), "ALPHA_PLOT": 0.5, "ALPHA_FILL": 0.2, "LINE_WIDTH": 2.5, "X_HYPERPARAMETER": "clf_C",
                   "N_PAPERS_PER_PAGE": 7, "N_PAPERS_IN_TOTAL" : 70, "MAX_LINES": 5, "LINE_HEIGHT": 0.025, "WORD_SPACING": 0.0075, "X_LOCATION": -0.125, 
-                  "PLOT_SCORES" : [Score.BALANCED_ACCURACY, Score.RECALL, Score.AUROC, Score.SPECIFICITY]}
-PRINT_SCORES = [Score.RECALL, Score.SPECIFICITY, Score.BALANCED_ACCURACY, Score.AUROC, Score.NDCG_EXPLICIT, Score.MRR_EXPLICIT,
-                Score.F1_SCORE_SAMPLES, Score.SPECIFICITY_SAMPLES, Score.NDCG_AT_5_SAMPLES, Score.MRR_AT_5_SAMPLES]
+                  "PLOT_SCORES" : [Score.BALANCED_ACCURACY, Score.RECALL, Score.AUROC_CLASSIFICATION, Score.SPECIFICITY]}
+PRINT_SCORES = [Score.RECALL, Score.SPECIFICITY, Score.BALANCED_ACCURACY, Score.AUROC_CLASSIFICATION, Score.NDCG, Score.MRR,
+                Score.F1_SCORE_SAMPLES, Score.SPECIFICITY_SAMPLES, Score.NDCG_AT_5_100_SAMPLES, Score.MRR_100_SAMPLES]
 n_scores_halved = len(Score) // 2
-
-def upgrade_scores_abbreviations():
-    for score in SCORES_DICT:
-        score_abbreviation = SCORES_DICT[score]["abbreviation"]
-        if "@" in score_abbreviation:
-            score_abbreviation = score_abbreviation.replace("@", "\n@")
-        if "_E" in score_abbreviation:
-            if "\n" in score_abbreviation:
-                score_abbreviation = score_abbreviation.replace("_E", " E")
-            else:
-                score_abbreviation = score_abbreviation.replace("_E", "\nE")
-        if "_S" in score_abbreviation:
-            if "\n" in score_abbreviation:
-                score_abbreviation = score_abbreviation.replace("_S", " S")
-            else:
-                score_abbreviation = score_abbreviation.replace("_S", "\nS")
-        if "AT_" in score_abbreviation:
-            score_abbreviation = score_abbreviation.replace("AT_", "AT\n")
-        SCORES_DICT[score]["abbreviation"] = score_abbreviation
-upgrade_scores_abbreviations()
 
 def is_number(string):
     try:
@@ -256,11 +236,11 @@ def print_interesting_users(pdf : PdfPages, gv_score : Score, title : str, inter
     ax.axis('off')
     ax.text(0.5, 1.1, f"Users with {title} Performance for Best Global Hyperparameters Combination:\n", fontsize = 12, ha = 'center', va = 'center', fontweight = 'bold')
     columns = ["User ID", "Combi", "N_POS", "N_NEG", "N_BASE"] + [SCORES_DICT[score]["abbreviation"] for score in PRINT_SCORES]
-    print_table(get_interesting_users_table(interesting_users_best_global_hyperparameters_combination_df), [-0.125, 0.52, 1.2, 0.575], columns, 2 * [0.11] + 3 * [0.1] + len(Score) * [0.125], 
+    print_table(get_interesting_users_table(interesting_users_best_global_hyperparameters_combination_df), [-0.14, -0.12, 1.25, 1.19], columns, 2 * [0.11] + 3 * [0.1] + len(Score) * [0.125], 
                 grey_column = columns.index(SCORES_DICT[gv_score]["abbreviation"]))
-    ax.text(0.5, 0.47, f"Users with {title} Performance for Best Individual Hyperparameters Combination:\n", fontsize = 12, ha = 'center', va = 'center', fontweight = 'bold')
-    print_table(get_interesting_users_table(interesting_users_best_individual_hyperparameters_combination_df), [-0.125, -0.11, 1.2, 0.575], columns, 2 * [0.125] + 3 * [0.1] + len(Score) * [0.125],
-                grey_column = columns.index(SCORES_DICT[gv_score]["abbreviation"]))
+    #ax.text(0.5, 0.47, f"Users with {title} Performance for Best Individual Hyperparameters Combination:\n", fontsize = 12, ha = 'center', va = 'center', fontweight = 'bold')
+    #print_table(get_interesting_users_table(interesting_users_best_individual_hyperparameters_combination_df), [-0.125, -0.11, 1.2, 0.575], columns, 2 * [0.125] + 3 * [0.1] + len(Score) * [0.125],
+    #            grey_column = columns.index(SCORES_DICT[gv_score]["abbreviation"]))
     pdf.savefig(fig)
     plt.close(fig)
 

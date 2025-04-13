@@ -43,8 +43,8 @@ class Global_Visualizer:
         self.users_ids = sorted(list(self.users_info["user_id"].unique()))
         self.n_users = len(self.users_ids)
         self.n_tail_users = min(OPTIMIZATION_CONSTANTS["N_TAIL_USERS"], self.n_users)
-        self.n_print_interesting_users = min(15, self.n_users)
-        self.n_print_largest_performance_gain = min(32, self.n_users)
+        self.n_print_interesting_users = min(24, self.n_users)
+        self.n_print_largest_performance_gain = min(25, self.n_users)
 
     def extract_optimization_data(self) -> None:
         self.hyperparameters = list(self.hyperparameters_combinations.columns)[1:]
@@ -244,8 +244,8 @@ class Global_Visualizer:
             self.generate_fifth_page(pdf)
             self.generate_sixth_page(pdf)
             self.generate_seventh_page(pdf)
-            self.generate_eighth_page(pdf)
-            self.generate_plots(pdf)
+            #self.generate_eighth_page(pdf)
+            #self.generate_plots(pdf)
 
     def print_fold_stds(self):
         results_before_averaging_over_folds = self.results_before_averaging_over_folds[self.results_before_averaging_over_folds["combination_idx"] == self.best_global_hyperparameters_combination_idx]

@@ -373,7 +373,7 @@ def get_arxiv_distribution_ratings() -> tuple:
     categories_counts = {category: count / n_total for category, count in categories_counts.items()}
     return categories_counts, n_total
 
-def get_arxiv_categories() -> dict:
+def get_papers_ids_to_arxiv_categories() -> dict:
     query = """
     SELECT paper_id, arxiv_category
     FROM papers"""

@@ -18,7 +18,7 @@ def l2_normalize_rows(matrix : np.ndarray) -> np.ndarray:
 
 if __name__ == "__main__":
     EMBEDDINGS_INPUT_FOLDER = "/home/scholar/glenn_rp/msc_thesis/data/embeddings/before_pca/gte_large_2025-02-23"
-    PCA_DIM = 256
+    PCA_DIM = 384
     APPLY_ZSCORE = False
 
     embeddings_base_folder = EMBEDDINGS_INPUT_FOLDER.split("/embeddings")[0] + "/embeddings"

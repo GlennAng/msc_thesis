@@ -1,16 +1,18 @@
 from data_handling import *
 from embedding import *
+from sklearn.neighbors import NearestNeighbors
+import pickle
 import os
+import time
+import torch
+from tqdm import tqdm
 embedding_path = "../data/embeddings/after_pca/gte_large_2025-02-23_256"
-embedding = Embedding(embedding_path)
-arxiv_categories = get_arxiv_categories()
 
 def one_hot_encoding() -> None:
     n_papers = embedding.matrix.shape[0]
     n_categories = len(Arxiv_Category)
     one_hot_matrix = np.zeros((n_papers, n_categories - 1), dtype = embedding.matrix.dtype)
-    for paper_id in arxiv_categories.keys():
-        arxiv_category = arxiv_categories[paper_id]
+    for paper_id, arxiv_category in papers_ids_to_arxiv_categories.items():
         if arxiv_category == Arxiv_Category.none:
             continue
         else:
@@ -49,7 +51,7 @@ def get_glove_category_embeddings(dim : int, normalization : str = "none") -> di
     glove_category_embeddings = {}
     for arxiv_category in list(Arxiv_Category):
         if arxiv_category == Arxiv_Category.none:
-            glove_category_embeddings[arxiv_category] = np.zeros(dim, dtype = embedding.matrix.dtype)
+            glove_category_embeddings[arxiv_category] = np.zeros(dim)
         else:
             if arxiv_category == Arxiv_Category.cs:
                 glove_embedding = 0.7 * glove_embeddings["computer"] + 0.3 * glove_embeddings["science"]
@@ -70,18 +72,95 @@ def get_glove_category_embeddings(dim : int, normalization : str = "none") -> di
             glove_category_embeddings[arxiv_category] = normalize_embedding(glove_embedding, normalization)
     return glove_category_embeddings
 
-def glove_embeddings(dim : int, normalization : str = "none") -> None:
+def glove_embeddings(embedding : Embedding, papers_ids_to_idxs : dict, dim : int = 100, normalization : str = "l2_unit") -> None:
     n_papers = embedding.matrix.shape[0]
     glove_category_embeddings = get_glove_category_embeddings(dim, normalization)
     glove_matrix = np.zeros((n_papers, dim), dtype = embedding.matrix.dtype)
-    for paper_id in arxiv_categories.keys():
-        arxiv_category = arxiv_categories[paper_id]
+    for paper_id, arxiv_category in papers_ids_to_arxiv_categories.items():
         glove_matrix[embedding.papers_ids_to_idxs[paper_id], :] = glove_category_embeddings[arxiv_category]
     glove_matrix = np.concatenate((embedding.matrix, glove_matrix), axis = 1)
     os.makedirs(embedding_path + f"_glove_{dim}_{normalization}", exist_ok = True)
     os.system(f"cp {embedding_path}/abs_paper_ids_to_idx.pkl {embedding_path}_glove_{dim}_{normalization}/abs_paper_ids_to_idx.pkl")
     np.save(f"{embedding_path}_glove_{dim}_{normalization}/abs_X.npy", glove_matrix)
 
+def get_arxiv_categories_fill_none(embedding: Embedding, n_neighbors: int = 10) -> dict:
+    papers_ids_to_categories = get_papers_ids_to_arxiv_categories()
+    papers_ids_no_category, papers_ids_per_category = [], {category: [] for category in Arxiv_Category if category != Arxiv_Category.none}
+    for paper_id, category in papers_ids_to_categories.items():
+        if category == Arxiv_Category.none:
+            papers_ids_no_category.append(paper_id)
+        else:
+            papers_ids_per_category[category].append(paper_id)
+    category_knn_models = {}
+    for category, papers_ids in papers_ids_per_category.items():
+        category_embeddings = embedding.matrix[embedding.get_idxs(papers_ids)]
+        knn_model = NearestNeighbors(n_neighbors = n_neighbors, metric = "cosine", algorithm = "auto")
+        knn_model.fit(category_embeddings)
+        category_knn_models[category] = knn_model
+    batch_size = 5000
+    batches = [papers_ids_no_category[i:i+batch_size] for i in range(0, len(papers_ids_no_category), batch_size)]
+    print(f"Processing {len(papers_ids_no_category)} papers in {len(batches)} batches...")
+    categories_list = list(papers_ids_per_category.keys())
+    for batch in tqdm(batches, desc = "Finding categories"):
+        batch_embeddings = embedding.matrix[embedding.get_idxs(batch)]
+        all_distances = np.zeros((len(batch), len(category_knn_models)))
+        for i, (category, knn_model) in enumerate(category_knn_models.items()):
+            distances, _ = knn_model.kneighbors(batch_embeddings)
+            all_distances[:, i] = distances[:, 0]
+        closest_category_idxs = np.argmin(all_distances, axis = 1)
+        for i, paper_id in enumerate(batch):
+            category_idx = closest_category_idxs[i]
+            papers_ids_to_categories[paper_id] = categories_list[category_idx]
+    with open("../data/embeddings/glove/papers_ids_to_arxiv_categories.pkl", 'wb') as f:
+        pickle.dump(papers_ids_to_categories, f)
+    return papers_ids_to_categories
+
+def download_glove_embeddings() -> None:
+    from tqdm import tqdm
+    from zipfile import ZipFile
+    import os
+    import requests
+    save_dir = "../data/embeddings/glove"
+    available_dims = [50, 100, 200, 300]
+    os.makedirs(save_dir, exist_ok = True)
+    for dim in available_dims:
+        zip_path = os.path.join(save_dir, f"glove.6B.{dim}d.zip")
+        url = f"https://nlp.stanford.edu/data/glove.6B.zip"
+        response = requests.get(url, stream = True)
+        total_size = int(response.headers.get("content-length", 0))
+        print(f"Downloading GloVe embeddings with {dim} dimensions...")
+        with open(zip_path, 'wb') as f:
+            with tqdm(total = total_size, unit = 'B', unit_scale = True, desc = "Downloading") as pbar:
+                for chunk in response.iter_content(chunk_size = 1024):
+                    if chunk:
+                        f.write(chunk)
+                        pbar.update(len(chunk))
+        print(f"Extracting embeddings to {save_dir}")
+        with ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extract(f"glove.6B.{dim}d.txt", save_dir)
+        os.remove(zip_path)
+
+def attach_arxiv_categories(embeddings : torch.tensor, papers_ids_to_idxs : dict, dim : int = 100, normalization : str = "l2_unit") -> torch.tensor:
+    n_papers = embeddings.shape[0]
+    with open(f"../data/embeddings/glove/papers_ids_to_arxiv_categories.pkl", "rb") as f:
+        papers_ids_to_arxiv_categories = pickle.load(f)
+    glove_category_embeddings = get_glove_category_embeddings(dim, normalization)
+    glove_category_embeddings = {k: torch.tensor(v, dtype = embeddings.dtype) for k, v in glove_category_embeddings.items()}
+    glove_matrix = torch.zeros((n_papers, dim), dtype = embeddings.dtype)
+    for paper_id, paper_idx in papers_ids_to_idxs.items():
+        glove_matrix[paper_idx, :] = glove_category_embeddings[papers_ids_to_arxiv_categories[paper_id]]
+    glove_matrix = torch.concat((embeddings, glove_matrix), dim = 1)
+    return glove_matrix
+    
+if __name__ == "__main__":
+    with open(f"../data/embeddings/glove/papers_ids_to_arxiv_categories.pkl", "rb") as f:
+        papers_ids_to_arxiv_categories = pickle.load(f)
+    embedding = Embedding(embedding_path)
+    glove_embeddings(embedding, papers_ids_to_arxiv_categories)
+    
+
+
+"""
 def get_arxiv_categories() -> dict:
     return {
         None: "No Category",
@@ -251,35 +330,9 @@ def get_arxiv_categories() -> dict:
     "stat.ot": "Statistics - Other Statistics",
     "stat.th": "Statistics - Statistics Theory"
 } 
+"""
 
 
 
 
 
-def download_glove_embeddings() -> None:
-    from tqdm import tqdm
-    from zipfile import ZipFile
-    import os
-    import requests
-    save_dir = "../data/embeddings/glove"
-    available_dims = [50, 100, 200, 300]
-    os.makedirs(save_dir, exist_ok = True)
-    for dim in available_dims:
-        zip_path = os.path.join(save_dir, f"glove.6B.{dim}d.zip")
-        url = f"https://nlp.stanford.edu/data/glove.6B.zip"
-        response = requests.get(url, stream = True)
-        total_size = int(response.headers.get("content-length", 0))
-        print(f"Downloading GloVe embeddings with {dim} dimensions...")
-        with open(zip_path, 'wb') as f:
-            with tqdm(total = total_size, unit = 'B', unit_scale = True, desc = "Downloading") as pbar:
-                for chunk in response.iter_content(chunk_size = 1024):
-                    if chunk:
-                        f.write(chunk)
-                        pbar.update(len(chunk))
-        print(f"Extracting embeddings to {save_dir}")
-        with ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extract(f"glove.6B.{dim}d.txt", save_dir)
-        os.remove(zip_path)
-
-if __name__ == "__main__":
-    glove_embeddings(100, "l2_unit")

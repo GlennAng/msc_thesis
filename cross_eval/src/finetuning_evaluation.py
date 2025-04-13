@@ -1,92 +1,13 @@
-from compute_embeddings import get_gpu_info
+from arxiv import attach_arxiv_categories
+from finetuning_preprocessing import FILES_SAVE_PATH
 from finetuning_model import FinetuningModel
-from finetuning_preprocessing import *
-import gc
+from finetuning_data import FinetuningDataset
+from sklearn.metrics import roc_auc_score, ndcg_score
+import json
 import numpy as np
 import os
 import pickle
-import time
-
-def load_users_and_papers(overlap_users : bool, no_overlap_users : bool) -> tuple:
-    overlap_users_ids = load_overlap_users_ids() if overlap_users else None
-    no_overlap_users_ids = load_no_overlap_users_ids() if no_overlap_users else None
-    if overlap_users and not no_overlap_users:
-        papers_tokenized = load_overlap_papers_tokenized()
-    elif no_overlap_users and not overlap_users:
-        papers_tokenized = load_no_overlap_papers_tokenized()
-    elif overlap_users and no_overlap_users:
-        papers_tokenized = load_validation_papers_tokenized()
-    else:
-        raise ValueError("At least one of overlap_users or no_overlap_users must be True.")
-    return overlap_users_ids, no_overlap_users_ids, papers_tokenized
-
-def get_embedding_name(finetuning_model : FinetuningModel) -> str:
-    if finetuning_model.transformer_model_name == GTE_BASE_PATH:
-        embedding_name = "gte_base"
-    elif finetuning_model.transformer_model_name == GTE_LARGE_PATH:
-        embedding_name = "gte_large"
-    else:
-        raise ValueError(f"Model {finetuning_model.transformer_model_name} not supported.")
-    embedding_name += f"_{time.strftime('%Y-%m-%d-%H-%M')}"
-    return embedding_name
-
-def perform_embeddings_inference(finetuning_model : FinetuningModel, device : torch.device, input_ids : torch.tensor, attention_masks : torch.tensor, max_batch_size : int) -> torch.tensor:
-    MAX_TRIES = 10
-    embeddings_total = []
-    n_papers, n_papers_processed, batch_num = len(input_ids), 0, 1
-    start_time = time.time()
-    while n_papers_processed < n_papers:
-        batch_start_time = time.time()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        gc.collect()
-        n_tries_so_far, batch_size, successfully_processed = 0, max_batch_size, False
-        while n_tries_so_far < MAX_TRIES:
-            try:
-                upper_bound = min(n_papers, n_papers_processed + batch_size)
-                batch_input_ids = input_ids[n_papers_processed : upper_bound].to(device)
-                batch_attention_masks = attention_masks[n_papers_processed : upper_bound].to(device)
-                with torch.autocast(device_type = device.type, dtype = torch.float16):
-                    with torch.inference_mode():
-                        embeddings = finetuning_model(input_ids = batch_input_ids, attention_mask = batch_attention_masks).cpu()
-                        gpu_info = get_gpu_info()
-                embeddings_total.append(embeddings)
-                n_papers_processed = min(n_papers, n_papers_processed + batch_size)
-                print(f"Finished Batch {batch_num} in {time.time() - batch_start_time:.2f} Seconds: Papers {n_papers_processed} / {n_papers}. {gpu_info}")
-                batch_num += 1
-                successfully_processed = True
-            except Exception as e:
-                print(f"Error in encoding Batch {batch_num}: \n{e}")
-                n_tries_so_far += 1
-                batch_size = batch_size // 2
-            if 'batch_outputs' in locals():
-                del batch_outputs
-            if 'batch_embeddings' in locals():
-                del batch_embeddings
-            if 'batch_tokenized_papers' in locals():
-                del batch_tokenized_papers
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            gc.collect()
-            if successfully_processed:
-                break
-        if n_tries_so_far >= MAX_TRIES:
-            os._exit(0)
-    embeddings_total = torch.cat(embeddings_total, dim = 0)
-    print(f"Finished all batches in {time.time() - start_time:.2f} seconds. Total Papers: {n_papers_processed}.")
-    return embeddings_total
-
-def compute_embeddings(finetuning_model : FinetuningModel, device : torch.device, input_ids : torch.tensor, attention_masks : torch.tensor) -> torch.tensor:
-    training_mode = finetuning_model.training
-    finetuning_model.eval()
-    if finetuning_model.transformer_model_name == GTE_BASE_PATH:
-        max_batch_size = 1024
-    elif finetuning_model.transformer_model_name == GTE_LARGE_PATH:
-        max_batch_size = 512
-    embeddings = perform_embeddings_inference(finetuning_model, device, input_ids, attention_masks, max_batch_size)
-    if training_mode:
-        finetuning_model.train()
-    return embeddings
+import torch
 
 def generate_config(file_path : str, embedding_folder : str, users_ids : list, evaluation : str) -> None:
     if not file_path.endswith(".json"):
@@ -99,32 +20,93 @@ def generate_config(file_path : str, embedding_folder : str, users_ids : list, e
     with open(file_path, "w") as config_file:
         json.dump(example_config, config_file, indent = 3)
     
-def generate_configs(embedding_folder : str, overlap_users_ids : list = None, no_overlap_users_ids : list = None) -> None:
+def generate_configs(embedding_folder : str, val_users_ids : list = None, test_users_no_overlap_ids : list = None) -> None:
     embedding_name = embedding_folder.split("/")[-1]
-    if overlap_users_ids is not None:
-        generate_config(f"{embedding_folder}/{embedding_name}_overlap.json", embedding_folder, overlap_users_ids, "train_test_split")
-    if no_overlap_users_ids is not None:
-        generate_config(f"{embedding_folder}/{embedding_name}_no_overlap.json", embedding_folder, no_overlap_users_ids, "cross_validation")
+    if val_users_ids is not None:
+        generate_config(f"{embedding_folder}/{embedding_name}_overlap.json", embedding_folder, val_users_ids, "train_test_split")
+    if test_users_no_overlap_ids is not None:
+        generate_config(f"{embedding_folder}/{embedding_name}_no_overlap.json", embedding_folder, test_users_no_overlap_ids, "cross_validation")
 
-def run_evaluation(finetuning_model : FinetuningModel, device : torch.device, overlap_users : bool = True, no_overlap_users : bool = True) -> None:
-    overlap_users_ids, no_overlap_users_ids, papers_tokenized = load_users_and_papers(overlap_users, no_overlap_users)
-    embedding_name = get_embedding_name(finetuning_model)
+def run_evaluation(finetuning_model : FinetuningModel, val_users_ids : list, test_users_no_overlap_ids : list, test_papers : dict) -> None:
+    training_mode = finetuning_model.training
+    finetuning_model.eval()
+    embedding_name = finetuning_model.get_embedding_name()
     embedding_folder = f"{FILES_SAVE_PATH}/experiments/{embedding_name}"
     papers_ids_to_idxs = {}
-    for idx, paper_id in enumerate(papers_tokenized["papers_ids"]):
+    for idx, paper_id in enumerate(test_papers["paper_id"]):
         papers_ids_to_idxs[paper_id.item()] = idx
-    embeddings = compute_embeddings(finetuning_model, device, papers_tokenized["input_ids"], papers_tokenized["attention_masks"])
+    embeddings = finetuning_model.compute_papers_embeddings(test_papers["input_ids"], test_papers["attention_mask"])
+    embeddings = attach_arxiv_categories(embeddings, papers_ids_to_idxs)
     os.makedirs(embedding_folder, exist_ok = True)
     np.save(f"{embedding_folder}/abs_X.npy", embeddings)
     with open(f"{embedding_folder}/abs_paper_ids_to_idx.pkl", "wb") as f:
         pickle.dump(papers_ids_to_idxs, f)
-    generate_configs(embedding_folder, overlap_users_ids, no_overlap_users_ids)
+    generate_configs(embedding_folder, val_users_ids, test_users_no_overlap_ids)
     os.system(f"python run_cross_eval.py --config_path {embedding_folder}")
+    if training_mode:
+        finetuning_model.train()
 
-def test_evaluation() -> None:
-    from finetuning_model import load_finetuning_model
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    finetuning_model = load_finetuning_model(GTE_BASE_PATH, device, 256, "/home/scholar/glenn_rp/msc_thesis/data/finetuning/gte_base_256_projection.pt")
-    run_evaluation(finetuning_model, device, overlap_users = True, no_overlap_users = True)
+def get_users_starting_ending_idxs(user_idx_tensor : torch.tensor, offset : int) -> torch.tensor:
+    counts = torch.unique(user_idx_tensor, return_inverse = False, return_counts = True)
+    ending_idxs = torch.cumsum(counts[1], dim = 0)
+    starting_idxs = torch.cat((torch.tensor([0]), ending_idxs[:-1]), dim = 0)
+    ending_idxs = ending_idxs - offset
+    return starting_idxs, ending_idxs
 
-test_evaluation()
+def compute_ranking_scores(y_true : torch.tensor, y_proba : torch.tensor) -> torch.tensor:
+    ranking_scores = np.zeros(4, dtype = np.float32)
+    y_true, y_proba = y_true.numpy(), y_proba.numpy()
+    ranking_scores[0] = roc_auc_score(y_true, y_proba)
+    ranking_scores[1] = ndcg_score(y_true.reshape(1, -1), y_proba.reshape(1, -1), k = 5)
+    sorted_indices = np.argsort(y_proba)[::-1]
+    for rank, idx in enumerate(sorted_indices, 1):
+        if y_true[idx] > 0:
+            ranking_scores[2] = 1.0 / rank
+            break
+    top_1_idx = np.argmax(y_proba)
+    ranking_scores[3] = float(y_true[top_1_idx] > 0)
+    return torch.tensor(ranking_scores, dtype = torch.float32)
+
+def get_ranking_scores(users_scores : torch.tensor, explicit_negatives_scores : torch.tensor, negative_samples_scores : torch.tensor, 
+                       users_starting_idxs : torch.tensor, users_ending_idxs : torch.tensor) -> tuple:
+    n_users = explicit_negatives_scores.shape[0]
+    explicit_negatives_labels = torch.cat((torch.tensor([1]), torch.zeros(explicit_negatives_scores.shape[1], dtype = torch.int32)))
+    negative_samples_labels = torch.cat((torch.tensor([1]), torch.zeros(negative_samples_scores.shape[1], dtype = torch.int32)))
+    explicit_negatives_ranking_scores, negative_samples_ranking_scores = torch.zeros(size = (n_users, 4), dtype = torch.float32), torch.zeros(size = (n_users, 4), dtype = torch.float32)
+    for i in range(n_users):
+        explicit_negatives_scores_user, negative_samples_scores_user = explicit_negatives_scores[i], negative_samples_scores[i]
+        positives_scores_user = users_scores[users_starting_idxs[i]:users_ending_idxs[i]]
+        n_positives_scores = positives_scores_user.shape[0]
+        explicit_negatives_ranking_scores_user = torch.zeros(size = (n_positives_scores, 4), dtype = torch.float32)
+        negative_samples_ranking_scores_user = torch.zeros(size = (n_positives_scores, 4), dtype = torch.float32)
+        for j, positive_score in enumerate(positives_scores_user):
+            positive_score = positive_score.unsqueeze(0)
+            explicit_negatives_scores_cat = torch.cat((positive_score, explicit_negatives_scores_user))
+            negative_samples_scores_cat = torch.cat((positive_score, negative_samples_scores_user))
+            explicit_negatives_ranking_scores_user[j] = compute_ranking_scores(explicit_negatives_labels, explicit_negatives_scores_cat)
+            negative_samples_ranking_scores_user[j] = compute_ranking_scores(negative_samples_labels, negative_samples_scores_cat)
+        explicit_negatives_ranking_scores[i] = torch.mean(explicit_negatives_ranking_scores_user, dim = 0)
+        negative_samples_ranking_scores[i] = torch.mean(negative_samples_ranking_scores_user, dim = 0)
+    explicit_negatives_ranking_scores = torch.mean(explicit_negatives_ranking_scores, dim = 0)
+    negative_samples_ranking_scores = torch.mean(negative_samples_ranking_scores, dim = 0)
+    return explicit_negatives_ranking_scores, negative_samples_ranking_scores
+            
+def run_validation(finetuning_model : FinetuningModel, val_dataset : FinetuningDataset, negative_samples : dict, train_val_dataset : FinetuningDataset = None) -> tuple:
+    assert val_dataset.user_idx_tensor.unique().tolist() == finetuning_model.val_users_embeddings_idxs.tolist()
+    training_mode = finetuning_model.training
+    finetuning_model.eval()
+    negative_samples_scores = finetuning_model.compute_negative_samples_scores(negative_samples)
+    val_users_scores = finetuning_model.compute_users_scores(val_dataset.user_idx_tensor, val_dataset.input_ids_tensor, val_dataset.attention_mask_tensor, training = False)
+    label_0_idxs = torch.where(val_dataset.label_tensor == 0)[0]
+    explicit_negatives_scores = val_users_scores[label_0_idxs].reshape(-1, 4)
+    val_users_starting_idxs, val_users_ending_idxs = get_users_starting_ending_idxs(val_dataset.user_idx_tensor, 4)
+    val_ranking_scores = get_ranking_scores(val_users_scores, explicit_negatives_scores, negative_samples_scores, val_users_starting_idxs, val_users_ending_idxs)
+    train_val_ranking_scores = None
+    if train_val_dataset is not None:
+        assert train_val_dataset.user_idx_tensor.unique().tolist() == finetuning_model.val_users_embeddings_idxs.tolist()
+        train_val_users_scores = finetuning_model.compute_users_scores(train_val_dataset.user_idx_tensor, train_val_dataset.input_ids_tensor, train_val_dataset.attention_mask_tensor, training = False)
+        train_val_users_starting_idxs, train_val_users_ending_idxs = get_users_starting_ending_idxs(train_val_dataset.user_idx_tensor, 0)
+        train_val_ranking_scores = get_ranking_scores(train_val_users_scores, explicit_negatives_scores, negative_samples_scores, train_val_users_starting_idxs, train_val_users_ending_idxs)
+    if training_mode:
+        finetuning_model.train()
+    return val_ranking_scores, train_val_ranking_scores
