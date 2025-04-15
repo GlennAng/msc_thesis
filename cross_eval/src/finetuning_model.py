@@ -58,7 +58,7 @@ class FinetuningModel(nn.Module):
             max_batch_size = 1024
         elif self.transformer_model_name == GTE_LARGE_PATH:
             max_batch_size = 512
-        papers_embeddings = self.perform_papers_embeddings_inference(max_batch_size, input_ids_tensor, attention_mask_tensor, eval_type = "test")
+        papers_embeddings = self.perform_inference(max_batch_size, input_ids_tensor, attention_mask_tensor, eval_type = "test")
         return papers_embeddings
 
     def perform_inference(self, max_batch_size : int, input_ids_tensor : torch.tensor, attention_mask_tensor : torch.tensor, 
@@ -78,6 +78,7 @@ class FinetuningModel(nn.Module):
                     upper_bound = min(n_samples, n_samples_processed + batch_size)
                     batch_input_ids_tensor = input_ids_tensor[n_samples_processed : upper_bound].to(self.device)
                     batch_attention_mask_tensor = attention_mask_tensor[n_samples_processed : upper_bound].to(self.device)
+                    batch_user_idx_tensor = None
                     if user_idx_tensor is not None:
                         batch_user_idx_tensor = user_idx_tensor[n_samples_processed : upper_bound].to(self.device)
                     with torch.autocast(device_type = self.device.type, dtype = torch.float16):

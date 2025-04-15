@@ -236,7 +236,11 @@ class Evaluator:
         folder = f"{self.config['outputs_dir']}/tmp/user_{user_id}"
         if not os.path.exists(folder):
             os.makedirs(folder)
-        json.dump(user_results_dict, open(folder + "/user_results.json", 'w'), indent = 1)
+        try:
+            json.dump(user_results_dict, open(folder + "/user_results.json", 'w'), indent = 1)
+        except:
+            print(f"Error saving user {user_id} results.")
+            raise
 
     def save_users_predictions(self, user_id : int, user_predictions_dict : dict) -> None:
         folder = f"{self.config['outputs_dir']}/users_predictions/user_{user_id}"

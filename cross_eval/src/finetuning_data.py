@@ -41,4 +41,4 @@ def load_datasets() -> tuple:
     val_users_embeddings_idxs = load_val_users_embeddings_idxs(val_users_ids, users_embeddings_ids_to_idxs)
     negative_samples = load_negative_samples()
     test_papers = load_test_papers()
-    return train_dataset, val_dataset, train_val_dataset, val_users_embeddings_idxs, negative_samples, test_papers
+    return train_users_ids, val_users_ids, test_users_no_overlap_ids, users_embeddings_ids_to_idxs, train_dataset, val_dataset, train_val_dataset, val_users_embeddings_idxs, negative_samples, test_papers

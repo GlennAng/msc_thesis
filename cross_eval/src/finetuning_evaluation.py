@@ -9,13 +9,16 @@ import os
 import pickle
 import torch
 
-def generate_config(file_path : str, embedding_folder : str, users_ids : list, evaluation : str) -> None:
+def generate_config(file_path : str, embedding_folder : str, users_ids : list, evaluation : str, users_coefs_path : str = None) -> None:
     if not file_path.endswith(".json"):
         file_path += ".json"
     with open(f"{FILES_SAVE_PATH}/example_config.json", "r") as config_file:
         example_config = json.load(config_file)
     example_config["embedding_folder"] = embedding_folder
     example_config["users_selection"] = users_ids
+    if users_coefs_path is not None:
+        example_config["users_coefs_path"] = users_coefs_path
+        example_config["load_users_coefs"] = True
     example_config["evaluation"] = evaluation
     with open(file_path, "w") as config_file:
         json.dump(example_config, config_file, indent = 3)
@@ -24,10 +27,17 @@ def generate_configs(embedding_folder : str, val_users_ids : list = None, test_u
     embedding_name = embedding_folder.split("/")[-1]
     if val_users_ids is not None:
         generate_config(f"{embedding_folder}/{embedding_name}_overlap.json", embedding_folder, val_users_ids, "train_test_split")
+        generate_config(f"{embedding_folder}/{embedding_name}_overlap_users_coefs.json", embedding_folder, val_users_ids, "train_test_split", users_coefs_path = embedding_folder)
     if test_users_no_overlap_ids is not None:
         generate_config(f"{embedding_folder}/{embedding_name}_no_overlap.json", embedding_folder, test_users_no_overlap_ids, "cross_validation")
 
-def run_evaluation(finetuning_model : FinetuningModel, val_users_ids : list, test_users_no_overlap_ids : list, test_papers : dict) -> None:
+def save_users_coefs(finetuning_model : FinetuningModel, val_users_ids : list, users_embeddings_ids_to_idxs : dict, users_coefs_path : str) -> None:
+    users_coefs = finetuning_model.users_embeddings.weight.detach().cpu().numpy().astype(np.float64)
+    np.save(f"{users_coefs_path}/users_coefs.npy", users_coefs)
+    with open(f"{users_coefs_path}/users_coefs_ids_to_idxs.pkl", "wb") as f:
+        pickle.dump(users_embeddings_ids_to_idxs, f)
+
+def run_evaluation(finetuning_model : FinetuningModel, val_users_ids : list, test_users_no_overlap_ids : list, test_papers : dict, users_embeddings_ids_to_idxs : dict, attach_arxiv : bool = False) -> None:
     training_mode = finetuning_model.training
     finetuning_model.eval()
     embedding_name = finetuning_model.get_embedding_name()
@@ -36,11 +46,13 @@ def run_evaluation(finetuning_model : FinetuningModel, val_users_ids : list, tes
     for idx, paper_id in enumerate(test_papers["paper_id"]):
         papers_ids_to_idxs[paper_id.item()] = idx
     embeddings = finetuning_model.compute_papers_embeddings(test_papers["input_ids"], test_papers["attention_mask"])
-    embeddings = attach_arxiv_categories(embeddings, papers_ids_to_idxs)
+    if attach_arxiv:
+        embeddings = attach_arxiv_categories(embeddings, papers_ids_to_idxs)
     os.makedirs(embedding_folder, exist_ok = True)
     np.save(f"{embedding_folder}/abs_X.npy", embeddings)
     with open(f"{embedding_folder}/abs_paper_ids_to_idx.pkl", "wb") as f:
         pickle.dump(papers_ids_to_idxs, f)
+    save_users_coefs(finetuning_model, val_users_ids, users_embeddings_ids_to_idxs, embedding_folder)
     generate_configs(embedding_folder, val_users_ids, test_users_no_overlap_ids)
     os.system(f"python run_cross_eval.py --config_path {embedding_folder}")
     if training_mode:
