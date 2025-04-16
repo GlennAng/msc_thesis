@@ -22,22 +22,21 @@ class FinetuningModel(nn.Module):
         if val_users_embeddings_idxs is not None:
             self.val_users_embeddings_idxs = val_users_embeddings_idxs.to(self.device)
         
-    def forward(self, input_ids_tensor : torch.tensor, attention_mask_tensor : torch.tensor, user_idx_tensor : torch.tensor = None, eval_type : str = None) -> torch.tensor:
+    def forward(self, eval_type : str, input_ids_tensor : torch.tensor, attention_mask_tensor : torch.tensor, user_idx_tensor : torch.tensor = None) -> torch.tensor:
+        eval_type = eval_type.lower()
+        assert eval_type in ["train", "val", "negative_samples", "test"]
         papers_embeddings = self.transformer_model(input_ids = input_ids_tensor, attention_mask = attention_mask_tensor).last_hidden_state[:, 0, :]
         papers_embeddings = self.projection(papers_embeddings)
         papers_embeddings = F.normalize(papers_embeddings, p = 2, dim = 1)
-        if eval_type is not None:
-            eval_type = eval_type.lower()
-            if eval_type == "test":
-                return papers_embeddings
-            elif eval_type == "negative_samples":
-                val_users_embeddings = self.users_embeddings(self.val_users_embeddings_idxs)
-                dot_products = torch.matmul(val_users_embeddings[:, :-1], papers_embeddings.transpose(0, 1))
-                dot_products = dot_products + val_users_embeddings[:, -1].unsqueeze(1)
-                return dot_products
-            else:
-                raise ValueError(f"Invalid eval_type: {eval_type}. Must be 'test' or 'negative_samples'.")
-        else:
+        
+        if eval_type == "test":
+            return papers_embeddings
+        if eval_type == "negative_samples":
+            val_users_embeddings = self.users_embeddings(self.val_users_embeddings_idxs)
+            dot_products = torch.matmul(val_users_embeddings[:, :-1], papers_embeddings.transpose(0, 1))
+            dot_products = dot_products + val_users_embeddings[:, -1].unsqueeze(1)
+            return dot_products
+        if eval_type == "val":
             users_embeddings = self.users_embeddings(user_idx_tensor)
             dot_products = torch.sum(papers_embeddings * users_embeddings[:, :-1], dim = 1) + self.users_embeddings(user_idx_tensor)[:, -1]
             return dot_products
@@ -83,8 +82,8 @@ class FinetuningModel(nn.Module):
                         batch_user_idx_tensor = user_idx_tensor[n_samples_processed : upper_bound].to(self.device)
                     with torch.autocast(device_type = self.device.type, dtype = torch.float16):
                         with torch.inference_mode():
-                            results = self(input_ids_tensor = batch_input_ids_tensor, attention_mask_tensor = batch_attention_mask_tensor, 
-                                           user_idx_tensor = batch_user_idx_tensor, eval_type = eval_type).cpu()
+                            results = self(eval_type = eval_type, input_ids_tensor = batch_input_ids_tensor, attention_mask_tensor = batch_attention_mask_tensor, 
+                                           user_idx_tensor = batch_user_idx_tensor).cpu()
                             gpu_info = get_gpu_info()
                     results_total.append(results)
                     n_samples_processed = min(n_samples, n_samples_processed + batch_size)
@@ -116,16 +115,16 @@ class FinetuningModel(nn.Module):
         with torch.autocast(device_type = self.device.type, dtype = torch.float16):
             with torch.inference_mode():
                 input_ids_tensor, attention_mask_tensor = negative_samples["input_ids"].to(self.device), negative_samples["attention_mask"].to(self.device)
-                negative_samples_scores = self(input_ids_tensor = input_ids_tensor, attention_mask_tensor = attention_mask_tensor, eval_type = "negative_samples").cpu()
+                negative_samples_scores = self(eval_type = "negative_samples", input_ids_tensor = input_ids_tensor, attention_mask_tensor = attention_mask_tensor).cpu()
         return negative_samples_scores
 
-    def compute_users_scores(self, user_idx_tensor : torch.tensor, input_ids_tensor : torch.tensor, attention_mask_tensor : torch.tensor, training : bool, max_batch_size : int = None) -> torch.tensor:
-        if not training and max_batch_size is None:
+    def compute_val_scores(self, user_idx_tensor : torch.tensor, input_ids_tensor : torch.tensor, attention_mask_tensor : torch.tensor, max_batch_size : int = None) -> torch.tensor:
+        if max_batch_size is None:
             if self.transformer_model_name == GTE_BASE_PATH:
                 max_batch_size = 1024
             elif self.transformer_model_name == GTE_LARGE_PATH:
                 max_batch_size = 512
-        users_scores = self.perform_inference(max_batch_size, input_ids_tensor, attention_mask_tensor, user_idx_tensor)
+        users_scores = self.perform_inference(max_batch_size, input_ids_tensor, attention_mask_tensor, user_idx_tensor, eval_type = "val")
         return users_scores
 
 def load_transformer_model(transformer_path : str, device : torch.device) -> AutoModel:

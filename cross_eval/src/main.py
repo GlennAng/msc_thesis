@@ -181,6 +181,7 @@ def merge_users_results(config : dict, users_ids : list) -> None:
 
 def merge_users_coefs(config : dict, users_ids : list) -> None:
     if "save_users_coefs" in config and config["save_users_coefs"]:
+        users_ids = sorted(users_ids)
         outputs_dir = config["outputs_dir"]
         users_coefs_ids_to_idxs = {}
         for i, user_id in enumerate(users_ids):

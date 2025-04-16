@@ -118,7 +118,7 @@ class Evaluator:
         self.save_user_results(user_id, user_results_dict)
         self.save_users_predictions(user_id, user_predictions_dict)
         if "save_users_coefs" in self.config and self.config["save_users_coefs"]:
-            self.save_user_coefs(user_id, user_coefs)
+            self.save_users_coefs(user_id, user_coefs)
         print(f"User {user_id} done.")
     
     def set_cache_for_user(self, user_id : int, posrated_n : int, negrated_n : int, base_n) -> tuple:
@@ -248,7 +248,7 @@ class Evaluator:
             os.makedirs(folder)
         json.dump(user_predictions_dict, open(folder + "/user_predictions.json", 'w'), indent = 1)
 
-    def save_user_coefs(self, user_id : int, user_coefs : np.ndarray) -> None:
+    def save_users_coefs(self, user_id : int, user_coefs : np.ndarray) -> None:
         folder = f"{self.config['outputs_dir']}/tmp/user_{user_id}"
         if not os.path.exists(folder):
             os.makedirs(folder)

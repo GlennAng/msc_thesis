@@ -9,6 +9,8 @@ import os
 import pickle
 import torch
 
+METRICS_LIST = ["auc", "ndcg@5", "mrr", "hr@1"]
+
 def generate_config(file_path : str, embedding_folder : str, users_ids : list, evaluation : str, users_coefs_path : str = None) -> None:
     if not file_path.endswith(".json"):
         file_path += ".json"
@@ -68,15 +70,22 @@ def get_users_starting_ending_idxs(user_idx_tensor : torch.tensor, offset : int)
 def compute_ranking_scores(y_true : torch.tensor, y_proba : torch.tensor) -> torch.tensor:
     ranking_scores = np.zeros(4, dtype = np.float32)
     y_true, y_proba = y_true.numpy(), y_proba.numpy()
-    ranking_scores[0] = roc_auc_score(y_true, y_proba)
-    ranking_scores[1] = ndcg_score(y_true.reshape(1, -1), y_proba.reshape(1, -1), k = 5)
-    sorted_indices = np.argsort(y_proba)[::-1]
-    for rank, idx in enumerate(sorted_indices, 1):
-        if y_true[idx] > 0:
-            ranking_scores[2] = 1.0 / rank
-            break
-    top_1_idx = np.argmax(y_proba)
-    ranking_scores[3] = float(y_true[top_1_idx] > 0)
+    for i, metric in enumerate(METRICS_LIST):
+        if metric == "auc":
+            ranking_scores[i] = roc_auc_score(y_true, y_proba)
+        elif metric == "ndcg@5":
+            ranking_scores[i] = ndcg_score(y_true.reshape(1, -1), y_proba.reshape(1, -1), k = 5)
+        elif metric == "mrr":
+            sorted_indices = np.argsort(y_proba)[::-1]
+            for rank, idx in enumerate(sorted_indices, 1):
+                if y_true[idx] > 0:
+                    ranking_scores[i] = 1.0 / rank
+                    break
+        elif metric == "hr@1":
+            top_1_idx = np.argmax(y_proba)
+            ranking_scores[i] = float(y_true[top_1_idx] > 0)
+        else:
+            raise ValueError(f"Unknown metric: {metric}")
     return torch.tensor(ranking_scores, dtype = torch.float32)
 
 def get_ranking_scores(users_scores : torch.tensor, explicit_negatives_scores : torch.tensor, negative_samples_scores : torch.tensor, 
@@ -108,7 +117,7 @@ def run_validation(finetuning_model : FinetuningModel, val_dataset : FinetuningD
     training_mode = finetuning_model.training
     finetuning_model.eval()
     negative_samples_scores = finetuning_model.compute_negative_samples_scores(negative_samples)
-    val_users_scores = finetuning_model.compute_users_scores(val_dataset.user_idx_tensor, val_dataset.input_ids_tensor, val_dataset.attention_mask_tensor, training = False)
+    val_users_scores = finetuning_model.compute_val_scores(val_dataset.user_idx_tensor, val_dataset.input_ids_tensor, val_dataset.attention_mask_tensor)
     label_0_idxs = torch.where(val_dataset.label_tensor == 0)[0]
     explicit_negatives_scores = val_users_scores[label_0_idxs].reshape(-1, 4)
     val_users_starting_idxs, val_users_ending_idxs = get_users_starting_ending_idxs(val_dataset.user_idx_tensor, 4)
@@ -116,7 +125,7 @@ def run_validation(finetuning_model : FinetuningModel, val_dataset : FinetuningD
     train_val_ranking_scores = None
     if train_val_dataset is not None:
         assert train_val_dataset.user_idx_tensor.unique().tolist() == finetuning_model.val_users_embeddings_idxs.tolist()
-        train_val_users_scores = finetuning_model.compute_users_scores(train_val_dataset.user_idx_tensor, train_val_dataset.input_ids_tensor, train_val_dataset.attention_mask_tensor, training = False)
+        train_val_users_scores = finetuning_model.compute_val_scores(train_val_dataset.user_idx_tensor, train_val_dataset.input_ids_tensor, train_val_dataset.attention_mask_tensor)
         train_val_users_starting_idxs, train_val_users_ending_idxs = get_users_starting_ending_idxs(train_val_dataset.user_idx_tensor, 0)
         train_val_ranking_scores = get_ranking_scores(train_val_users_scores, explicit_negatives_scores, negative_samples_scores, train_val_users_starting_idxs, train_val_users_ending_idxs)
     if training_mode:

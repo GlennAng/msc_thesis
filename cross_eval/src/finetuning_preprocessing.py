@@ -41,6 +41,7 @@ def save_users_embeddings_tensor(train_users_ids : list, users_coefs : np.ndarra
 def load_users_embeddings_ids_to_idxs() -> dict:
     with open(f"{FILES_SAVE_PATH}/users/users_embeddings_ids_to_idxs.pkl", "rb") as f:
         users_embeddings_ids_to_idxs = pickle.load(f)
+    assert list(users_embeddings_ids_to_idxs.values()) == sorted(list(users_embeddings_ids_to_idxs.values()))
     return users_embeddings_ids_to_idxs
 
 def save_finetuning_users_ids(n_val_users : int = 500, n_test_users_no_overlap : int = 500, min_n_posrated : int = 20, min_n_negrated : int = 20, random_state : int = 42) -> None:
