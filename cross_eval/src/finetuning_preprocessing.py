@@ -137,11 +137,12 @@ def save_val_dataset(val_users_ids : list, train_val_papers : dict, train_val_pa
         train_rated_ids, val_rated_ids, y_train_rated, y_val = train_test_split(rated_ids, rated_labels, test_size = 0.2, random_state = random_state, stratify = rated_labels)
         posrated_validation_ids, negrated_validation_ids = [id for id in val_rated_ids if id in posrated_ids], [id for id in val_rated_ids if id in negrated_ids]
         negrated_ranking_ids = load_negrated_ranking_ids_for_user(negrated_validation_ids, random_state)
-        papers_ids = posrated_validation_ids + negrated_ranking_ids
+        non_negrated_ranking_ids = [id for id in negrated_validation_ids if id not in negrated_ranking_ids]
+        papers_ids = posrated_validation_ids + non_negrated_ranking_ids + negrated_ranking_ids
         user_id_list += [user_id] * len(papers_ids)
         papers_idxs = [train_val_papers_ids_to_idxs[paper_id] for paper_id in papers_ids]
         paper_id_list += papers_ids
-        label_list += [1] * len(posrated_validation_ids) + [0] * len(negrated_ranking_ids)
+        label_list += [1] * len(posrated_validation_ids) + [0] * (len(non_negrated_ranking_ids) + len(negrated_ranking_ids))
         input_ids_list += [train_val_papers["input_ids"][idx] for idx in papers_idxs]
         attention_mask_list += [train_val_papers["attention_mask"][idx] for idx in papers_idxs]
     user_id_list = torch.tensor(user_id_list)

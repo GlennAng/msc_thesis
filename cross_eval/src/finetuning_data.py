@@ -11,6 +11,7 @@ class FinetuningDataset(Dataset):
 
         self.n_users = len(user_idx_tensor.unique())
         assert self.user_idx_tensor.unique().tolist() == sorted(self.user_idx_tensor.unique().tolist()), "User idxs must be sorted"
+        self.get_users_data()
 
     def __len__(self) -> int:
         return self.n_samples
@@ -20,30 +21,33 @@ class FinetuningDataset(Dataset):
                  "input_ids" : self.input_ids_tensor[idx], "attention_mask" : self.attention_mask_tensor[idx]}
         return batch
 
-    def get_users_counts(self) -> None:
-        self.users_counts = torch.bincount(self.user_idx_tensor)
-        assert self.users_counts.sum() == self.n_samples, "Users counts must sum to the number of samples"
-        self.users_pos_starting_indices = torch.cat((torch.tensor([0]), torch.cumsum(self.users_counts, dim = 0)[:-1]))
-        pos_tensor, neg_tensor = self.user_idx_tensor[self.label_tensor == 1], self.user_idx_tensor[self.label_tensor == 0]
-        self.users_pos_counts, self.users_neg_counts = torch.bincount(pos_tensor), torch.bincount(neg_tensor)
-        assert len(self.users_pos_counts) == len(self.users_counts), "Every user must have at least one positive sample"
-        assert len(self.users_neg_counts) == len(self.users_counts), "Every user must have at least one negative sample"
-        self.users_neg_starting_indices = self.users_pos_starting_indices + self.users_pos_counts
+    def get_users_data(self) -> None:
+        unique_values, idxs = torch.unique(self.user_idx_tensor, return_inverse = True)
+        assert unique_values.tolist() == sorted(unique_values.tolist()), "User idxs must be sorted"
+        assert len(unique_values) == self.n_users, "There must be n_users unique user idxs"
+        users_counts = torch.bincount(idxs)
+        assert users_counts.sum() == self.n_samples, "Users counts must sum to the number of samples"
+        assert len(users_counts) == self.n_users
+        users_pos_starting_idxs = torch.cat((torch.tensor([0]), torch.cumsum(users_counts, dim = 0)[:-1]))
+        pos_tensor, neg_tensor = idxs[self.label_tensor == 1], idxs[self.label_tensor == 0]
+        users_pos_counts, users_neg_counts = torch.bincount(pos_tensor), torch.bincount(neg_tensor)
+        assert len(users_pos_counts) == len(users_counts), "Every user must have at least one positive sample"
+        assert len(users_neg_counts) == len(users_counts), "Every user must have at least one negative sample"
+        users_neg_starting_idxs = users_pos_starting_idxs + users_pos_counts
+        self.users_counts, self.users_pos_counts, self.users_neg_counts = users_counts, users_pos_counts, users_neg_counts
+        self.users_pos_starting_idxs, self.users_neg_starting_idxs = users_pos_starting_idxs, users_neg_starting_idxs
+        self.users_counts_ids_to_idxs = {user_id.item() : user_idx for user_id, user_idx in zip(self.user_idx_tensor.unique(), range(self.n_users))}
 
 class FinetuningSampler(Sampler):
     def __init__(self, dataset : FinetuningDataset, batch_size : int, n_samples_per_user : int, users_sampling_strategy : str, class_balancing : bool, seed : int) -> None:
         super().__init__()
         self.dataset, self.batch_size, self.n_samples_per_user = dataset, batch_size, n_samples_per_user
         self.users_sampling_strategy, self.class_balancing = users_sampling_strategy, class_balancing
-
         self.n_users_per_batch = self.batch_size // self.n_samples_per_user
         self.n_batches_per_epoch = len(self.dataset) // self.batch_size
         self.n_samples_per_epoch = self.n_batches_per_epoch * self.batch_size
-
-        self.dataset.get_users_counts()
         self.users_probas = self.get_users_probas()
         assert abs(self.users_probas.sum() - 1) < 1e-5, "Users sampling probabilities must sum to 1"
-
         self.seed = seed
         self.epoch = 0
 
@@ -54,15 +58,15 @@ class FinetuningSampler(Sampler):
         epoch_seed = self.seed + self.epoch
         self.rng = np.random.RandomState(epoch_seed)
         for _ in range(self.n_batches_per_epoch):
-            batch_indices = []
+            batch_idxs = []
             selected_users_idxs = self.rng.choice(np.arange(self.dataset.n_users), size = self.n_users_per_batch, p = self.users_probas.numpy(), replace = False)
             for user_idx in selected_users_idxs:
-                user_indices = self._sample_user_indices(user_idx)
-                batch_indices.extend(user_indices)
-            for idx in batch_indices:
+                user_idxs = self._sample_user_idxs(user_idx)
+                batch_idxs.extend(user_indices)
+            for idx in batch_idxs:
                 yield idx
 
-    def _sample_user_indices(self, user_idx : int) -> list:
+    def _sample_user_idxs(self, user_idx : int) -> list:
         user_pos_starting_index, user_neg_starting_index = self.dataset.users_pos_starting_indices[user_idx], self.dataset.users_neg_starting_indices[user_idx]
         user_pos_count, user_neg_count = self.dataset.users_pos_counts[user_idx], self.dataset.users_neg_counts[user_idx]
         user_pos_ending_index, user_neg_ending_index = user_pos_starting_index + user_pos_count, user_neg_starting_index + user_neg_count
@@ -118,17 +122,17 @@ class FinetuningSampler(Sampler):
 
 def create_dataset(dataset : dict, users_embeddings_ids_to_idxs : dict) -> FinetuningDataset:
     user_idx_tensor = torch.tensor([users_embeddings_ids_to_idxs[user_id.item()] for user_id in dataset["user_id"]], dtype = dataset["user_id"].dtype)
-    return FinetuningDataset(user_idx_tensor, dataset["paper_id"], dataset["label"], dataset["input_ids"], dataset["attention_mask"])
+    dataset = FinetuningDataset(user_idx_tensor, dataset["paper_id"], dataset["label"], dataset["input_ids"], dataset["attention_mask"])
+    return dataset
 
 def create_train_val_dataset(train_dataset : FinetuningDataset, val_dataset : FinetuningDataset) -> FinetuningDataset:
     val_users_idxs = val_dataset.user_idx_tensor.unique()
     mask = torch.isin(train_dataset.user_idx_tensor, val_users_idxs)
-    idxs_where_label_is_1 = torch.where((train_dataset.label_tensor == 1) & mask)[0]
-    user_idx_tensor = train_dataset.user_idx_tensor[idxs_where_label_is_1]
-    paper_id_tensor = train_dataset.paper_id_tensor[idxs_where_label_is_1]
-    label_tensor = train_dataset.label_tensor[idxs_where_label_is_1]
-    input_ids_tensor = train_dataset.input_ids_tensor[idxs_where_label_is_1]
-    attention_mask_tensor = train_dataset.attention_mask_tensor[idxs_where_label_is_1]
+    user_idx_tensor = train_dataset.user_idx_tensor[mask]
+    paper_id_tensor = train_dataset.paper_id_tensor[mask]
+    label_tensor = train_dataset.label_tensor[mask]
+    input_ids_tensor = train_dataset.input_ids_tensor[mask]
+    attention_mask_tensor = train_dataset.attention_mask_tensor[mask]
     return FinetuningDataset(user_idx_tensor, paper_id_tensor, label_tensor, input_ids_tensor, attention_mask_tensor)
 
 def load_datasets_dict() -> dict:

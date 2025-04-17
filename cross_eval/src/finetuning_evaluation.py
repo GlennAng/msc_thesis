@@ -9,7 +9,8 @@ import os
 import pickle
 import torch
 
-METRICS_LIST = ["auc", "ndcg@5", "mrr", "hr@1"]
+RANKING_METRICS = ["auc", "ndcg@5", "mrr", "hr@1"]
+CLASSIFICATION_METRICS = ["bcel", "recall", "specificity", "balanced_accuracy"]
 
 def generate_config(file_path : str, embedding_folder : str, users_ids : list, evaluation : str, users_coefs_path : str = None) -> None:
     if not file_path.endswith(".json"):
@@ -39,7 +40,8 @@ def save_users_coefs(finetuning_model : FinetuningModel, val_users_ids : list, u
     with open(f"{users_coefs_path}/users_coefs_ids_to_idxs.pkl", "wb") as f:
         pickle.dump(users_embeddings_ids_to_idxs, f)
 
-def run_evaluation(finetuning_model : FinetuningModel, val_users_ids : list, test_users_no_overlap_ids : list, test_papers : dict, users_embeddings_ids_to_idxs : dict, attach_arxiv : bool = False) -> None:
+def run_evaluation(finetuning_model : FinetuningModel, val_users_ids : list, test_users_no_overlap_ids : list, test_papers : dict, users_embeddings_ids_to_idxs : dict, 
+                   attach_arxiv : bool = False) -> None:
     training_mode = finetuning_model.training
     finetuning_model.eval()
     embedding_name = finetuning_model.get_embedding_name()
@@ -70,7 +72,7 @@ def get_users_starting_ending_idxs(user_idx_tensor : torch.tensor, offset : int)
 def compute_ranking_scores(y_true : torch.tensor, y_proba : torch.tensor) -> torch.tensor:
     ranking_scores = np.zeros(4, dtype = np.float32)
     y_true, y_proba = y_true.numpy(), y_proba.numpy()
-    for i, metric in enumerate(METRICS_LIST):
+    for i, metric in enumerate(RANKING_METRICS):
         if metric == "auc":
             ranking_scores[i] = roc_auc_score(y_true, y_proba)
         elif metric == "ndcg@5":
@@ -88,46 +90,84 @@ def compute_ranking_scores(y_true : torch.tensor, y_proba : torch.tensor) -> tor
             raise ValueError(f"Unknown metric: {metric}")
     return torch.tensor(ranking_scores, dtype = torch.float32)
 
-def get_ranking_scores(users_scores : torch.tensor, explicit_negatives_scores : torch.tensor, negative_samples_scores : torch.tensor, 
-                       users_starting_idxs : torch.tensor, users_ending_idxs : torch.tensor) -> tuple:
-    n_users = explicit_negatives_scores.shape[0]
-    explicit_negatives_labels = torch.cat((torch.tensor([1]), torch.zeros(explicit_negatives_scores.shape[1], dtype = torch.int32)))
-    negative_samples_labels = torch.cat((torch.tensor([1]), torch.zeros(negative_samples_scores.shape[1], dtype = torch.int32)))
-    explicit_negatives_ranking_scores, negative_samples_ranking_scores = torch.zeros(size = (n_users, 4), dtype = torch.float32), torch.zeros(size = (n_users, 4), dtype = torch.float32)
-    for i in range(n_users):
-        explicit_negatives_scores_user, negative_samples_scores_user = explicit_negatives_scores[i], negative_samples_scores[i]
-        positives_scores_user = users_scores[users_starting_idxs[i]:users_ending_idxs[i]]
-        n_positives_scores = positives_scores_user.shape[0]
-        explicit_negatives_ranking_scores_user = torch.zeros(size = (n_positives_scores, 4), dtype = torch.float32)
-        negative_samples_ranking_scores_user = torch.zeros(size = (n_positives_scores, 4), dtype = torch.float32)
-        for j, positive_score in enumerate(positives_scores_user):
-            positive_score = positive_score.unsqueeze(0)
-            explicit_negatives_scores_cat = torch.cat((positive_score, explicit_negatives_scores_user))
-            negative_samples_scores_cat = torch.cat((positive_score, negative_samples_scores_user))
-            explicit_negatives_ranking_scores_user[j] = compute_ranking_scores(explicit_negatives_labels, explicit_negatives_scores_cat)
-            negative_samples_ranking_scores_user[j] = compute_ranking_scores(negative_samples_labels, negative_samples_scores_cat)
-        explicit_negatives_ranking_scores[i] = torch.mean(explicit_negatives_ranking_scores_user, dim = 0)
-        negative_samples_ranking_scores[i] = torch.mean(negative_samples_ranking_scores_user, dim = 0)
-    explicit_negatives_ranking_scores = torch.mean(explicit_negatives_ranking_scores, dim = 0)
-    negative_samples_ranking_scores = torch.mean(negative_samples_ranking_scores, dim = 0)
-    return explicit_negatives_ranking_scores, negative_samples_ranking_scores
-            
-def run_validation(finetuning_model : FinetuningModel, val_dataset : FinetuningDataset, negative_samples : dict, train_val_dataset : FinetuningDataset = None) -> tuple:
+def get_ranking_scores_for_user(pos_scores : torch.tensor, neg_ranking_scores : torch.tensor) -> torch.tensor:
+    user_ranking_scores = torch.zeros(size = (len(pos_scores), len(RANKING_METRICS)), dtype = torch.float32)
+    y_true = torch.cat((torch.tensor([1]), torch.zeros(len(neg_ranking_scores), dtype = torch.int32)))
+    for i, pos_score in enumerate(pos_scores):
+        pos_score = pos_score.unsqueeze(0)
+        y_pred = torch.cat((pos_score, neg_ranking_scores))
+        user_ranking_scores[i] = compute_ranking_scores(y_true, y_pred)
+    return torch.mean(user_ranking_scores, dim = 0)
+
+def compute_classification_scores(user_labels : torch.tensor, user_scores : torch.tensor) -> torch.tensor:
+    bcel = torch.nn.BCEWithLogitsLoss()(user_scores, user_labels)
+    recall = torch.sum(user_scores[user_labels == 1] > 0) / torch.sum(user_labels == 1)
+    specificity = torch.sum(user_scores[user_labels == 0] <= 0) / torch.sum(user_labels == 0)
+    balanced_accuracy = (recall + specificity) / 2
+    return torch.tensor([bcel, recall, specificity, balanced_accuracy], dtype = torch.float32)
+
+def get_user_scores(dataset : FinetuningDataset, user_idx : int, users_scores : torch.tensor) -> tuple:
+    user_starting_idx, user_ending_idx = dataset.users_pos_starting_idxs[user_idx], dataset.users_pos_starting_idxs[user_idx] + dataset.users_counts[user_idx]
+    user_labels = dataset.label_tensor[user_starting_idx:user_ending_idx].to(torch.float32)
+    user_scores = users_scores[user_starting_idx:user_ending_idx]
+    user_pos_scores = user_scores[:dataset.users_pos_counts[user_idx]]
+    return user_labels, user_scores, user_pos_scores
+
+def run_validation(finetuning_model : FinetuningModel, val_dataset : FinetuningDataset, negative_samples : torch.tensor = None, train_val_dataset : FinetuningDataset = None) -> tuple:
+    explicit_scores_dict, negative_samples_scores_dict = {}, {}
     assert val_dataset.user_idx_tensor.unique().tolist() == finetuning_model.val_users_embeddings_idxs.tolist()
-    training_mode = finetuning_model.training
-    finetuning_model.eval()
-    negative_samples_scores = finetuning_model.compute_negative_samples_scores(negative_samples)
-    val_users_scores = finetuning_model.compute_val_scores(val_dataset.user_idx_tensor, val_dataset.input_ids_tensor, val_dataset.attention_mask_tensor)
-    label_0_idxs = torch.where(val_dataset.label_tensor == 0)[0]
-    explicit_negatives_scores = val_users_scores[label_0_idxs].reshape(-1, 4)
-    val_users_starting_idxs, val_users_ending_idxs = get_users_starting_ending_idxs(val_dataset.user_idx_tensor, 4)
-    val_ranking_scores = get_ranking_scores(val_users_scores, explicit_negatives_scores, negative_samples_scores, val_users_starting_idxs, val_users_ending_idxs)
-    train_val_ranking_scores = None
     if train_val_dataset is not None:
         assert train_val_dataset.user_idx_tensor.unique().tolist() == finetuning_model.val_users_embeddings_idxs.tolist()
+    training_mode = finetuning_model.training
+    finetuning_model.eval()
+
+    val_users_scores = finetuning_model.compute_val_scores(val_dataset.user_idx_tensor, val_dataset.input_ids_tensor, val_dataset.attention_mask_tensor)
+    val_classification_scores = torch.zeros(size = (val_dataset.n_users, len(CLASSIFICATION_METRICS)), dtype = torch.float32)
+    val_explicit_negatives_ranking_scores = torch.zeros(size = (val_dataset.n_users, len(RANKING_METRICS)), dtype = torch.float32)
+    if train_val_dataset is not None:
         train_val_users_scores = finetuning_model.compute_val_scores(train_val_dataset.user_idx_tensor, train_val_dataset.input_ids_tensor, train_val_dataset.attention_mask_tensor)
-        train_val_users_starting_idxs, train_val_users_ending_idxs = get_users_starting_ending_idxs(train_val_dataset.user_idx_tensor, 0)
-        train_val_ranking_scores = get_ranking_scores(train_val_users_scores, explicit_negatives_scores, negative_samples_scores, train_val_users_starting_idxs, train_val_users_ending_idxs)
-    if training_mode:
-        finetuning_model.train()
-    return val_ranking_scores, train_val_ranking_scores
+        train_val_classification_scores = torch.zeros(size = (train_val_dataset.n_users, len(CLASSIFICATION_METRICS)), dtype = torch.float32)
+        train_val_explicit_negatives_ranking_scores = torch.zeros(size = (train_val_dataset.n_users, len(RANKING_METRICS)), dtype = torch.float32)
+    if negative_samples is not None:
+        negative_samples_scores = finetuning_model.compute_negative_samples_scores(negative_samples)
+        val_negative_samples_ranking_scores = torch.zeros(size = (val_dataset.n_users, len(RANKING_METRICS)), dtype = torch.float32)
+        if train_val_dataset is not None:
+            train_val_negative_samples_ranking_scores = torch.zeros(size = (train_val_dataset.n_users, len(RANKING_METRICS)), dtype = torch.float32)
+
+    for i in range(val_dataset.n_users):
+        val_user_labels, val_user_scores, val_user_pos_scores = get_user_scores(val_dataset, i, val_users_scores)
+        user_neg_ranking_scores = val_user_scores[-4:]
+        val_classification_scores[i] = compute_classification_scores(val_user_labels, val_user_scores)
+        val_explicit_negatives_ranking_scores[i] = get_ranking_scores_for_user(val_user_pos_scores, user_neg_ranking_scores)
+        if train_val_dataset is not None:
+            train_val_user_labels, train_val_user_scores, train_val_user_pos_scores = get_user_scores(train_val_dataset, i, train_val_users_scores)
+            train_val_classification_scores[i] = compute_classification_scores(train_val_user_labels, train_val_user_scores)
+            train_val_explicit_negatives_ranking_scores[i] = get_ranking_scores_for_user(train_val_user_pos_scores, user_neg_ranking_scores)
+        if negative_samples is not None:
+            val_negative_samples_ranking_scores[i] = get_ranking_scores_for_user(val_user_pos_scores, negative_samples_scores[i])
+            if train_val_dataset is not None:
+                train_val_negative_samples_ranking_scores[i] = get_ranking_scores_for_user(train_val_user_pos_scores, negative_samples_scores[i])
+
+    val_classification_scores = torch.mean(val_classification_scores, dim = 0)
+    val_explicit_negatives_ranking_scores = torch.mean(val_explicit_negatives_ranking_scores, dim = 0)
+    if train_val_dataset is not None:
+        train_val_classification_scores = torch.mean(train_val_classification_scores, dim = 0)
+        train_val_explicit_negatives_ranking_scores = torch.mean(train_val_explicit_negatives_ranking_scores, dim = 0)
+    if negative_samples is not None:
+        val_negative_samples_ranking_scores = torch.mean(val_negative_samples_ranking_scores, dim = 0)
+        if train_val_dataset is not None:
+            train_val_negative_samples_ranking_scores = torch.mean(train_val_negative_samples_ranking_scores, dim = 0)
+
+    for i, metric in enumerate(CLASSIFICATION_METRICS):
+        explicit_scores_dict[f"{metric}_val"] = val_classification_scores[i].item()
+        if train_val_dataset is not None:
+            explicit_scores_dict[f"{metric}_train"] = train_val_classification_scores[i].item()
+    for i, metric in enumerate(RANKING_METRICS):
+        explicit_scores_dict[f"{metric}_explicit_negatives_val"] = val_explicit_negatives_ranking_scores[i].item()
+        if train_val_dataset is not None:
+            explicit_scores_dict[f"{metric}_explicit_negatives_train"] = train_val_explicit_negatives_ranking_scores[i].item()
+        if negative_samples is not None:
+            negative_samples_scores_dict[f"{metric}_negative_samples_val"] = val_negative_samples_ranking_scores[i].item()
+            if train_val_dataset is not None:
+                negative_samples_scores_dict[f"{metric}_negative_samples_train"] = train_val_negative_samples_ranking_scores[i].item()
+    return explicit_scores_dict, negative_samples_scores_dict

@@ -19,6 +19,11 @@ def set_all_seeds(seed: int) -> None:
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+def save_config(args_dict : dict) -> None:
+    os.makedirs(args_dict["outputs_folder"], exist_ok = True)
+    with open(f"{args_dict['outputs_folder']}/config.json", "w") as f:
+        json.dump(args_dict, f, indent = 4)
+
 def parse_arguments() -> dict:
     parser = argparse.ArgumentParser(description = "Finetuning script")
     parser.add_argument("--seed", type = int, default = 42)
@@ -42,12 +47,14 @@ def parse_arguments() -> dict:
     assert args_dict["batch_size"] % args_dict["n_samples_per_user"] == 0, "Batch size must be divisible by n_samples_per_user"
     args_dict["time"] = time.strftime("%Y-%m-%d_%H-%M-%S")
     args_dict["outputs_folder"] = FILES_SAVE_PATH + f"/experiments/{args_dict['time']}"
+    save_config(args_dict)
     return args_dict
 
-def save_config(args_dict : dict) -> None:
-    os.makedirs(args_dict["outputs_folder"], exist_ok = True)
-    with open(f"{args_dict['outputs_folder']}/config.json", "w") as f:
-        json.dump(args_dict, f, indent = 4)
+def init_logging(args_dict : dict) -> logging.Logger:
+    logging.basicConfig(filename = f"{args_dict['outputs_folder']}/logger.log", filemode = "w", format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s", level = logging.INFO)
+    logger = logging.getLogger("finetuning")
+    logger.info(f"Finetuning script started with config: {args_dict}.")
+    return logger
 
 def load_optimizer(finetuning_model : FinetuningModel, transformer_model_lr : float, projection_lr : float, users_embeddings_lr : float) -> torch.optim.Optimizer:
     param_groups = [{'params': finetuning_model.transformer_model.parameters(), 'lr': transformer_model_lr}, 
@@ -57,30 +64,39 @@ def load_optimizer(finetuning_model : FinetuningModel, transformer_model_lr : fl
 
 if __name__ == "__main__":
     args_dict = parse_arguments()
-    save_config(args_dict)
     set_all_seeds(args_dict["seed"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    logging.basicConfig(filename = f"{args_dict['outputs_folder']}/finetuning.log", filemode = "w", format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s", level = logging.INFO)
-    logger = logging.getLogger("finetuning")
-    logger.info(f"Finetuning script started with config: {args_dict}.")
+    logger = init_logging(args_dict)
 
     datasets_dict = load_datasets_dict()
     finetuning_model = load_finetuning_model(args_dict["transformer_model"], device, args_dict["projection_state_dict"], args_dict["users_embeddings_state_dict"], 
                                              datasets_dict["val_users_embeddings_idxs"])
+    print(run_validation(finetuning_model, datasets_dict["val_dataset"], datasets_dict["negative_samples"], datasets_dict["train_val_dataset"]))
+
+
+
+
+
+
     optimizer = load_optimizer(finetuning_model, args_dict["transformer_model_lr"], args_dict["projection_lr"], args_dict["users_embeddings_lr"])
 
-    baseline_values = run_validation(finetuning_model, datasets_dict["val_dataset"], datasets_dict["negative_samples"])[0][0]
-    logger.info(f"Baseline values after first Validation: {baseline_values}.")
-    BASELINE_VALUE = baseline_values[METRICS_LIST.index(args_dict["metric"])]
-    logger.info(f"Baseline value for {args_dict['metric']}: {BASELINE_VALUE}.")
+    
+    
 
+
+    #baseline_values = run_validation(finetuning_model, datasets_dict["val_dataset"], datasets_dict["negative_samples"])
+    #logger.info(f"Baseline values after first Validation: {baseline_values}.")
+    #BASELINE_VALUE = baseline_values[METRICS_LIST.index(args_dict["metric"])]
+    #logger.info(f"Baseline value for {args_dict['metric']}: {BASELINE_VALUE}.")
+
+    """
     sampler = FinetuningSampler(datasets_dict["train_dataset"], args_dict["batch_size"], args_dict["n_samples_per_user"], 
                                 args_dict["users_sampling_strategy"], args_dict["class_balancing"], args_dict["seed"])
     dataloader = DataLoader(datasets_dict["train_dataset"], sampler = sampler, batch_size = args_dict["batch_size"], drop_last = False)
     batch = next(iter(dataloader))
     sampler.run_test(batch)
     logger.info(f"Sampler test: {batch}.")
+    """
 
 
     print(f"Finished Finetuning:     {args_dict['outputs_folder']}.")
