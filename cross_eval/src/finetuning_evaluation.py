@@ -1,7 +1,8 @@
 from arxiv import attach_arxiv_categories
 from finetuning_preprocessing import FILES_SAVE_PATH
-from finetuning_model import FinetuningModel
+from finetuning_model import FinetuningModel, load_finetuning_model_full
 from finetuning_data import FinetuningDataset
+from finetuning_preprocessing import load_finetuning_users_ids, load_test_papers, load_users_embeddings_ids_to_idxs
 from sklearn.metrics import roc_auc_score, ndcg_score
 import json
 import numpy as np
@@ -11,54 +12,65 @@ import torch
 
 RANKING_METRICS = ["auc", "ndcg@5", "mrr", "hr@1"]
 CLASSIFICATION_METRICS = ["bcel", "recall", "specificity", "balanced_accuracy"]
+EXPLICIT_NEGATIVES_METRICS = CLASSIFICATION_METRICS + [metric + "_explicit_negatives" for metric in RANKING_METRICS]
+NEGATIVE_SAMPLES_METRICS = [metric + "_negative_samples" for metric in RANKING_METRICS]
 
-def generate_config(file_path : str, embedding_folder : str, users_ids : list, evaluation : str, users_coefs_path : str = None) -> None:
-    if not file_path.endswith(".json"):
-        file_path += ".json"
+def generate_config(file_path : str, users_ids : list, evaluation : str, users_coefs_path : str = None, arxiv : bool = False) -> str:
+    file_path = file_path.rstrip(".json")
     with open(f"{FILES_SAVE_PATH}/example_config.json", "r") as config_file:
         example_config = json.load(config_file)
-    example_config["embedding_folder"] = embedding_folder
+    example_config["embedding_folder"] = embeddings_folder + ("/arxiv" if arxiv else "")
     example_config["users_selection"] = users_ids
     if users_coefs_path is not None:
         example_config["users_coefs_path"] = users_coefs_path
         example_config["load_users_coefs"] = True
     example_config["evaluation"] = evaluation
+    file_path += ("_arxiv" if arxiv else "") + ".json"
     with open(file_path, "w") as config_file:
         json.dump(example_config, config_file, indent = 3)
+    return file_path.split("/")[-1].split(".")[0]
     
-def generate_configs(embedding_folder : str, val_users_ids : list = None, test_users_no_overlap_ids : list = None) -> None:
-    embedding_name = embedding_folder.split("/")[-1]
+def generate_configs(transformer_model_name : str, val_users_ids : list = None, test_users_no_overlap_ids : list = None, load_coefs : bool = False, arxiv : bool = False) -> list:
+    configs_names = []
     if val_users_ids is not None:
-        generate_config(f"{embedding_folder}/{embedding_name}_overlap.json", embedding_folder, val_users_ids, "train_test_split")
-        generate_config(f"{embedding_folder}/{embedding_name}_overlap_users_coefs.json", embedding_folder, val_users_ids, "train_test_split", users_coefs_path = embedding_folder)
+        configs_names.append(generate_config(f"{configs_folder}/{transformer_model_name}_overlap", val_users_ids, "train_test_split", arxiv = arxiv))
+        if load_coefs:
+            configs_names.append(generate_config(f"{configs_folder}/{transformer_model_name}_overlap_users_coefs", val_users_ids, "train_test_split", 
+                                 users_coefs_path = embeddings_folder, arxiv = arxiv))
     if test_users_no_overlap_ids is not None:
-        generate_config(f"{embedding_folder}/{embedding_name}_no_overlap.json", embedding_folder, test_users_no_overlap_ids, "cross_validation")
+        configs_names.append(generate_config(f"{configs_folder}/{transformer_model_name}_no_overlap", test_users_no_overlap_ids, "cross_validation", arxiv = arxiv))
+    return configs_names
 
-def save_users_coefs(finetuning_model : FinetuningModel, val_users_ids : list, users_embeddings_ids_to_idxs : dict, users_coefs_path : str) -> None:
+def save_users_coefs(finetuning_model : FinetuningModel, val_users_ids : list, users_embeddings_ids_to_idxs : dict) -> None:
     users_coefs = finetuning_model.users_embeddings.weight.detach().cpu().numpy().astype(np.float64)
-    np.save(f"{users_coefs_path}/users_coefs.npy", users_coefs)
-    with open(f"{users_coefs_path}/users_coefs_ids_to_idxs.pkl", "wb") as f:
+    np.save(f"{embeddings_folder}/users_coefs.npy", users_coefs)
+    with open(f"{embeddings_folder}/users_coefs_ids_to_idxs.pkl", "wb") as f:
         pickle.dump(users_embeddings_ids_to_idxs, f)
 
 def run_evaluation(finetuning_model : FinetuningModel, val_users_ids : list, test_users_no_overlap_ids : list, test_papers : dict, users_embeddings_ids_to_idxs : dict, 
                    attach_arxiv : bool = False) -> None:
     training_mode = finetuning_model.training
     finetuning_model.eval()
-    embedding_name = finetuning_model.get_embedding_name()
-    embedding_folder = f"{FILES_SAVE_PATH}/experiments/{embedding_name}"
     papers_ids_to_idxs = {}
     for idx, paper_id in enumerate(test_papers["paper_id"]):
         papers_ids_to_idxs[paper_id.item()] = idx
     embeddings = finetuning_model.compute_papers_embeddings(test_papers["input_ids"], test_papers["attention_mask"])
-    if attach_arxiv:
-        embeddings = attach_arxiv_categories(embeddings, papers_ids_to_idxs)
-    os.makedirs(embedding_folder, exist_ok = True)
-    np.save(f"{embedding_folder}/abs_X.npy", embeddings)
-    with open(f"{embedding_folder}/abs_paper_ids_to_idx.pkl", "wb") as f:
+    np.save(f"{embeddings_folder}/abs_X.npy", embeddings)
+    with open(f"{embeddings_folder}/abs_paper_ids_to_idx.pkl", "wb") as f:
         pickle.dump(papers_ids_to_idxs, f)
-    save_users_coefs(finetuning_model, val_users_ids, users_embeddings_ids_to_idxs, embedding_folder)
-    generate_configs(embedding_folder, val_users_ids, test_users_no_overlap_ids)
-    os.system(f"python run_cross_eval.py --config_path {embedding_folder}")
+    save_users_coefs(finetuning_model, val_users_ids, users_embeddings_ids_to_idxs)
+    configs_names = generate_configs(finetuning_model.transformer_model_name, val_users_ids, test_users_no_overlap_ids, load_coefs = True, arxiv = False)
+    if attach_arxiv:
+        embeddings_folder_arxiv = f"{embeddings_folder}/arxiv"
+        os.makedirs(embeddings_folder_arxiv, exist_ok = True)
+        embeddings_arxiv = attach_arxiv_categories(embeddings, papers_ids_to_idxs)
+        np.save(f"{embeddings_folder_arxiv}/abs_X.npy", embeddings_arxiv)
+        with open(f"{embeddings_folder_arxiv}/abs_paper_ids_to_idx.pkl", "wb") as f:
+            pickle.dump(papers_ids_to_idxs, f)
+        configs_names.extend(generate_configs(finetuning_model.transformer_model_name, val_users_ids, test_users_no_overlap_ids, load_coefs = False, arxiv = True))
+    os.system(f"python run_cross_eval.py --config_path {configs_folder}")
+    for config_name in configs_names:
+        os.system(f"mv outputs/{config_name} {outputs_folder}/{config_name}")
     if training_mode:
         finetuning_model.train()
 
@@ -113,8 +125,8 @@ def get_user_scores(dataset : FinetuningDataset, user_idx : int, users_scores : 
     user_pos_scores = user_scores[:dataset.users_pos_counts[user_idx]]
     return user_labels, user_scores, user_pos_scores
 
-def run_validation(finetuning_model : FinetuningModel, val_dataset : FinetuningDataset, negative_samples : torch.tensor = None, train_val_dataset : FinetuningDataset = None) -> tuple:
-    explicit_scores_dict, negative_samples_scores_dict = {}, {}
+def run_validation(finetuning_model : FinetuningModel, val_dataset : FinetuningDataset, negative_samples : torch.tensor = None, train_val_dataset : FinetuningDataset = None) -> dict:
+    scores_dict = {}
     assert val_dataset.user_idx_tensor.unique().tolist() == finetuning_model.val_users_embeddings_idxs.tolist()
     if train_val_dataset is not None:
         assert train_val_dataset.user_idx_tensor.unique().tolist() == finetuning_model.val_users_embeddings_idxs.tolist()
@@ -159,15 +171,33 @@ def run_validation(finetuning_model : FinetuningModel, val_dataset : FinetuningD
             train_val_negative_samples_ranking_scores = torch.mean(train_val_negative_samples_ranking_scores, dim = 0)
 
     for i, metric in enumerate(CLASSIFICATION_METRICS):
-        explicit_scores_dict[f"{metric}_val"] = val_classification_scores[i].item()
+        scores_dict[f"{metric}_val"] = val_classification_scores[i].item()
         if train_val_dataset is not None:
-            explicit_scores_dict[f"{metric}_train"] = train_val_classification_scores[i].item()
+            scores_dict[f"{metric}_train"] = train_val_classification_scores[i].item()
     for i, metric in enumerate(RANKING_METRICS):
-        explicit_scores_dict[f"{metric}_explicit_negatives_val"] = val_explicit_negatives_ranking_scores[i].item()
+        scores_dict[f"{metric}_explicit_negatives_val"] = val_explicit_negatives_ranking_scores[i].item()
         if train_val_dataset is not None:
-            explicit_scores_dict[f"{metric}_explicit_negatives_train"] = train_val_explicit_negatives_ranking_scores[i].item()
+            scores_dict[f"{metric}_explicit_negatives_train"] = train_val_explicit_negatives_ranking_scores[i].item()
         if negative_samples is not None:
-            negative_samples_scores_dict[f"{metric}_negative_samples_val"] = val_negative_samples_ranking_scores[i].item()
+            scores_dict[f"{metric}_negative_samples_val"] = val_negative_samples_ranking_scores[i].item()
             if train_val_dataset is not None:
-                negative_samples_scores_dict[f"{metric}_negative_samples_train"] = train_val_negative_samples_ranking_scores[i].item()
-    return explicit_scores_dict, negative_samples_scores_dict
+                scores_dict[f"{metric}_negative_samples_train"] = train_val_negative_samples_ranking_scores[i].item()
+    return scores_dict
+
+if __name__ == "__main__":
+    import sys
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    finetuning_model_path = sys.argv[1].rstrip("/")
+    state_dicts_folder = finetuning_model_path + "/state_dicts"
+    embeddings_folder = finetuning_model_path + "/embeddings"
+    os.makedirs(embeddings_folder, exist_ok = True)
+    configs_folder = finetuning_model_path + "/configs"
+    os.makedirs(configs_folder, exist_ok = True)
+    outputs_folder = finetuning_model_path + "/outputs"
+    os.makedirs(outputs_folder, exist_ok = True)
+
+    finetuning_model = load_finetuning_model_full(state_dicts_folder, device)
+    train_users_ids, val_users_ids, test_users_no_overlap_ids = load_finetuning_users_ids()
+    test_papers = load_test_papers()
+    users_embeddings_ids_to_idxs = load_users_embeddings_ids_to_idxs()
+    run_evaluation(finetuning_model, val_users_ids, test_users_no_overlap_ids, test_papers, users_embeddings_ids_to_idxs, attach_arxiv = True)

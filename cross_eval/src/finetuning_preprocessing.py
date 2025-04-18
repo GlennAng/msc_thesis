@@ -14,7 +14,7 @@ GTE_BASE_PATH = "Alibaba-NLP/gte-base-en-v1.5"
 GTE_LARGE_PATH = "Alibaba-NLP/gte-large-en-v1.5"
 FILES_SAVE_PATH = "/home/scholar/glenn_rp/msc_thesis/data/finetuning"
 
-def save_projection_tensor(pca_components : np.ndarray, pca_mean : np.ndarray, file_name : str = "gte_base_256_projection") -> None:
+def save_projection_tensor(pca_components : np.ndarray, pca_mean : np.ndarray, file_name : str = "gte_base_256/projection") -> None:
     file_name = file_name.rstrip(".pt")
     bias = -(pca_mean @ pca_components.T)
     pca_components = torch.from_numpy(pca_components).to(torch.float32)
@@ -23,9 +23,10 @@ def save_projection_tensor(pca_components : np.ndarray, pca_mean : np.ndarray, f
     with torch.no_grad():
         projection.weight.copy_(pca_components)
         projection.bias.copy_(pca_bias)
-    torch.save(projection.state_dict(), f"{FILES_SAVE_PATH}/parameters/{file_name}.pt")
+    torch.save(projection.state_dict(), f"{FILES_SAVE_PATH}/state_dicts/{file_name}.pt")
 
-def save_users_embeddings_tensor(train_users_ids : list, users_coefs : np.ndarray, users_ids_to_idxs : dict, file_name : str = "gte_base_256_users_embeddings") -> None:
+def save_users_embeddings_tensor(train_users_ids : list, users_coefs : np.ndarray, users_ids_to_idxs : dict, file_name : str = "gte_base_256/users_embeddings", 
+                                 save_users_embeddings_ids_to_idxs : bool = True) -> None:
     file_name = file_name.rstrip(".pt")
     users_embeddings_ids_to_idxs = {}
     num_embeddings, embedding_dim = len(train_users_ids), users_coefs.shape[1]
@@ -34,9 +35,10 @@ def save_users_embeddings_tensor(train_users_ids : list, users_coefs : np.ndarra
         with torch.no_grad():
             users_embeddings.weight.data[idx] = torch.from_numpy(users_coefs[users_ids_to_idxs[user_id]]).to(torch.float32)
         users_embeddings_ids_to_idxs[user_id] = idx
-    torch.save(users_embeddings.state_dict(), f"{FILES_SAVE_PATH}/parameters/{file_name}.pt")
-    with open(f"{FILES_SAVE_PATH}/users/users_embeddings_ids_to_idxs.pkl", "wb") as f:
-        pickle.dump(users_embeddings_ids_to_idxs, f)
+    torch.save(users_embeddings.state_dict(), f"{FILES_SAVE_PATH}/state_dicts/{file_name}.pt")
+    if save_users_embeddings_ids_to_idxs:
+        with open(f"{FILES_SAVE_PATH}/users/users_embeddings_ids_to_idxs.pkl", "wb") as f:
+            pickle.dump(users_embeddings_ids_to_idxs, f)
 
 def load_users_embeddings_ids_to_idxs() -> dict:
     with open(f"{FILES_SAVE_PATH}/users/users_embeddings_ids_to_idxs.pkl", "rb") as f:

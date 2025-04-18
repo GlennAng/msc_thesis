@@ -62,12 +62,12 @@ class FinetuningSampler(Sampler):
             selected_users_idxs = self.rng.choice(np.arange(self.dataset.n_users), size = self.n_users_per_batch, p = self.users_probas.numpy(), replace = False)
             for user_idx in selected_users_idxs:
                 user_idxs = self._sample_user_idxs(user_idx)
-                batch_idxs.extend(user_indices)
+                batch_idxs.extend(user_idxs)
             for idx in batch_idxs:
                 yield idx
 
     def _sample_user_idxs(self, user_idx : int) -> list:
-        user_pos_starting_index, user_neg_starting_index = self.dataset.users_pos_starting_indices[user_idx], self.dataset.users_neg_starting_indices[user_idx]
+        user_pos_starting_index, user_neg_starting_index = self.dataset.users_pos_starting_idxs[user_idx], self.dataset.users_neg_starting_idxs[user_idx]
         user_pos_count, user_neg_count = self.dataset.users_pos_counts[user_idx], self.dataset.users_neg_counts[user_idx]
         user_pos_ending_index, user_neg_ending_index = user_pos_starting_index + user_pos_count, user_neg_starting_index + user_neg_count
         if self.class_balancing:
@@ -105,7 +105,7 @@ class FinetuningSampler(Sampler):
             raise ValueError(f"Unknown users sampling strategy: {self.users_sampling_strategy}")
         return users_probas
 
-    def run_test(self, batch : dict) -> None:
+    def run_test(self, batch : dict) -> bool:
         user_idx_tensor, paper_id_tensor, label_tensor = batch["user_idx"], batch["paper_id"], batch["label"]
         input_ids_tensor, attention_mask_tensor = batch["input_ids"], batch["attention_mask"]
         assert len(user_idx_tensor) == len(paper_id_tensor) == len(label_tensor) == len(input_ids_tensor) == len(attention_mask_tensor), "Batch tensors must have the same length"
@@ -119,6 +119,7 @@ class FinetuningSampler(Sampler):
             assert n_total == self.n_samples_per_user, f"User {user_idx} must have {self.n_samples_per_user} samples, but got {n_total}"
             if self.class_balancing:
                 assert n_pos == n_neg, f"User {user_idx} must have the same number of positive and negative samples, but got {n_pos} positive and {n_neg} negative samples"
+        return True
 
 def create_dataset(dataset : dict, users_embeddings_ids_to_idxs : dict) -> FinetuningDataset:
     user_idx_tensor = torch.tensor([users_embeddings_ids_to_idxs[user_id.item()] for user_id in dataset["user_id"]], dtype = dataset["user_id"].dtype)
