@@ -59,6 +59,18 @@ class FinetuningModel(nn.Module):
         for i in range(len(transformer_layers) - n_unfreeze_layers, len(transformer_layers)):
             transformer_layers[i].requires_grad_(True)
 
+    def count_transformer_layers(self) -> int:
+        return len(self.transformer_model.encoder.layer)
+
+    def count_transformer_parameters(self) -> tuple:
+        n_params_total = 0
+        n_params_unfreeze = 0
+        for name, param in self.named_parameters():
+            n_params_total += param.numel()
+            if param.requires_grad:
+                n_params_unfreeze += param.numel()
+        return n_params_total, n_params_unfreeze
+        
     def set_transformer_model_name(self) -> None:
         if "gte_base_256" in self.transformer_model.config._name_or_path:
             self.transformer_model_name = "gte_base_256"
@@ -154,18 +166,14 @@ def save_transformer_model(transformer_model : AutoModel, model_path : str) -> N
 def get_transformer_embedding_dim(transformer_model : AutoModel) -> int:
     return transformer_model.config.hidden_size
 
-def load_projection(embedding_dim : int, projection_dim : int, device : torch.device, projection_state_dict : dict = None, dtype = torch.float32, seed : int = None) -> nn.Linear:
-    if seed is not None:
-        torch.manual_seed(seed)
+def load_projection(embedding_dim : int, projection_dim : int, device : torch.device, projection_state_dict : dict = None, dtype = torch.float32) -> nn.Linear:
     projection = nn.Linear(embedding_dim, projection_dim)
     if projection_state_dict is not None:
         projection.load_state_dict(projection_state_dict)
     projection = projection.to(device, dtype = dtype)
     return projection
 
-def load_users_embeddings(num_embeddings : int, embedding_dim : int, device : torch.device, users_embeddings_state_dict : dict = None, dtype = torch.float32, seed : int = None) -> nn.Embedding:
-    if seed is not None:
-        torch.manual_seed(seed)
+def load_users_embeddings(num_embeddings : int, embedding_dim : int, device : torch.device, users_embeddings_state_dict : dict = None, dtype = torch.float32) -> nn.Embedding:
     users_embeddings = nn.Embedding(num_embeddings, embedding_dim)
     if users_embeddings_state_dict is not None:
         users_embeddings.load_state_dict(users_embeddings_state_dict)
@@ -173,7 +181,7 @@ def load_users_embeddings(num_embeddings : int, embedding_dim : int, device : to
     return users_embeddings
 
 def load_finetuning_model(transformer_path : str, device : torch.device, projection_state_dict : dict = None, users_embeddings_state_dict : dict = None,
-                          val_users_embeddings_idxs : torch.tensor = None, projection_dim : int = 256, n_users : int = 4111, seed : int = None) -> FinetuningModel:
+                          val_users_embeddings_idxs : torch.tensor = None, projection_dim : int = 256, n_users : int = 4111) -> FinetuningModel:
     transformer_model = load_transformer_model(transformer_path, device)
     embedding_dim = get_transformer_embedding_dim(transformer_model)
     if type(projection_state_dict) == str:
@@ -184,8 +192,8 @@ def load_finetuning_model(transformer_path : str, device : torch.device, project
         users_embeddings_state_dict = torch.load(users_embeddings_state_dict, map_location = device, weights_only = True)
     if users_embeddings_state_dict is not None:
         n_users = users_embeddings_state_dict["weight"].shape[0]
-    projection = load_projection(embedding_dim, projection_dim, device, projection_state_dict, seed)
-    users_embeddings = load_users_embeddings(n_users, projection_dim + 1, device, users_embeddings_state_dict, seed)
+    projection = load_projection(embedding_dim, projection_dim, device, projection_state_dict)
+    users_embeddings = load_users_embeddings(n_users, projection_dim + 1, device, users_embeddings_state_dict)
     return FinetuningModel(transformer_model, projection, users_embeddings, val_users_embeddings_idxs)
 
 def fix_gte_config(model_path : str) -> None:
@@ -202,10 +210,17 @@ def fix_gte_config(model_path : str) -> None:
     with open(config_path, 'w') as f:
         json.dump(config, f, indent = 2)
 
-def load_finetuning_model_full(finetuning_model_path : str, device : torch.device, val_users_embeddings_idxs : torch.tensor = None) -> FinetuningModel:
+def load_finetuning_model_full(finetuning_model_path : str, device : torch.device, val_users_embeddings_idxs : torch.tensor = None,
+                               pretrained_projection : bool = True, pretrained_users_embeddings : bool = True) -> FinetuningModel:
     finetuning_model_path = finetuning_model_path.rstrip("/") + "/"
     transformer_model_path = finetuning_model_path + "transformer_model"
     fix_gte_config(transformer_model_path)
-    projection_state_dict = torch.load(finetuning_model_path + "projection.pt", map_location = device, weights_only = True)
-    users_embeddings_state_dict = torch.load(finetuning_model_path + "users_embeddings.pt", map_location = device, weights_only = True)
+    if pretrained_projection:
+        projection_state_dict = torch.load(finetuning_model_path + "projection.pt", map_location = device, weights_only = True)
+    else:
+        projection_state_dict = None
+    if pretrained_users_embeddings:
+        users_embeddings_state_dict = torch.load(finetuning_model_path + "users_embeddings.pt", map_location = device, weights_only = True)
+    else:
+        users_embeddings_state_dict = None
     return load_finetuning_model(transformer_model_path, device, projection_state_dict, users_embeddings_state_dict, val_users_embeddings_idxs)

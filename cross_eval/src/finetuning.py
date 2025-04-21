@@ -32,7 +32,8 @@ def parse_arguments() -> dict:
     parser = argparse.ArgumentParser(description = "Finetuning script")
     parser.add_argument("--seed", type = int, default = 42)
     parser.add_argument("--batch_size", type = int, default = 128)
-    parser.add_argument("--n_epochs", type = int, default = 10)
+    parser.add_argument("--n_epochs", type = int, default = 5)
+    parser.add_argument("--early_stopping_patience", type = int, default = 5)
     parser.add_argument("--n_samples_per_user", type = int, default = 16)
     parser.add_argument("--users_sampling_strategy", type = str, default = "uniform", choices = ["uniform", "proportional", "square_root_proportional", "cube_root_proportional"])
     parser.add_argument("--class_balancing", action = "store_true", default = False)
@@ -41,42 +42,24 @@ def parse_arguments() -> dict:
     parser.add_argument("--val_measure_negative_samples", action = "store_true", default = False)
     parser.add_argument("--val_metric", type = str, default = "bcel", choices = EXPLICIT_NEGATIVES_METRICS)
     parser.add_argument("--model_path", type = str, default = "/home/scholar/glenn_rp/msc_thesis/data/finetuning/gte_base_256/state_dicts")
-    parser.add_argument("--scores_path", type = str, default = "/home/scholar/glenn_rp/msc_thesis/data/finetuning/gte_base_256/scores.json")
+    parser.add_argument("--not_pretrained_projection", action = "store_false", dest = "pretrained_projection")
+    parser.add_argument("--not_pretrained_users_embeddings", action = "store_false", dest = "pretrained_users_embeddings")
     parser.add_argument("--n_unfreeze_layers", type = int, default = 4)
     parser.add_argument("--transformer_model_lr", type = float, default = 1e-5)
     parser.add_argument("--projection_lr", type = float, default = 1e-4)
     parser.add_argument("--users_embeddings_lr", type = float, default = 1e-4)
+    parser.add_argument("--lr_scheduler", type = str, default = "constant", choices = ["constant", "linear_decay"])
+    parser.add_argument("--n_warmup_steps", type = int, default = 1000)
+    parser.add_argument("--testing", action = "store_true", default = False)
     args_dict = vars(parser.parse_args())
     args_dict_assertions(args_dict)
     return args_dict
 
-def get_baseline_values(scores_dict : dict) -> tuple:
-    if type(scores_dict) == str:
-        with open(scores_dict, "r") as f:
-            scores_dict = json.load(f)
+def get_baseline_values(finetuning_model : FinetuningModel, val_dataset : FinetuningDataset, metric : str) -> tuple:
+    scores_dict = run_validation(finetuning_model, val_dataset)
     baseline_loss = scores_dict["bcel_val"]
-    baseline_metric = scores_dict[f"{args_dict['val_metric']}_val"]
+    baseline_metric = scores_dict[f"{metric}_val"]
     return baseline_loss, baseline_metric
-
-def get_baseline_metric(scores_dict : dict, metric : str, transformer_model_name : str) -> float:
-    if type(scores_dict) == str:
-        with open(scores_dict, "r") as f:
-            scores_dict = json.load(f)
-    baseline_metric = scores_dict[metric + "_val"]
-    all_experiments = os.listdir(f"{FILES_SAVE_PATH}/experiments")
-    all_experiments = [x for x in all_experiments if x.startswith(transformer_model_name)]
-    for experiment in all_experiments:
-        if os.path.exists(f"{FILES_SAVE_PATH}/experiments/{experiment}/scores.json"):
-            with open(f"{FILES_SAVE_PATH}/experiments/{experiment}/scores.json", "r") as f:
-                scores_dict_experiment = json.load(f)
-            new_metric = scores_dict_experiment[metric + "_val"]
-            if metric == "bcel":
-                if new_metric < baseline_metric:
-                    baseline_metric = new_metric
-            else:
-                if new_metric > baseline_metric:
-                    baseline_metric = new_metric
-    return baseline_metric
 
 def save_config(args_dict : dict) -> None:
     os.makedirs(args_dict["outputs_folder"], exist_ok = True)
@@ -97,20 +80,34 @@ def print_batch(batch : dict) -> str:
     s += f"Labels: {label_list}."
     return s
 
-def load_dataloader(train_dataset : FinetuningDataset, batch_size : int, n_samples_per_user : int, users_sampling_strategy : str, class_balancing : bool, seed : int) -> DataLoader:
+def load_dataloader(train_dataset : FinetuningDataset, batch_size : int, n_samples_per_user : int, users_sampling_strategy : str, class_balancing : bool, seed : int) -> tuple:
     sampler = FinetuningSampler(train_dataset, batch_size, n_samples_per_user, users_sampling_strategy, class_balancing, seed)
     dataloader = DataLoader(train_dataset, sampler = sampler, batch_size = batch_size, drop_last = False, num_workers = 4, pin_memory = True)
     batch = next(iter(dataloader))
     first_batch_test = sampler.run_test(batch)
-    if first_batch_test:
-        logger.info(f"First Batch passed the test:\n{print_batch(batch)}")
-    return dataloader
+    s = f"First Batch passed the test:\n{print_batch(batch)}"
+    return dataloader, s
     
-def load_optimizer(finetuning_model : FinetuningModel, transformer_model_lr : float, projection_lr : float, users_embeddings_lr : float) -> torch.optim.Optimizer:
+def load_optimizer(finetuning_model : FinetuningModel, transformer_model_lr : float, projection_lr : float, users_embeddings_lr : float, 
+                   lr_scheduler : str, n_total_steps : int, n_warmup_steps : int = 1000) -> torch.optim.Optimizer:
     param_groups = [{'params': finetuning_model.transformer_model.parameters(), 'lr': transformer_model_lr}, 
                     {'params': finetuning_model.projection.parameters(), 'lr': projection_lr}, 
                     {'params': finetuning_model.users_embeddings.parameters(), 'lr': users_embeddings_lr}]
-    return torch.optim.Adam(param_groups)
+    optimizer = torch.optim.Adam(param_groups)
+    if lr_scheduler == "constant":
+        return optimizer, None
+    elif lr_scheduler == "linear_decay":
+        n_warmup_steps = n_warmup_steps
+        scheduler = get_linear_schedule_with_warmup(optimizer, n_warmup_steps = n_warmup_steps, n_total_steps = n_total_steps)
+    return optimizer, scheduler
+
+def get_linear_schedule_with_warmup(optimizer : torch.optim.Optimizer, n_warmup_steps : int, n_total_steps : int) -> torch.optim.lr_scheduler.LambdaLR:
+    def lr_lambda(current_step : int):
+        if current_step < n_warmup_steps:
+            return float(current_step) / float(n_warmup_steps)
+        else:
+            return max(0.0, float(n_total_steps - current_step) / float(n_total_steps - n_warmup_steps))
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch = -1)
 
 def round_number(number : float, decimal_places : int = 4) -> float:
     return round(number, decimal_places)
@@ -159,7 +156,7 @@ def process_val(finetuning_model : FinetuningModel, args_dict : dict, datasets_d
     log_string(s)
     return scores_dict["bcel_val"], baseline_metric, improvement
 
-def process_batch(finetuning_model : FinetuningModel, optimizer : torch.optim.Optimizer, batch : dict, n_batches_processed_so_far : int) -> float:
+def process_batch(finetuning_model : FinetuningModel, optimizer : torch.optim.Optimizer, scheduler : torch.optim.lr_scheduler, batch : dict, n_batches_processed_so_far : int) -> float:
     optimizer.zero_grad()
     batch = {k: batch[k].to(finetuning_model.device) for k in ["user_idx", "label", "input_ids", "attention_mask"]}
     with torch.autocast(device_type = 'cuda', dtype = torch.float16):
@@ -168,10 +165,13 @@ def process_batch(finetuning_model : FinetuningModel, optimizer : torch.optim.Op
         if n_batches_processed_so_far % 250 == 0:
             print(get_gpu_info())
     loss.backward()
+    if scheduler is not None:
+        scheduler.step()
     optimizer.step()
     return loss.item()
 
-def run_training(finetuning_model : FinetuningModel, optimizer : torch.optim.Optimizer, dataloader : DataLoader, args_dict : dict, datasets_dict : dict, baseline_metric : float) -> None:
+def run_training(finetuning_model : FinetuningModel, optimizer : torch.optim.Optimizer, scheduler : torch.optim.lr_scheduler, 
+                 dataloader : DataLoader, args_dict : dict, datasets_dict : dict, baseline_metric : float) -> None:
     early_stopping_counter = 0
     finetuning_model.train()
     n_epochs = args_dict["n_epochs"]
@@ -184,8 +184,8 @@ def run_training(finetuning_model : FinetuningModel, optimizer : torch.optim.Opt
         for j, batch in enumerate(dataloader):
             if j == 0:
                 log_string(f"Starting Epoch {i + 1} of {n_epochs}. First Batch:\n{print_batch(batch)}")
-            train_loss = process_batch(finetuning_model, optimizer, batch, n_batches_processed_so_far)
-            print(f"Epoch {i+1}/{n_epochs}, Batch {j + 1}/{len(dataloader)}. Loss: {train_loss:.4f}.")
+            train_loss = process_batch(finetuning_model, optimizer, scheduler, batch, n_batches_processed_so_far)
+            print(f"Epoch {i+1}/{n_epochs}, Batch {j + 1}/{len(dataloader)}. Loss: {train_loss:.4f}, LRs: {[param_group['lr'] for param_group in optimizer.param_groups]}.")
             train_losses.append((n_batches_processed_so_far, train_loss))
             n_batches_processed_so_far += 1
             if n_batches_processed_so_far in [1, 10, 100] or n_batches_processed_so_far % args_dict["n_batches_per_val"] == 0:
@@ -196,7 +196,7 @@ def run_training(finetuning_model : FinetuningModel, optimizer : torch.optim.Opt
                     if n_batches_processed_so_far > 100:
                         early_stopping_counter += 1
                 val_losses.append((n_batches_processed_so_far, val_loss))
-                if early_stopping_counter >= 5:
+                if early_stopping_counter >= args_dict["early_stopping_patience"]:
                     log_string(f"Early stopping after {i + 1} Epochs and {n_batches_processed_so_far} Batches.")
                     return
             if n_batches_processed_so_far % len(dataloader) == 0:
@@ -208,22 +208,30 @@ if __name__ == "__main__":
     set_all_seeds(args_dict["seed"])
 
     datasets_dict = load_datasets_dict()
-    finetuning_model = load_finetuning_model_full(args_dict["model_path"], device, datasets_dict["val_users_embeddings_idxs"])
-    baseline_loss, baseline_metric = get_baseline_values(args_dict["scores_path"])
+    finetuning_model = load_finetuning_model_full(args_dict["model_path"], device, datasets_dict["val_users_embeddings_idxs"], 
+                                                  args_dict["pretrained_projection"], args_dict["pretrained_users_embeddings"])
+    args_dict["n_transformer_layers"] = finetuning_model.count_transformer_layers()
+    args_dict["n_transformer_parameters"], args_dict["n_unfrozen_transformer_parameters"] = finetuning_model.count_transformer_parameters()
+    baseline_loss, baseline_metric = get_baseline_values(finetuning_model, datasets_dict["val_dataset"], args_dict["val_metric"])
     train_losses, val_losses = [], [(0, baseline_loss)]
     args_dict["outputs_folder"] = FILES_SAVE_PATH + f"/experiments/{finetuning_model.transformer_model_name}_{time.strftime('%Y-%m-%d-%H-%M')}"
-    save_config(args_dict)
-    logger = init_logging(args_dict)
 
-    dataloader = load_dataloader(datasets_dict["train_dataset"], args_dict["batch_size"], args_dict["n_samples_per_user"], 
-                                 args_dict["users_sampling_strategy"], args_dict["class_balancing"], args_dict["seed"])
-    optimizer = load_optimizer(finetuning_model, args_dict["transformer_model_lr"], args_dict["projection_lr"], args_dict["users_embeddings_lr"])
-    run_training(finetuning_model, optimizer, dataloader, args_dict, datasets_dict, baseline_metric)
-    with open(f"{args_dict['outputs_folder']}/train_losses.pkl", "wb") as f:
-        pickle.dump(train_losses, f)
-    with open(f"{args_dict['outputs_folder']}/val_losses.pkl", "wb") as f:
-        pickle.dump(val_losses, f)
-    
-    print(f"Finished Finetuning:     {args_dict['outputs_folder']}.")
-    if os.path.exists(args_dict["outputs_folder"] + "/state_dicts"):
-        os.system(f"python src/finetuning_evaluation.py {args_dict['outputs_folder']}")
+    dataloader, s = load_dataloader(datasets_dict["train_dataset"], args_dict["batch_size"], args_dict["n_samples_per_user"], 
+                                    args_dict["users_sampling_strategy"], args_dict["class_balancing"], args_dict["seed"])
+    n_total_steps = len(dataloader) * args_dict["n_epochs"]
+    optimizer, scheduler = load_optimizer(finetuning_model, args_dict["transformer_model_lr"], args_dict["projection_lr"], args_dict["users_embeddings_lr"], 
+                                         args_dict["lr_scheduler"], n_total_steps, args_dict["n_warmup_steps"])
+    args_dict["n_batches_per_epoch"] = len(dataloader)
+    if not args_dict["testing"]:
+        save_config(args_dict)
+        logger = init_logging(args_dict)
+        logger.info(s)
+        run_training(finetuning_model, optimizer, scheduler, dataloader, args_dict, datasets_dict, baseline_metric)
+        with open(f"{args_dict['outputs_folder']}/train_losses.pkl", "wb") as f:
+            pickle.dump(train_losses, f)
+        with open(f"{args_dict['outputs_folder']}/val_losses.pkl", "wb") as f:
+            pickle.dump(val_losses, f)
+        
+        print(f"Finished Finetuning:     {args_dict['outputs_folder']}.")
+        if os.path.exists(args_dict["outputs_folder"] + "/state_dicts"):
+            os.system(f"python src/finetuning_evaluation.py {args_dict['outputs_folder']}")

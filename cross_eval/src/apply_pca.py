@@ -18,8 +18,9 @@ def l2_normalize_rows(matrix : np.ndarray) -> np.ndarray:
 
 if __name__ == "__main__":
     EMBEDDINGS_INPUT_FOLDER = "/home/scholar/glenn_rp/msc_thesis/data/embeddings/before_pca/gte_large_2025-02-23"
-    PCA_DIM = 384
-    APPLY_ZSCORE = False
+    PCA_DIM = 2
+    APPLY_ZSCORE = True
+    APPLY_L2NORM = False
 
     embeddings_base_folder = EMBEDDINGS_INPUT_FOLDER.split("/embeddings")[0] + "/embeddings"
     embeddings_name = EMBEDDINGS_INPUT_FOLDER.split("/")[-1]
@@ -51,12 +52,13 @@ if __name__ == "__main__":
     else:
         print("Skipping PCA..")
 
-    print("Performing L2-normalization..")
-    start_time = time.time()
-    embeddings_matrix = l2_normalize_rows(embeddings_matrix)
-    if not check_row_norms(embeddings_matrix):
-        raise ValueError("The L2-normalization failed.")
-    print(f"L2 normalization successful. Took {time.time() - start_time:.2f} seconds. New Shape: {embeddings_matrix.shape}.")
+    if APPLY_L2NORM:
+        print("Performing L2-normalization..")
+        start_time = time.time()
+        embeddings_matrix = l2_normalize_rows(embeddings_matrix)
+        if not check_row_norms(embeddings_matrix):
+            raise ValueError("The L2-normalization failed.")
+        print(f"L2 normalization successful. Took {time.time() - start_time:.2f} seconds. New Shape: {embeddings_matrix.shape}.")
 
     os.makedirs(embeddings_output_folder, exist_ok = True)
     if APPLY_ZSCORE:

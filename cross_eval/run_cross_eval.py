@@ -9,6 +9,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--visualize_users_infos', action = 'store_true', default = False)
     parser.add_argument('--visualize_users_papers', action = 'store_true', default = False)
     parser.add_argument('--fold_idx', type = str, default = '0')
+    parser.add_argument('--save_hyperparameters_table', action = 'store_true', default = False)
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -27,7 +28,7 @@ if __name__ == "__main__":
         
         os.system("python src/main.py " + config_file + (" continue_from_previous" if args.continue_from_previous else ""))
         outputs_folder = f"outputs/{config_file.split('/')[-1].split('.')[0]}"
-        os.system("python src/visualize_globally.py" + f" --outputs_folder {outputs_folder} --score balanced_accuracy")
+        os.system("python src/visualize_globally.py" + f" --outputs_folder {outputs_folder} --score balanced_accuracy {'--save_hyperparameters_table' if args.save_hyperparameters_table else ''}")
         if args.visualize_users_infos:
             os.system("python src/visualize_users_infos.py " + outputs_folder)
         if args.visualize_users_papers:

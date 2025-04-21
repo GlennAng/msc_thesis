@@ -14,6 +14,7 @@ import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import pickle
 import re
 
 HYPERPARAMETERS_ABBREVIATIONS = {"clf_C": "C", "weights_cache_v": "v", "weights_negrated_importance": "v", "weights_cache_v1_v2": "v1_v2", "weights_neg_scale": "S", "cache_scale": "CS"}
@@ -21,8 +22,8 @@ HYPERPARAMETERS_ABBREVIATIONS = {"clf_C": "C", "weights_cache_v": "v", "weights_
 PLOT_CONSTANTS = {"FIG_SIZE": (11, 8.5), "ALPHA_PLOT": 0.5, "ALPHA_FILL": 0.2, "LINE_WIDTH": 2.5, "X_HYPERPARAMETER": "clf_C",
                   "N_PAPERS_PER_PAGE": 7, "N_PAPERS_IN_TOTAL" : 70, "MAX_LINES": 5, "LINE_HEIGHT": 0.025, "WORD_SPACING": 0.0075, "X_LOCATION": -0.125, 
                   "PLOT_SCORES" : [Score.BALANCED_ACCURACY, Score.RECALL, Score.AUROC_CLASSIFICATION, Score.SPECIFICITY]}
-PRINT_SCORES = [Score.RECALL, Score.SPECIFICITY, Score.BALANCED_ACCURACY, Score.AUROC_CLASSIFICATION, Score.NDCG, Score.MRR,
-                Score.F1_SCORE_SAMPLES, Score.SPECIFICITY_SAMPLES, Score.NDCG_AT_5_100_SAMPLES, Score.MRR_100_SAMPLES]
+PRINT_SCORES = [Score.RECALL, Score.SPECIFICITY, Score.BALANCED_ACCURACY, Score.AUROC_CLASSIFICATION, Score.NDCG, Score.MRR, Score.CEL,
+                Score.F1_SCORE_SAMPLES, Score.NDCG_AT_5_100_SAMPLES, Score.MRR_100_SAMPLES]
 n_scores_halved = len(Score) // 2
 
 def is_number(string):
@@ -168,7 +169,7 @@ def print_third_page(pdf : PdfPages, n_users : int, users_info_table : list, use
     pdf.savefig(fig)
     plt.close(fig)
 
-def print_fourth_page(pdf : PdfPages, hyperparameters_combinations_table : list, optimizer_score : Score, hyperparameters : list) -> None:
+def print_fourth_page(pdf : PdfPages, hyperparameters_combinations_table : list, optimizer_score : Score, hyperparameters : list, save_path : str = None) -> None:
     fig, ax = plt.subplots(figsize = PLOT_CONSTANTS["FIG_SIZE"])
     ax.axis("off")
     ax.text(0.5, 1.1, "Validation Scores for Hyperparameters Combinations:\n", fontsize = 16, ha = 'center', va = 'center', fontweight = 'bold')
@@ -177,6 +178,10 @@ def print_fourth_page(pdf : PdfPages, hyperparameters_combinations_table : list,
         columns.append(SCORES_DICT[score]['abbreviation'])
     columns.append(f"{SCORES_DICT[optimizer_score]['abbreviation']}_σ")
     optimizer_column = columns.index(SCORES_DICT[optimizer_score]['abbreviation'])
+    if save_path is not None:
+        with open(save_path, "wb") as f:
+            full_table = [columns] + hyperparameters_combinations_table
+            pickle.dump(full_table, f)
     print_table(hyperparameters_combinations_table, [-0.14, -0.1, 1.25, 1.18], columns, len(hyperparameters) * [0.125] + len(PRINT_SCORES) * [0.15] + [0.15], bold_row = 1, 
                 grey_column = optimizer_column)
     pdf.savefig(fig)
