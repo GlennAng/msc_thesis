@@ -104,7 +104,27 @@ def save_test_papers(val_users_ids : list, test_users_no_overlap_ids : list, tok
 def load_test_papers() -> dict:
     return torch.load(FILES_SAVE_PATH + "/datasets/test_papers.pt", weights_only = True)
 
-def tokenize_train_val_papers(tokenizer : AutoTokenizer, train_users_ids : list, max_sequence_length : int = 512, n_negative_samples : int = 100, random_state : int = 42) -> None:
+def save_test_papers_seeds(val_users_ids : list, test_users_no_overlap_ids : list, tokenizer : AutoTokenizer, max_sequence_length : int = 512, 
+                           n_cache : int = 5000, n_negative_samples : int = 100, random_states : list = [1, 2, 25, 26, 42, 43, 75, 76, 150, 151]) -> None:
+    negative_samples_ids = set()
+    users_ids = val_users_ids + test_users_no_overlap_ids
+    assert len(users_ids) == len(set(users_ids))
+    test_papers_ids = set()
+    for random_state in random_states:
+        negative_samples_ids.update(get_negative_samples_ids(n_negative_samples, random_state))
+        for user_id in users_ids:
+            test_papers_ids.update(get_rated_papers_ids_for_user(user_id, 1))
+            test_papers_ids.update(get_rated_papers_ids_for_user(user_id, -1))
+            test_papers_ids.update(get_cache_papers_ids_for_user(user_id, n_cache, random_state))
+    test_papers_ids = sorted(list(negative_samples_ids | test_papers_ids))
+    test_papers, _ = tokenize_papers(test_papers_ids, tokenizer, max_sequence_length)
+    torch.save(test_papers, FILES_SAVE_PATH + "/datasets/test_papers_seeds.pt")
+    print(len(test_papers_ids))
+
+def load_test_papers_seeds() -> dict:
+    return torch.load(FILES_SAVE_PATH + "/datasets/test_papers_seeds.pt", weights_only = True)
+
+def save_train_val_papers(tokenizer : AutoTokenizer, train_users_ids : list, max_sequence_length : int = 512, n_negative_samples : int = 100, random_state : int = 42) -> None:
     papers_ids = set(get_negative_samples_ids(n_negative_samples, random_state))
     for user_id in train_users_ids:
         papers_ids.update(get_rated_papers_ids_for_user(user_id, 1))

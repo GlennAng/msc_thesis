@@ -21,7 +21,7 @@ HYPERPARAMETERS_ABBREVIATIONS = {"clf_C": "C", "weights_cache_v": "v", "weights_
 
 PLOT_CONSTANTS = {"FIG_SIZE": (11, 8.5), "ALPHA_PLOT": 0.5, "ALPHA_FILL": 0.2, "LINE_WIDTH": 2.5, "X_HYPERPARAMETER": "clf_C",
                   "N_PAPERS_PER_PAGE": 7, "N_PAPERS_IN_TOTAL" : 70, "MAX_LINES": 5, "LINE_HEIGHT": 0.025, "WORD_SPACING": 0.0075, "X_LOCATION": -0.125, 
-                  "PLOT_SCORES" : [Score.BALANCED_ACCURACY, Score.RECALL, Score.AUROC_CLASSIFICATION, Score.SPECIFICITY]}
+                  "PLOT_SCORES" : [Score.BALANCED_ACCURACY, Score.RECALL, Score.PRECISION, Score.SPECIFICITY]}
 PRINT_SCORES = [Score.RECALL, Score.SPECIFICITY, Score.BALANCED_ACCURACY, Score.AUROC_CLASSIFICATION, Score.NDCG, Score.MRR, Score.CEL,
                 Score.F1_SCORE_SAMPLES, Score.NDCG_AT_5_100_SAMPLES, Score.MRR_100_SAMPLES]
 n_scores_halved = len(Score) // 2
@@ -34,10 +34,22 @@ def is_number(string):
         return False
 
 def format_number(value : float, max_decimals : int = 4) -> str:
-    if value == np.float64('nan'):
-        return value
     if not is_number(value):
         return value
+    if value == np.float64('nan'):
+        return value
+    try:
+        n_digits_before_decimal = len(str(int(value)))
+    except ValueError:
+        n_digits_before_decimal = max_decimals
+    if n_digits_before_decimal == 3:
+        max_decimals = 3
+    elif n_digits_before_decimal == 4:
+        max_decimals = 2
+    elif n_digits_before_decimal == 5:
+        max_decimals = 1
+    elif n_digits_before_decimal >= 6:
+        max_decimals = 0
     formatted = f"{value:.{max_decimals}f}"
     stripped = formatted.rstrip('0')
     if stripped.endswith('.'):
@@ -154,6 +166,7 @@ def get_hyperparameters_combinations_table(val_upper_bounds : pd.DataFrame, opti
     data.append(first_row)
     for combination_idx in best_global_hyperparameters_combinations_idxs:
         row = hyperparameters_combinations.loc[hyperparameters_combinations["combination_idx"] == combination_idx].values[0][1:].tolist()
+        row = [format_number(value) for value in row]
         for score in list(PRINT_SCORES):
             row.append(format_number(results_after_averaging_over_users.loc[results_after_averaging_over_users["combination_idx"] == combination_idx, f"val_{score.name.lower()}_mean"].values[0]))
         row.append(format_number(results_after_averaging_over_users.loc[results_after_averaging_over_users["combination_idx"] == combination_idx, f"val_{optimizer_score.name.lower()}_std"].values[0]))

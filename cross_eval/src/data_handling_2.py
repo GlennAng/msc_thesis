@@ -297,6 +297,18 @@ def convert_paper_category_original(category_str : str) -> str:
     transformed_category_str = transformed_category_str.replace(" ", "_")
     return transformed_category_str
 
+def convert_paper_category(category_str : str) -> str:
+    transformed_category_str = convert_paper_category_original(category_str)
+    if transformed_category_str in ["engineering", "electrical_engineering"]:
+        transformed_category_str = "engineering"
+    elif transformed_category_str in ["physics", "astronomy", "materials_science"]:
+        transformed_category_str = "physics"
+    elif transformed_category_str in ["biology", "chemistry", "earth_science", "geography"]:
+        transformed_category_str = "natural_science"
+    elif transformed_category_str in ["linguistics", "sociology", "psychology", "economics", "philosophy"]:
+        transformed_category_str = "social_science"
+    return transformed_category_str
+
 def turn_parquet_to_dict(conversion_function : callable, parquet_df : pd.DataFrame = "../data/tsne_with_meta_full_for_plot_sorted.parquet") -> dict:
     papers_query = """SELECT paper_id FROM papers"""
     papers_ids = [t[0] for t in sql_execute(papers_query)]
@@ -310,20 +322,21 @@ def turn_parquet_to_dict(conversion_function : callable, parquet_df : pd.DataFra
     assert len(papers_ids_to_categories) == len(papers_ids)
     return papers_ids_to_categories
 
-def save_papers_ids_to_categories(conversion_function : callable, file_path : str = "../data/papers_ids_to_categories_original.pkl", papers_ids_to_categories : dict = None) -> None:
+def save_papers_ids_to_categories(conversion_function : callable, file_path : str = "../data/papers_ids_to_categories.pkl", papers_ids_to_categories : dict = None) -> None:
     if papers_ids_to_categories is None:
         papers_ids_to_categories = turn_parquet_to_dict(conversion_function)
     with open(file_path, "wb") as file:
         pickle.dump(papers_ids_to_categories, file)
     
-def load_papers_ids_to_categories(file_path : str = "../data/papers_ids_to_categories_original.pkl") -> dict:
+def load_papers_ids_to_categories(file_path : str = "../data/papers_ids_to_categories.pkl") -> dict:
     with open(file_path, "rb") as file:
         papers_ids_to_categories = pickle.load(file)
     return papers_ids_to_categories
 
-def get_papers_categories_dataset_distribution(papers_ids_to_categories : dict = "../data/papers_ids_to_categories_original.pkl") -> tuple:
+def get_papers_categories_dataset_distribution(papers_ids_to_categories : dict = "../data/papers_ids_to_categories.pkl") -> tuple:
     if type(papers_ids_to_categories) == str:
         papers_ids_to_categories = load_papers_ids_to_categories(papers_ids_to_categories)
+    print(len(papers_ids_to_categories))
     unique_categories = set(papers_ids_to_categories.values())
     categories_counts = {category: 0 for category in unique_categories}
     n_total = 0
@@ -338,10 +351,9 @@ def get_papers_categories_dataset_distribution(papers_ids_to_categories : dict =
     print(f"Total papers: {n_total}.")
     for category, count in sorted_categories:
         print(f"{category}: {count:.2%} ({int(count * n_total)})")
-    print("____________________________________________________________")
     return sorted_categories, n_total
 
-def get_papers_categories_ratings_distribution(papers_ids_to_categories : dict = "../data/papers_ids_to_categories_original.pkl") -> tuple:
+def get_papers_categories_ratings_distribution(papers_ids_to_categories : dict = "../data/papers_ids_to_categories.pkl") -> tuple:
     if type(papers_ids_to_categories) == str:
         papers_ids_to_categories = load_papers_ids_to_categories(papers_ids_to_categories)
     unique_categories = set(papers_ids_to_categories.values())
@@ -361,31 +373,19 @@ def get_papers_categories_ratings_distribution(papers_ids_to_categories : dict =
     print(f"Total papers: {n_total}.")
     for category, count in sorted_categories:
         print(f"{category}: {count:.2%} ({int(count * n_total)})")
-    print("____________________________________________________________")
     return sorted_categories, n_total
 
-def get_cache_categories_dataset_distribution(papers_ids_to_categories : dict = "../data/papers_ids_to_categories_original.pkl", 
-                                                     max_cache = 5000, random_state = 42) -> tuple:
+def get_cache_papers_categories_dataset_distribution(papers_ids_to_categories : dict = "../data/papers_ids_to_categories.pkl") -> tuple:
     if type(papers_ids_to_categories) == str:
         papers_ids_to_categories = load_papers_ids_to_categories(papers_ids_to_categories)
-    cache_papers_ids = get_global_cache_papers_ids(max_cache = max_cache, random_state = random_state)
+    cache_papers_ids = get_global_cache_papers_ids(max_cache = 5000, random_state = 42)
     cache_papers_ids_to_categories = {paper_id: papers_ids_to_categories[paper_id] for paper_id in cache_papers_ids}
     get_papers_categories_dataset_distribution(cache_papers_ids_to_categories)
 
-def get_negative_samples_categories_dataset_distribution(papers_ids_to_categories : dict = "../data/papers_ids_to_categories_original.pkl",
-                                                         n_negative_samples : int = 100, random_state : int = 42) -> tuple:
+def get_negative_samples_ids(n_negative_samples : int, random_state : int, papers_ids_to_categories : dict = "../data/papers_ids_to_categories.pkl") -> list:
     if type(papers_ids_to_categories) == str:
         papers_ids_to_categories = load_papers_ids_to_categories(papers_ids_to_categories)
-    negative_samples_ids = get_negative_samples_ids(n_negative_samples, random_state)
-    negative_samples_ids_to_categories = {paper_id: papers_ids_to_categories[paper_id] for paper_id in negative_samples_ids}
-    get_papers_categories_dataset_distribution(negative_samples_ids_to_categories)
-
-def get_negative_samples_ids(n_negative_samples : int, random_state : int, papers_ids_to_categories : dict = "../data/papers_ids_to_categories_original.pkl") -> list:
-    if type(papers_ids_to_categories) == str:
-        papers_ids_to_categories = load_papers_ids_to_categories(papers_ids_to_categories)
-    categories_ratios = {"physics" : 0.2, "astronomy" : 0.1, "biology" : 0.15, "medicine" : 0.1, "chemistry" : 0.1, 
-                         "economics" : 0.05, "psychology" : 0.05, "materials_science" : 0.05, "earth_science" : 0.05, 
-                         "linguistics" : 0.05, "philosophy" : 0.05, "geography" : 0.05}
+    categories_ratios = {"physics" : 0.3, "medicine" : 0.25, "natural_science" : 0.2, "social_science" : 0.15, "engineering" : 0.1}
     samples_per_category = {category : int(n_negative_samples * ratio) for category, ratio in categories_ratios.items()}
     negative_samples_ids = []
     rng = random.Random(random_state)

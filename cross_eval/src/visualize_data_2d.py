@@ -89,7 +89,7 @@ def plot_2d_scatter(pos_rated_papers, neg_rated_papers, cache_papers):
     data = pd.DataFrame({
         'x': np.concatenate([pos_rated_papers[:, 0], neg_rated_papers[:, 0], cache_papers[:, 0]]),
         'y': np.concatenate([pos_rated_papers[:, 1], neg_rated_papers[:, 1], cache_papers[:, 1]]),
-        'label': ['P: Positive Votes'] * len(pos_rated_papers) + ['N: Negative Votes'] * len(neg_rated_papers) + ['Cache'] * len(cache_papers)
+        'label': ['Voted Positives'] * len(pos_rated_papers) + ['Voted Negatives'] * len(neg_rated_papers) + ['Random Negatives'] * len(cache_papers)
     })
 
     pos_seed, neg_seed = int(sys.argv[1]), int(sys.argv[2])
@@ -98,17 +98,19 @@ def plot_2d_scatter(pos_rated_papers, neg_rated_papers, cache_papers):
     plt.figure(figsize=(10, 8))
 
     # Plot cache points first with lower alpha
-    cache_data = data[data['label'] == 'Cache']
-    sns.scatterplot(data=cache_data, x='x', y='y', color='red', alpha=0.25, label='R: Random Negatives', legend=False)
 
     # Plot negative and positive points with normal alpha
-    non_cache_data = data[data['label'] != 'Cache']
+    non_cache_data = data[data['label'] != 'Random Negatives']
     sns.scatterplot(data=non_cache_data, x='x', y='y', hue='label', 
-                palette={'P: Positive Votes': 'blue', 'N: Negative Votes': 'red'}, 
-                alpha=0.7, legend=False)
+                palette={'Voted Positives': 'blue', 'Voted Negatives': 'red'}, 
+                alpha=0.7, s = 75)
 
-    plt.xlim([-0.5, 0.2])  # Replace with your desired x-axis range
-    plt.ylim([-0.3, 0.25])  # Replace with your desired y-axis range
+    cache_data = data[data['label'] == 'Random Negatives']
+    sns.scatterplot(data=cache_data, x='x', y='y', color='red', alpha=0.25, label='Random Negatives', legend=False, s = 50)
+
+    plt.xlim([-0.45, 0.2])  # Replace with your desired x-axis range
+    plt.ylim([-0.3, 0.4])  # Replace with your desired y-axis range
+    plt.legend(loc = "upper center", fontsize=20, framealpha=1.0, bbox_to_anchor=(0.375, 0.975), ncol=2, prop={'weight': 'bold', 'size': 14})
 
     # Add labels and title
     plt.title('2D Scatter Plot of Papers')

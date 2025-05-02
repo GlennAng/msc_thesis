@@ -249,8 +249,9 @@ class Global_Visualizer:
             self.generate_fifth_page(pdf)
             self.generate_sixth_page(pdf)
             self.generate_seventh_page(pdf)
-            #self.generate_eighth_page(pdf)
-            #self.generate_plots(pdf)
+            if len(self.hyperparameters_combinations) > 1:
+                self.generate_eighth_page(pdf)
+                self.generate_plots(pdf)
 
     def print_fold_stds(self):
         results_before_averaging_over_folds = self.results_before_averaging_over_folds[self.results_before_averaging_over_folds["combination_idx"] == self.best_global_hyperparameters_combination_idx]

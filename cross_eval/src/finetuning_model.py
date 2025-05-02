@@ -22,8 +22,7 @@ class FinetuningModel(nn.Module):
         self.device = self.projection.weight.device
         if val_users_embeddings_idxs is not None:
             self.val_users_embeddings_idxs = val_users_embeddings_idxs.to(self.device)
-        if n_unfreeze_layers > 0:
-            self.unfreeze_layers(n_unfreeze_layers)
+        self.unfreeze_layers(n_unfreeze_layers)
         
     def forward(self, eval_type : str, input_ids_tensor : torch.tensor, attention_mask_tensor : torch.tensor, user_idx_tensor : torch.tensor = None) -> torch.tensor:
         eval_type = eval_type.lower()
@@ -181,7 +180,7 @@ def load_users_embeddings(num_embeddings : int, embedding_dim : int, device : to
     return users_embeddings
 
 def load_finetuning_model(transformer_path : str, device : torch.device, projection_state_dict : dict = None, users_embeddings_state_dict : dict = None,
-                          val_users_embeddings_idxs : torch.tensor = None, projection_dim : int = 256, n_users : int = 4111) -> FinetuningModel:
+                          val_users_embeddings_idxs : torch.tensor = None, projection_dim : int = 256, n_users : int = 4111, n_unfreeze_layers : int = 4) -> FinetuningModel:
     transformer_model = load_transformer_model(transformer_path, device)
     embedding_dim = get_transformer_embedding_dim(transformer_model)
     if type(projection_state_dict) == str:
@@ -194,7 +193,7 @@ def load_finetuning_model(transformer_path : str, device : torch.device, project
         n_users = users_embeddings_state_dict["weight"].shape[0]
     projection = load_projection(embedding_dim, projection_dim, device, projection_state_dict)
     users_embeddings = load_users_embeddings(n_users, projection_dim + 1, device, users_embeddings_state_dict)
-    return FinetuningModel(transformer_model, projection, users_embeddings, val_users_embeddings_idxs)
+    return FinetuningModel(transformer_model, projection, users_embeddings, val_users_embeddings_idxs, n_unfreeze_layers = n_unfreeze_layers)
 
 def fix_gte_config(model_path : str) -> None:
     config_path = os.path.join(model_path, "config.json")
@@ -211,7 +210,7 @@ def fix_gte_config(model_path : str) -> None:
         json.dump(config, f, indent = 2)
 
 def load_finetuning_model_full(finetuning_model_path : str, device : torch.device, val_users_embeddings_idxs : torch.tensor = None,
-                               pretrained_projection : bool = True, pretrained_users_embeddings : bool = True) -> FinetuningModel:
+                               pretrained_projection : bool = True, pretrained_users_embeddings : bool = True, n_unfreeze_layers : int = 4) -> FinetuningModel:
     finetuning_model_path = finetuning_model_path.rstrip("/") + "/"
     transformer_model_path = finetuning_model_path + "transformer_model"
     fix_gte_config(transformer_model_path)
@@ -223,4 +222,4 @@ def load_finetuning_model_full(finetuning_model_path : str, device : torch.devic
         users_embeddings_state_dict = torch.load(finetuning_model_path + "users_embeddings.pt", map_location = device, weights_only = True)
     else:
         users_embeddings_state_dict = None
-    return load_finetuning_model(transformer_model_path, device, projection_state_dict, users_embeddings_state_dict, val_users_embeddings_idxs)
+    return load_finetuning_model(transformer_model_path, device, projection_state_dict, users_embeddings_state_dict, val_users_embeddings_idxs, n_unfreeze_layers = n_unfreeze_layers)

@@ -41,14 +41,14 @@ def parse_arguments() -> dict:
     parser.add_argument("--val_measure_training", action = "store_true", default = False)
     parser.add_argument("--val_measure_negative_samples", action = "store_true", default = False)
     parser.add_argument("--val_metric", type = str, default = "bcel", choices = EXPLICIT_NEGATIVES_METRICS)
-    parser.add_argument("--model_path", type = str, default = "/home/scholar/glenn_rp/msc_thesis/data/finetuning/gte_base_256/state_dicts")
+    parser.add_argument("--model_path", type = str, default = "/home/scholar/glenn_rp/msc_thesis/data/finetuning/gte_large_256/state_dicts")
     parser.add_argument("--not_pretrained_projection", action = "store_false", dest = "pretrained_projection")
     parser.add_argument("--not_pretrained_users_embeddings", action = "store_false", dest = "pretrained_users_embeddings")
     parser.add_argument("--n_unfreeze_layers", type = int, default = 4)
     parser.add_argument("--transformer_model_lr", type = float, default = 1e-5)
     parser.add_argument("--projection_lr", type = float, default = 1e-4)
     parser.add_argument("--users_embeddings_lr", type = float, default = 1e-4)
-    parser.add_argument("--lr_scheduler", type = str, default = "constant", choices = ["constant", "linear_decay"])
+    parser.add_argument("--lr_scheduler", type = str, default = "linear_decay", choices = ["constant", "linear_decay"])
     parser.add_argument("--n_warmup_steps", type = int, default = 1000)
     parser.add_argument("--testing", action = "store_true", default = False)
     args_dict = vars(parser.parse_args())
@@ -165,9 +165,9 @@ def process_batch(finetuning_model : FinetuningModel, optimizer : torch.optim.Op
         if n_batches_processed_so_far % 250 == 0:
             print(get_gpu_info())
     loss.backward()
+    optimizer.step()
     if scheduler is not None:
         scheduler.step()
-    optimizer.step()
     return loss.item()
 
 def run_training(finetuning_model : FinetuningModel, optimizer : torch.optim.Optimizer, scheduler : torch.optim.lr_scheduler, 
@@ -185,7 +185,7 @@ def run_training(finetuning_model : FinetuningModel, optimizer : torch.optim.Opt
             if j == 0:
                 log_string(f"Starting Epoch {i + 1} of {n_epochs}. First Batch:\n{print_batch(batch)}")
             train_loss = process_batch(finetuning_model, optimizer, scheduler, batch, n_batches_processed_so_far)
-            print(f"Epoch {i+1}/{n_epochs}, Batch {j + 1}/{len(dataloader)}. Loss: {train_loss:.4f}, LRs: {[param_group['lr'] for param_group in optimizer.param_groups]}.")
+            print(f"Epoch {i+1}/{n_epochs}, Batch {j + 1}/{len(dataloader)}. Loss: {train_loss:.4f}.")
             train_losses.append((n_batches_processed_so_far, train_loss))
             n_batches_processed_so_far += 1
             if n_batches_processed_so_far in [1, 10, 100] or n_batches_processed_so_far % args_dict["n_batches_per_val"] == 0:
@@ -209,7 +209,7 @@ if __name__ == "__main__":
 
     datasets_dict = load_datasets_dict()
     finetuning_model = load_finetuning_model_full(args_dict["model_path"], device, datasets_dict["val_users_embeddings_idxs"], 
-                                                  args_dict["pretrained_projection"], args_dict["pretrained_users_embeddings"])
+                                                  args_dict["pretrained_projection"], args_dict["pretrained_users_embeddings"], args_dict["n_unfreeze_layers"])
     args_dict["n_transformer_layers"] = finetuning_model.count_transformer_layers()
     args_dict["n_transformer_parameters"], args_dict["n_unfrozen_transformer_parameters"] = finetuning_model.count_transformer_parameters()
     baseline_loss, baseline_metric = get_baseline_values(finetuning_model, datasets_dict["val_dataset"], args_dict["val_metric"])

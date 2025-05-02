@@ -229,7 +229,7 @@ def get_config_string(config : dict, val_losses : list) -> str:
     config_string.append(f"Folder Name: {config['outputs_folder'].split('/')[-1]}.")
     config_string.append(f"Model Name: {finetuning_model.transformer_model_name}.")
     config_string.append(f"Number of unfrozen Transformer Layers: {config['n_unfreeze_layers']} (out of {config['n_transformer_layers']}).")
-    n_transformer_params, n_unfrozen_transformer_params = round(config["n_transformer_params"] / 1000000), round(config["n_unfrozen_transformer_params"] / 1000000)
+    n_transformer_params, n_unfrozen_transformer_params = round(config["n_transformer_parameters"] / 1000000), round(config["n_unfrozen_transformer_parameters"] / 1000000)
     config_string.append(f"Number of unfrozen Transformer Parameters: {n_unfrozen_transformer_params}M (out of {n_transformer_params}M).")
     config_string.append(f"Projection Layer pretrained? {'Yes' if config['pretrained_projection'] else 'No'}.")
     config_string.append(f"Users Embeddings Layer pretrained? {'Yes' if config['pretrained_users_embeddings'] else 'No'}.")
