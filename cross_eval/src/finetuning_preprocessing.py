@@ -1,6 +1,6 @@
 from data_handling import get_negative_samples_ids, get_rated_papers_ids_for_user, get_titles_and_abstracts, get_cache_papers_ids_for_user
 from main import get_users_ids
-from papers_categories import get_glove_categories_embeddings
+from papers_categories import get_papers_ids_to_categories, get_glove_categories_embeddings
 from papers_categories_dicts import PapersCategories, PAPERS_CATEGORIES
 from training_data import load_negrated_ranking_ids_for_user
 from sklearn.model_selection import train_test_split
@@ -49,10 +49,13 @@ def load_users_embeddings_ids_to_idxs() -> dict:
     assert list(users_embeddings_ids_to_idxs.values()) == sorted(list(users_embeddings_ids_to_idxs.values()))
     return users_embeddings_ids_to_idxs
 
-def save_categories_embeddings_tensor(papers_categories : PapersCategories = None, dim : int = 100, normalization : str = "l2_unit",
-                                      transformer_models_names = ["gte_base_256", "gte_large_256"]) -> None:
+def save_categories_embeddings(papers_categories : PapersCategories = None, dim : int = 100, normalization : str = "l2_unit",
+                               transformer_models_names = ["gte_base_256", "gte_large_256"]) -> None:
     if papers_categories is None:
         papers_categories = PAPERS_CATEGORIES
+    with open("../data/papers_ids_to_categories_original.pkl", "rb") as file:
+        papers_ids_to_categories_original = pickle.load(file)
+    papers_ids_to_categories = get_papers_ids_to_categories(papers_ids_to_categories_original, papers_categories.original_categories_to_categories)
     glove_categories_embeddings = get_glove_categories_embeddings(papers_categories.categories_to_glove, dim, normalization)
     keys_sorted = sorted([category for category in glove_categories_embeddings.keys() if category is not None])
     if None in glove_categories_embeddings:
@@ -63,10 +66,25 @@ def save_categories_embeddings_tensor(papers_categories : PapersCategories = Non
         with torch.no_grad():
             categories_embeddings.weight.data[idx] = torch.from_numpy(glove_categories_embeddings[category]).to(torch.float32)
         categories_to_idxs[category] = idx
+    papers_ids_to_categories_idxs = {paper_id : categories_to_idxs[papers_ids_to_categories[paper_id]] for paper_id in papers_ids_to_categories}
     for transformer_model_name in transformer_models_names:
         torch.save(categories_embeddings.state_dict(), f"{FILES_SAVE_PATH}/{transformer_model_name}/state_dicts/categories_embeddings.pt")
         with open(f"{FILES_SAVE_PATH}/{transformer_model_name}/state_dicts/categories_to_idxs.pkl", "wb") as f:
             pickle.dump(categories_to_idxs, f)
+        with open(f"{FILES_SAVE_PATH}/{transformer_model_name}/state_dicts/papers_ids_to_categories_idxs.pkl", "wb") as f:
+            pickle.dump(papers_ids_to_categories_idxs, f)
+
+def load_categories_to_idxs(transformer_model_name : str = "gte_large_256") -> dict:
+    with open(f"{FILES_SAVE_PATH}/{transformer_model_name}/state_dicts/categories_to_idxs.pkl", "rb") as f:
+        categories_to_idxs = pickle.load(f)
+    assert list(categories_to_idxs.values()) == sorted(list(categories_to_idxs.values()))
+    return categories_to_idxs
+
+def load_papers_ids_to_categories_idxs(transformer_model_name : str = "gte_large_256") -> dict:
+    with open(f"{FILES_SAVE_PATH}/{transformer_model_name}/state_dicts/papers_ids_to_categories_idxs.pkl", "rb") as f:
+        papers_ids_to_categories_idxs = pickle.load(f)
+    assert list(papers_ids_to_categories_idxs.keys()) == sorted(list(papers_ids_to_categories_idxs.keys()))
+    return papers_ids_to_categories_idxs
 
 def save_finetuning_users_ids(n_val_users : int = 500, n_test_users_no_overlap : int = 500, min_n_posrated : int = 20, min_n_negrated : int = 20, random_state : int = 42) -> None:
     all_users = get_users_ids(users_selection = "random", max_users = None, min_n_posrated = min_n_posrated, min_n_negrated = min_n_negrated)
@@ -141,7 +159,6 @@ def save_test_papers_seeds(val_users_ids : list, test_users_no_overlap_ids : lis
     test_papers_ids = sorted(list(negative_samples_ids | test_papers_ids))
     test_papers, _ = tokenize_papers(test_papers_ids, tokenizer, max_sequence_length)
     torch.save(test_papers, FILES_SAVE_PATH + "/datasets/test_papers_seeds.pt")
-    print(len(test_papers_ids))
 
 def load_test_papers_seeds() -> dict:
     return torch.load(FILES_SAVE_PATH + "/datasets/test_papers_seeds.pt", weights_only = True)
@@ -235,4 +252,3 @@ def load_val_users_embeddings_idxs(val_users_ids : list, users_embeddings_ids_to
 if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(GTE_LARGE_PATH)
     train_users_ids, val_users_ids, test_users_no_overlap_ids = load_finetuning_users_ids()
-    save_categories_embeddings_tensor()

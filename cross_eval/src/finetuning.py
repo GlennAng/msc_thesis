@@ -27,29 +27,39 @@ def set_all_seeds(seed: int) -> None:
 def args_dict_assertions(args_dict : dict) -> None:
     assert args_dict["n_samples_per_user"] > 0 and args_dict["n_samples_per_user"] <= min(32, args_dict["batch_size"])
     assert args_dict["batch_size"] % args_dict["n_samples_per_user"] == 0
+    if args_dict["pretrained_categories_embeddings"]:
+        assert args_dict["categories_attached"]
 
 def parse_arguments() -> dict:
     parser = argparse.ArgumentParser(description = "Finetuning script")
     parser.add_argument("--seed", type = int, default = 42)
+
     parser.add_argument("--batch_size", type = int, default = 128)
-    parser.add_argument("--n_epochs", type = int, default = 5)
-    parser.add_argument("--early_stopping_patience", type = int, default = 5)
-    parser.add_argument("--n_samples_per_user", type = int, default = 16)
     parser.add_argument("--users_sampling_strategy", type = str, default = "uniform", choices = ["uniform", "proportional", "square_root_proportional", "cube_root_proportional"])
+    parser.add_argument("--n_samples_per_user", type = int, default = 16)
     parser.add_argument("--class_balancing", action = "store_true", default = False)
+
+    parser.add_argument("--n_epochs", type = int, default = 5)
     parser.add_argument("--n_batches_per_val", type = int, default = 500)
+    parser.add_argument("--early_stopping_patience", type = int, default = 5)
+    parser.add_argument("--val_metric", type = str, default = "bcel", choices = EXPLICIT_NEGATIVES_METRICS)
     parser.add_argument("--val_measure_training", action = "store_true", default = False)
     parser.add_argument("--val_measure_negative_samples", action = "store_true", default = False)
-    parser.add_argument("--val_metric", type = str, default = "bcel", choices = EXPLICIT_NEGATIVES_METRICS)
+
     parser.add_argument("--model_path", type = str, default = "/home/scholar/glenn_rp/msc_thesis/data/finetuning/gte_large_256/state_dicts")
+    parser.add_argument("--n_unfreeze_layers", type = int, default = 4)
+    parser.add_argument("--not_categories_attached", action = "store_false", dest = "categories_attached")
     parser.add_argument("--not_pretrained_projection", action = "store_false", dest = "pretrained_projection")
     parser.add_argument("--not_pretrained_users_embeddings", action = "store_false", dest = "pretrained_users_embeddings")
-    parser.add_argument("--n_unfreeze_layers", type = int, default = 4)
+    parser.add_argument("--not_pretrained_categories_embeddings", action = "store_false", dest = "pretrained_categories_embeddings")
+
     parser.add_argument("--transformer_model_lr", type = float, default = 1e-5)
     parser.add_argument("--projection_lr", type = float, default = 1e-4)
     parser.add_argument("--users_embeddings_lr", type = float, default = 1e-4)
+    parser.add_argument("--categories_embeddings_lr", type = float, default = 1e-4)
     parser.add_argument("--lr_scheduler", type = str, default = "linear_decay", choices = ["constant", "linear_decay"])
     parser.add_argument("--n_warmup_steps", type = int, default = 1000)
+    
     parser.add_argument("--testing", action = "store_true", default = False)
     args_dict = vars(parser.parse_args())
     args_dict_assertions(args_dict)
@@ -89,10 +99,12 @@ def load_dataloader(train_dataset : FinetuningDataset, batch_size : int, n_sampl
     return dataloader, s
     
 def load_optimizer(finetuning_model : FinetuningModel, transformer_model_lr : float, projection_lr : float, users_embeddings_lr : float, 
-                   lr_scheduler : str, n_total_steps : int, n_warmup_steps : int = 1000) -> torch.optim.Optimizer:
+                   lr_scheduler : str, n_total_steps : int, n_warmup_steps : int = 1000, categories_embeddings_lr : float = None) -> torch.optim.Optimizer:
     param_groups = [{'params': finetuning_model.transformer_model.parameters(), 'lr': transformer_model_lr}, 
                     {'params': finetuning_model.projection.parameters(), 'lr': projection_lr}, 
                     {'params': finetuning_model.users_embeddings.parameters(), 'lr': users_embeddings_lr}]
+    if finetuning_model.categories_embeddings is not None:
+        param_groups.append({'params': finetuning_model.categories_embeddings.parameters(), 'lr': categories_embeddings_lr})
     optimizer = torch.optim.Adam(param_groups)
     if lr_scheduler == "constant":
         return optimizer, None
@@ -153,14 +165,18 @@ def process_val(finetuning_model : FinetuningModel, args_dict : dict, datasets_d
         s += f"\nNew Optimal Value for Metric {args_dict['val_metric'].upper()}: {round_number(new_baseline_metric)} after previously {round_number(baseline_metric)}."
         baseline_metric = new_baseline_metric
         finetuning_model.save_finetuning_model(args_dict["outputs_folder"] + "/state_dicts")
+    else:
+        s += f"\nNo Improvement for Metric {args_dict['val_metric'].upper()}: {round_number(new_baseline_metric)} after previously {round_number(baseline_metric)}."
     log_string(s)
     return scores_dict["bcel_val"], baseline_metric, improvement
 
 def process_batch(finetuning_model : FinetuningModel, optimizer : torch.optim.Optimizer, scheduler : torch.optim.lr_scheduler, batch : dict, n_batches_processed_so_far : int) -> float:
     optimizer.zero_grad()
+    category_idx_tensor = batch["category_idx"].to(finetuning_model.device) if finetuning_model.categories_embeddings is not None else None
     batch = {k: batch[k].to(finetuning_model.device) for k in ["user_idx", "label", "input_ids", "attention_mask"]}
     with torch.autocast(device_type = 'cuda', dtype = torch.float16):
-        dot_products = finetuning_model(eval_type = "train", input_ids_tensor = batch["input_ids"], attention_mask_tensor = batch["attention_mask"], user_idx_tensor = batch["user_idx"])
+        dot_products = finetuning_model(eval_type = "train", input_ids_tensor = batch["input_ids"], attention_mask_tensor = batch["attention_mask"], 
+                                        user_idx_tensor = batch["user_idx"], category_idx_tensor = category_idx_tensor)
         loss = torch.nn.BCEWithLogitsLoss()(dot_products, batch["label"].float())
         if n_batches_processed_so_far % 250 == 0:
             print(get_gpu_info())
@@ -185,7 +201,7 @@ def run_training(finetuning_model : FinetuningModel, optimizer : torch.optim.Opt
             if j == 0:
                 log_string(f"Starting Epoch {i + 1} of {n_epochs}. First Batch:\n{print_batch(batch)}")
             train_loss = process_batch(finetuning_model, optimizer, scheduler, batch, n_batches_processed_so_far)
-            print(f"Epoch {i+1}/{n_epochs}, Batch {j + 1}/{len(dataloader)}. Loss: {train_loss:.4f}.")
+            print(f"Batch {n_batches_processed_so_far}/{n_batches_total}. Loss: {train_loss:.4f}.")
             train_losses.append((n_batches_processed_so_far, train_loss))
             n_batches_processed_so_far += 1
             if n_batches_processed_so_far in [1, 10, 100] or n_batches_processed_so_far % args_dict["n_batches_per_val"] == 0:
@@ -195,6 +211,7 @@ def run_training(finetuning_model : FinetuningModel, optimizer : torch.optim.Opt
                 else:
                     if n_batches_processed_so_far > 100:
                         early_stopping_counter += 1
+                print(f"Early Stopping Counter: {early_stopping_counter}/{args_dict['early_stopping_patience']}.")
                 val_losses.append((n_batches_processed_so_far, val_loss))
                 if early_stopping_counter >= args_dict["early_stopping_patience"]:
                     log_string(f"Early stopping after {i + 1} Epochs and {n_batches_processed_so_far} Batches.")
@@ -207,9 +224,10 @@ if __name__ == "__main__":
     args_dict = parse_arguments()
     set_all_seeds(args_dict["seed"])
 
-    datasets_dict = load_datasets_dict()
-    finetuning_model = load_finetuning_model_full(args_dict["model_path"], device, datasets_dict["val_users_embeddings_idxs"], 
-                                                  args_dict["pretrained_projection"], args_dict["pretrained_users_embeddings"], args_dict["n_unfreeze_layers"])
+    datasets_dict = load_datasets_dict(args_dict["categories_attached"])
+    finetuning_model = load_finetuning_model_full(args_dict["model_path"], device, datasets_dict["val_users_embeddings_idxs"], args_dict["categories_attached"],
+                                                  args_dict["pretrained_projection"], args_dict["pretrained_users_embeddings"], args_dict["pretrained_categories_embeddings"],
+                                                  args_dict["n_unfreeze_layers"])
     args_dict["n_transformer_layers"] = finetuning_model.count_transformer_layers()
     args_dict["n_transformer_parameters"], args_dict["n_unfrozen_transformer_parameters"] = finetuning_model.count_transformer_parameters()
     baseline_loss, baseline_metric = get_baseline_values(finetuning_model, datasets_dict["val_dataset"], args_dict["val_metric"])
@@ -220,7 +238,7 @@ if __name__ == "__main__":
                                     args_dict["users_sampling_strategy"], args_dict["class_balancing"], args_dict["seed"])
     n_total_steps = len(dataloader) * args_dict["n_epochs"]
     optimizer, scheduler = load_optimizer(finetuning_model, args_dict["transformer_model_lr"], args_dict["projection_lr"], args_dict["users_embeddings_lr"], 
-                                         args_dict["lr_scheduler"], n_total_steps, args_dict["n_warmup_steps"])
+                                          args_dict["lr_scheduler"], n_total_steps, args_dict["n_warmup_steps"], args_dict["categories_embeddings_lr"])
     args_dict["n_batches_per_epoch"] = len(dataloader)
     if not args_dict["testing"]:
         save_config(args_dict)

@@ -1,8 +1,8 @@
-from arxiv import attach_arxiv_categories
 from finetuning_preprocessing import FILES_SAVE_PATH
 from finetuning_model import FinetuningModel, load_finetuning_model_full
 from finetuning_data import FinetuningDataset
 from finetuning_preprocessing import load_finetuning_users_ids, load_test_papers, load_users_embeddings_ids_to_idxs
+from papers_categories import attach_papers_categories
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.font_manager import FontProperties
 from matplotlib.backends.backend_pdf import PdfPages
@@ -22,31 +22,32 @@ CLASSIFICATION_METRICS = ["bcel", "recall", "specificity", "balanced_accuracy"]
 EXPLICIT_NEGATIVES_METRICS = CLASSIFICATION_METRICS + [metric + "_explicit_negatives" for metric in RANKING_METRICS]
 NEGATIVE_SAMPLES_METRICS = [metric + "_negative_samples" for metric in RANKING_METRICS]
 
-def generate_config(file_path : str, users_ids : list, evaluation : str, users_coefs_path : str = None, arxiv : bool = False) -> str:
+def generate_config(file_path : str, users_ids : list, evaluation : str, users_coefs_path : str = None, attach_categories : bool = False) -> str:
     if file_path.endswith(".json"):
         file_path = file_path[:-5]
     with open(f"{FILES_SAVE_PATH}/example_config.json", "r") as config_file:
         example_config = json.load(config_file)
-    example_config["embedding_folder"] = embeddings_folder + ("/arxiv" if arxiv else "")
+    example_config["embedding_folder"] = embeddings_folder + ("/categories" if attach_categories else "")
     example_config["users_selection"] = users_ids
     if users_coefs_path is not None:
         example_config["users_coefs_path"] = users_coefs_path
         example_config["load_users_coefs"] = True
     example_config["evaluation"] = evaluation
-    file_path += ("_arxiv" if arxiv else "") + ".json"
+    file_path += ("_categories" if attach_categories else "") + ".json"
     with open(file_path, "w") as config_file:
         json.dump(example_config, config_file, indent = 3)
     return file_path.split("/")[-1].split(".")[0]
     
-def generate_configs(transformer_model_name : str, val_users_ids : list = None, test_users_no_overlap_ids : list = None, load_coefs : bool = False, arxiv : bool = False) -> list:
+def generate_configs(transformer_model_name : str, val_users_ids : list = None, test_users_no_overlap_ids : list = None, load_coefs : bool = False, 
+                     attach_categories : bool = False) -> list:
     configs_names = []
     if val_users_ids is not None:
-        configs_names.append(generate_config(f"{configs_folder}/{transformer_model_name}_overlap", val_users_ids, "train_test_split", arxiv = arxiv))
+        configs_names.append(generate_config(f"{configs_folder}/{transformer_model_name}_overlap", val_users_ids, "train_test_split", attach_categories = attach_categories))
         if load_coefs:
             configs_names.append(generate_config(f"{configs_folder}/{transformer_model_name}_overlap_users_coefs", val_users_ids, "train_test_split", 
-                                 users_coefs_path = embeddings_folder, arxiv = arxiv))
+                                 users_coefs_path = embeddings_folder, attach_categories = attach_categories))
     if test_users_no_overlap_ids is not None:
-        configs_names.append(generate_config(f"{configs_folder}/{transformer_model_name}_no_overlap", test_users_no_overlap_ids, "cross_validation", arxiv = arxiv))
+        configs_names.append(generate_config(f"{configs_folder}/{transformer_model_name}_no_overlap", test_users_no_overlap_ids, "cross_validation", attach_categories = attach_categories))
     return configs_names
 
 def save_users_coefs(finetuning_model : FinetuningModel, val_users_ids : list, users_embeddings_ids_to_idxs : dict) -> None:
@@ -56,26 +57,33 @@ def save_users_coefs(finetuning_model : FinetuningModel, val_users_ids : list, u
         pickle.dump(users_embeddings_ids_to_idxs, f)
 
 def run_evaluation(finetuning_model : FinetuningModel, val_users_ids : list, test_users_no_overlap_ids : list, test_papers : dict, users_embeddings_ids_to_idxs : dict, 
-                   attach_arxiv : bool = False) -> None:
+                   categories_attached : bool) -> None:
+    attach_categories = not categories_attached
     training_mode = finetuning_model.training
     finetuning_model.eval()
-    papers_ids_to_idxs = {}
-    for idx, paper_id in enumerate(test_papers["paper_id"]):
-        papers_ids_to_idxs[paper_id.item()] = idx
-    embeddings = finetuning_model.compute_papers_embeddings(test_papers["input_ids"], test_papers["attention_mask"])
+    if categories_attached:
+        with open(f"../data/finetuning/{finetuning_model.transformer_model_name}/state_dicts/papers_ids_to_categories_idxs.pkl", "rb") as f:
+            papers_ids_to_categories_idxs = pickle.load(f)
+        test_papers_ids_to_categories_idxs = [papers_ids_to_categories_idxs[paper_id.item()] for paper_id in test_papers["paper_id"]]
+        test_papers["category_idx"] = torch.tensor(test_papers_ids_to_categories_idxs, dtype = torch.int64)
+    else:
+        test_papers["category_idx"] = None
+    papers_ids_to_idxs = {paper_id.item() : idx for idx, paper_id in enumerate(test_papers["paper_id"])}
+    embeddings = finetuning_model.compute_papers_embeddings(test_papers["input_ids"], test_papers["attention_mask"], test_papers["category_idx"])
     np.save(f"{embeddings_folder}/abs_X.npy", embeddings)
     with open(f"{embeddings_folder}/abs_paper_ids_to_idx.pkl", "wb") as f:
         pickle.dump(papers_ids_to_idxs, f)
     save_users_coefs(finetuning_model, val_users_ids, users_embeddings_ids_to_idxs)
-    configs_names = generate_configs(finetuning_model.transformer_model_name, val_users_ids, test_users_no_overlap_ids, load_coefs = True, arxiv = False)
-    if attach_arxiv:
-        embeddings_folder_arxiv = f"{embeddings_folder}/arxiv"
-        os.makedirs(embeddings_folder_arxiv, exist_ok = True)
-        embeddings_arxiv = attach_arxiv_categories(embeddings, papers_ids_to_idxs)
-        np.save(f"{embeddings_folder_arxiv}/abs_X.npy", embeddings_arxiv)
-        with open(f"{embeddings_folder_arxiv}/abs_paper_ids_to_idx.pkl", "wb") as f:
+    configs_names = generate_configs(finetuning_model.transformer_model_name, val_users_ids, test_users_no_overlap_ids, load_coefs = True, attach_categories = False)
+    if attach_categories:
+        embeddings = embeddings.numpy()
+        embeddings_folder_categories = f"{embeddings_folder}/categories"
+        os.makedirs(embeddings_folder_categories, exist_ok = True)
+        embeddings_categories = attach_papers_categories(embeddings, papers_ids_to_idxs)
+        np.save(f"{embeddings_folder_categories}/abs_X.npy", embeddings_categories)
+        with open(f"{embeddings_folder_categories}/abs_paper_ids_to_idx.pkl", "wb") as f:
             pickle.dump(papers_ids_to_idxs, f)
-        configs_names.extend(generate_configs(finetuning_model.transformer_model_name, val_users_ids, test_users_no_overlap_ids, load_coefs = False, arxiv = True))
+        configs_names.extend(generate_configs(finetuning_model.transformer_model_name, val_users_ids, test_users_no_overlap_ids, load_coefs = False, attach_categories = True))
     os.system(f"python run_cross_eval.py --config_path {configs_folder} --save_hyperparameters_table")
     for config_name in configs_names:
         os.system(f"mv outputs/{config_name} {outputs_folder}/{config_name}")
@@ -140,12 +148,12 @@ def run_validation(finetuning_model : FinetuningModel, val_dataset : FinetuningD
         assert train_val_dataset.user_idx_tensor.unique().tolist() == finetuning_model.val_users_embeddings_idxs.tolist()
     training_mode = finetuning_model.training
     finetuning_model.eval()
-
-    val_users_scores = finetuning_model.compute_val_scores(val_dataset.user_idx_tensor, val_dataset.input_ids_tensor, val_dataset.attention_mask_tensor)
+    val_users_scores = finetuning_model.compute_val_scores(val_dataset.user_idx_tensor, val_dataset.input_ids_tensor, val_dataset.attention_mask_tensor, val_dataset.category_idx_tensor)
     val_classification_scores = torch.zeros(size = (val_dataset.n_users, len(CLASSIFICATION_METRICS)), dtype = torch.float32)
     val_explicit_negatives_ranking_scores = torch.zeros(size = (val_dataset.n_users, len(RANKING_METRICS)), dtype = torch.float32)
     if train_val_dataset is not None:
-        train_val_users_scores = finetuning_model.compute_val_scores(train_val_dataset.user_idx_tensor, train_val_dataset.input_ids_tensor, train_val_dataset.attention_mask_tensor)
+        train_val_users_scores = finetuning_model.compute_val_scores(train_val_dataset.user_idx_tensor, train_val_dataset.input_ids_tensor, train_val_dataset.attention_mask_tensor,
+                                                                     train_val_dataset.category_idx_tensor)
         train_val_classification_scores = torch.zeros(size = (train_val_dataset.n_users, len(CLASSIFICATION_METRICS)), dtype = torch.float32)
         train_val_explicit_negatives_ranking_scores = torch.zeros(size = (train_val_dataset.n_users, len(RANKING_METRICS)), dtype = torch.float32)
     if negative_samples is not None:
@@ -213,14 +221,14 @@ def visualize_results(config : dict, train_losses : list, val_losses : list, hyp
     file_name = finetuning_model_path + "/visualization.pdf"
     with PdfPages(file_name) as pdf:
         visualize_config(pdf, config, val_losses)
-        visualize_hyperparameters_tables(pdf, hyperparameters_tables, hyperparameters_tables_baselines)
+        visualize_hyperparameters_tables(pdf, hyperparameters_tables, hyperparameters_tables_baselines, config["categories_attached"])
         visualize_training_curve(pdf, train_losses, val_losses, config["n_batches_per_val"])
 
 def visualize_config(pdf : PdfPages, config : dict, val_losses : list) -> None:
     fig, ax = plt.subplots(figsize = PLOT_CONSTANTS["FIG_SIZE"])
     ax.axis("off")
-    ax.text(0.5, 1.1, "Finetuning Configuration:", fontsize = 18, ha = 'center', va = 'center', fontweight = 'bold')
-    ax.text(0.5, 1.0, get_config_string(config, val_losses), fontsize = 10, ha = 'center', va = 'top', wrap = True)
+    ax.text(0.5, 1.1, "Finetuning Configuration:", fontsize = 16, ha = 'center', va = 'center', fontweight = 'bold')
+    ax.text(0.5, 1.0, get_config_string(config, val_losses), fontsize = 9, ha = 'center', va = 'top', wrap = True)
     pdf.savefig(fig)
     plt.close(fig)
 
@@ -231,8 +239,11 @@ def get_config_string(config : dict, val_losses : list) -> str:
     config_string.append(f"Number of unfrozen Transformer Layers: {config['n_unfreeze_layers']} (out of {config['n_transformer_layers']}).")
     n_transformer_params, n_unfrozen_transformer_params = round(config["n_transformer_parameters"] / 1000000), round(config["n_unfrozen_transformer_parameters"] / 1000000)
     config_string.append(f"Number of unfrozen Transformer Parameters: {n_unfrozen_transformer_params}M (out of {n_transformer_params}M).")
+    config_string.append(f"Paper Categories Embeddings attached? {'Yes' if config['categories_attached'] else 'No'}.")
     config_string.append(f"Projection Layer pretrained? {'Yes' if config['pretrained_projection'] else 'No'}.")
     config_string.append(f"Users Embeddings Layer pretrained? {'Yes' if config['pretrained_users_embeddings'] else 'No'}.")
+    if config["categories_attached"]:
+        config_string.append(f"Categories Embeddings Layer pretrained? {'Yes' if config['pretrained_categories_embeddings'] else 'No'}.")
     config_string.append("\n")
     config_string.append(f"Random Seed: {config['seed']}.")
     config_string.append(f"Batch Size: {config['batch_size']}.")
@@ -244,6 +255,8 @@ def get_config_string(config : dict, val_losses : list) -> str:
     config_string.append(f"Transformer Model Learning Rate: {config['transformer_model_lr']}.")
     config_string.append(f"Projection Layer Learning Rate: {config['projection_lr']}.")
     config_string.append(f"Users Embeddings Learning Rate: {config['users_embeddings_lr']}.")
+    if config["categories_attached"]:
+        config_string.append(f"Categories Embeddings Learning Rate: {config['categories_embeddings_lr']}.")
     config_string.append("\n")
     config_string.append(f"Maximum Number of Epochs: {config['n_epochs']}.")
     config_string.append(f"Number of Batches per Epoch: {config['n_batches_per_epoch']}.")
@@ -253,25 +266,31 @@ def get_config_string(config : dict, val_losses : list) -> str:
     return "\n\n".join(config_string)
 
 
-def visualize_hyperparameters_tables(pdf : PdfPages, hyperparameters_tables : dict, hyperparameters_tables_baselines : dict) -> None:
+def visualize_hyperparameters_tables(pdf : PdfPages, hyperparameters_tables : dict, hyperparameters_tables_baselines : dict, categories_attached : bool) -> None:
     fig, ax = plt.subplots(figsize = PLOT_CONSTANTS["FIG_SIZE"])
     ax.axis("off")
     n_hyperparameters = len([val for val in hyperparameters_tables[f"{finetuning_model.transformer_model_name}_no_overlap"][1] if val == "N/A"]) - 1
-    input_keys = ["no_overlap", "no_overlap_arxiv", "overlap_users_coefs", "overlap", "overlap_arxiv"]
-    titles = ["Cross Validation Results, 500 Users without Training Overlap:", "Cross Validation Results, 500 Users with Training Overlap (arXiv):", 
-             "Train-Test Split Results, 500 Users with Training Overlap (Torch Users Coefs):", "Train-Test Split Results, 500 Users with Training Overlap:", 
-             "Train-Test Split Results, 500 Users with Training Overlap (arXiv):"]
+    if categories_attached:
+        input_keys = ["no_overlap", "overlap_users_coefs", "overlap"]
+        titles = ["Cross Validation Results, 500 Users without Training Overlap:", "Train-Test Split Results, 500 Users with Training Overlap (Torch Users Coefs):", 
+                  "Train-Test Split Results, 500 Users with Training Overlap:"]
+    else:
+        input_keys = ["no_overlap", "no_overlap_categories", "overlap_users_coefs", "overlap", "overlap_categories"]
+        titles = ["Cross Validation Results, 500 Users without Training Overlap:", "Cross Validation Results, 500 Users with Training Overlap (including Categories):", 
+                  "Train-Test Split Results, 500 Users with Training Overlap (Torch Users Coefs):", "Train-Test Split Results, 500 Users with Training Overlap:", 
+                  "Train-Test Split Results, 500 Users with Training Overlap (including Categories):"]
     input_keys, titles = list(reversed(input_keys)), list(reversed(titles))
     for i in range(len(input_keys)):
         input_key = f"{finetuning_model.transformer_model_name}_{input_keys[i]}"
         hyperparameters_table = hyperparameters_tables[input_key]
         columns, data = hyperparameters_table[0], [hyperparameters_table[2]]
+        if categories_attached:
+            input_key = input_key.rstrip("_users_coefs") + "_categories"
         data = [hyperparameters_tables_baselines[input_key][2]] + data
         ax.text(0.5, 0.1105 + i * 0.25, titles[i], fontsize = 11, ha = 'center', va = 'center', fontweight = 'bold')
         print_table(data, [-0.14, -0.075 + i * 0.25, 1.25, 0.165], columns, n_hyperparameters * [0.125] + len(PRINT_SCORES) * [0.15] + [0.15], grey_row = 2)
     pdf.savefig(fig)
     plt.close(fig)
-
 
 def visualize_training_curve(pdf : PdfPages, train_losses : list, val_losses : list, n_batches_per_val : int) -> None:
     train_idxs, train_losses = zip(*train_losses)
@@ -331,6 +350,8 @@ if __name__ == "__main__":
     import sys
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     finetuning_model_path = sys.argv[1].rstrip("/")
+    
+    config = json.load(open(f"{finetuning_model_path}/config.json", "r"))
     state_dicts_folder = finetuning_model_path + "/state_dicts"
     embeddings_folder = finetuning_model_path + "/embeddings"
     os.makedirs(embeddings_folder, exist_ok = True)
@@ -339,11 +360,10 @@ if __name__ == "__main__":
     outputs_folder = finetuning_model_path + "/outputs"
     os.makedirs(outputs_folder, exist_ok = True)
 
-    finetuning_model = load_finetuning_model_full(state_dicts_folder, device)
+    finetuning_model = load_finetuning_model_full(state_dicts_folder, device, categories_attached = config["categories_attached"])
     train_users_ids, val_users_ids, test_users_no_overlap_ids = load_finetuning_users_ids()
     test_papers = load_test_papers()
     users_embeddings_ids_to_idxs = load_users_embeddings_ids_to_idxs()
-    run_evaluation(finetuning_model, val_users_ids, test_users_no_overlap_ids, test_papers, users_embeddings_ids_to_idxs, attach_arxiv = True)
-
+    #run_evaluation(finetuning_model, val_users_ids, test_users_no_overlap_ids, test_papers, users_embeddings_ids_to_idxs, categories_attached = config["categories_attached"])
     config, train_losses, val_losses, hyperparameters_tables, hyperparameters_tables_baselines = load_visualization_files(finetuning_model_path)
     visualize_results(config, train_losses, val_losses, hyperparameters_tables, hyperparameters_tables_baselines)

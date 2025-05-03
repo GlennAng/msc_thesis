@@ -3,16 +3,19 @@ from transformers import AutoModel, AutoTokenizer
 import json
 import gc
 import os
+import pickle
 import time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 MODEL_SAVE_PATH = "../data/models/"
+N_CATEGORIES = 18
+CATEGORIES_EMBEDDINGS_DIM = 100
 
 class FinetuningModel(nn.Module):
     def __init__(self, transformer_model : AutoModel, projection : nn.Linear, users_embeddings : nn.Embedding, 
-                val_users_embeddings_idxs : torch.tensor = None, n_unfreeze_layers : int = 4) -> None:
+                val_users_embeddings_idxs : torch.tensor = None, categories_embeddings : nn.Embedding = None, n_unfreeze_layers : int = 4) -> None:
         super().__init__()
         self.transformer_model = transformer_model
         self.set_transformer_model_name()
@@ -22,14 +25,21 @@ class FinetuningModel(nn.Module):
         self.device = self.projection.weight.device
         if val_users_embeddings_idxs is not None:
             self.val_users_embeddings_idxs = val_users_embeddings_idxs.to(self.device)
+        self.categories_embeddings = categories_embeddings
         self.unfreeze_layers(n_unfreeze_layers)
         
-    def forward(self, eval_type : str, input_ids_tensor : torch.tensor, attention_mask_tensor : torch.tensor, user_idx_tensor : torch.tensor = None) -> torch.tensor:
+    def forward(self, eval_type : str, input_ids_tensor : torch.tensor, attention_mask_tensor : torch.tensor,
+                user_idx_tensor : torch.tensor = None, category_idx_tensor : torch.tensor = None) -> torch.tensor:
         eval_type = eval_type.lower()
         assert eval_type in ["train", "val", "negative_samples", "test"]
         papers_embeddings = self.transformer_model(input_ids = input_ids_tensor, attention_mask = attention_mask_tensor).last_hidden_state[:, 0, :]
         papers_embeddings = self.projection(papers_embeddings)
         papers_embeddings = F.normalize(papers_embeddings, p = 2, dim = 1)
+
+        if self.categories_embeddings is not None:
+            assert category_idx_tensor is not None
+            categories_embeddings = self.categories_embeddings(category_idx_tensor)
+            papers_embeddings = torch.cat((papers_embeddings, categories_embeddings), dim = 1)
         
         if eval_type == "test":
             return papers_embeddings
@@ -49,7 +59,12 @@ class FinetuningModel(nn.Module):
             os.makedirs(model_path)
         self.transformer_model.save_pretrained(model_path + "transformer_model")
         torch.save(self.projection.state_dict(), model_path + "projection.pt")
-        torch.save(self.users_embeddings.state_dict(), model_path + "users_embeddings.pt")
+        if self.categories_embeddings is not None:
+            torch.save(self.users_embeddings.state_dict(), model_path + "users_embeddings_categories.pt")
+        else:
+            torch.save(self.users_embeddings.state_dict(), model_path + "users_embeddings.pt")
+        if self.categories_embeddings is not None:
+            torch.save(self.categories_embeddings.state_dict(), model_path + "categories_embeddings.pt")
 
     def unfreeze_layers(self, n_unfreeze_layers : int) -> None:
         for param in self.transformer_model.parameters():
@@ -78,16 +93,16 @@ class FinetuningModel(nn.Module):
         else:
             raise ValueError(f"Unknown transformer model name: {self.transformer_model.config._name_or_path}")
 
-    def compute_papers_embeddings(self, input_ids_tensor : torch.tensor, attention_mask_tensor : torch.tensor) -> torch.tensor:
+    def compute_papers_embeddings(self, input_ids_tensor : torch.tensor, attention_mask_tensor : torch.tensor, category_idx_tensor : torch.tensor) -> torch.tensor:
         if self.transformer_model_name.startswith("gte_base"):
             max_batch_size = 1024
         elif self.transformer_model_name.startswith("gte_large"):
             max_batch_size = 512
-        papers_embeddings = self.perform_inference(max_batch_size, input_ids_tensor, attention_mask_tensor, eval_type = "test")
+        papers_embeddings = self.perform_inference(max_batch_size, input_ids_tensor, attention_mask_tensor, category_idx_tensor = category_idx_tensor, eval_type = "test")
         return papers_embeddings
 
-    def perform_inference(self, max_batch_size : int, input_ids_tensor : torch.tensor, attention_mask_tensor : torch.tensor, 
-                          user_idx_tensor : torch.tensor = None, eval_type : str = None) -> torch.tensor:
+    def perform_inference(self, max_batch_size : int, input_ids_tensor : torch.tensor, attention_mask_tensor : torch.tensor, user_idx_tensor : torch.tensor = None, 
+                                category_idx_tensor : torch.tensor = None, eval_type : str = None) -> torch.tensor:
         MAX_TRIES = 10
         results_total = []
         n_samples, n_samples_processed, batch_num = len(input_ids_tensor), 0, 1
@@ -106,10 +121,13 @@ class FinetuningModel(nn.Module):
                     batch_user_idx_tensor = None
                     if user_idx_tensor is not None:
                         batch_user_idx_tensor = user_idx_tensor[n_samples_processed : upper_bound].to(self.device)
+                    batch_category_idx_tensor = None
+                    if category_idx_tensor is not None:
+                        batch_category_idx_tensor = category_idx_tensor[n_samples_processed : upper_bound].to(self.device)
                     with torch.autocast(device_type = self.device.type, dtype = torch.float16):
                         with torch.inference_mode():
                             results = self(eval_type = eval_type, input_ids_tensor = batch_input_ids_tensor, attention_mask_tensor = batch_attention_mask_tensor, 
-                                           user_idx_tensor = batch_user_idx_tensor).cpu()
+                                           user_idx_tensor = batch_user_idx_tensor, category_idx_tensor = batch_category_idx_tensor).cpu()
                             gpu_info = get_gpu_info()
                     results_total.append(results)
                     n_samples_processed = min(n_samples, n_samples_processed + batch_size)
@@ -141,16 +159,22 @@ class FinetuningModel(nn.Module):
         with torch.autocast(device_type = self.device.type, dtype = torch.float16):
             with torch.inference_mode():
                 input_ids_tensor, attention_mask_tensor = negative_samples["input_ids"].to(self.device), negative_samples["attention_mask"].to(self.device)
-                negative_samples_scores = self(eval_type = "negative_samples", input_ids_tensor = input_ids_tensor, attention_mask_tensor = attention_mask_tensor).cpu()
+                if self.categories_embeddings is not None:
+                    category_idx_tensor = negative_samples["category_idx"].to(self.device)
+                else:
+                    category_idx_tensor = None
+                negative_samples_scores = self(eval_type = "negative_samples", input_ids_tensor = input_ids_tensor, attention_mask_tensor = attention_mask_tensor,
+                                               category_idx_tensor = category_idx_tensor).cpu()
         return negative_samples_scores
 
-    def compute_val_scores(self, user_idx_tensor : torch.tensor, input_ids_tensor : torch.tensor, attention_mask_tensor : torch.tensor, max_batch_size : int = None) -> torch.tensor:
+    def compute_val_scores(self, user_idx_tensor : torch.tensor, input_ids_tensor : torch.tensor, attention_mask_tensor : torch.tensor, category_idx_tensor : torch.tensor = None,
+                           max_batch_size : int = None) -> torch.tensor:
         if max_batch_size is None:
             if self.transformer_model_name.startswith("gte_base"):
                 max_batch_size = 1024
             elif self.transformer_model_name.startswith("gte_large"):
                 max_batch_size = 512
-        users_scores = self.perform_inference(max_batch_size, input_ids_tensor, attention_mask_tensor, user_idx_tensor, eval_type = "val")
+        users_scores = self.perform_inference(max_batch_size, input_ids_tensor, attention_mask_tensor, user_idx_tensor, category_idx_tensor, eval_type = "val")
         return users_scores
 
 def load_transformer_model(transformer_path : str, device : torch.device) -> AutoModel:
@@ -179,8 +203,16 @@ def load_users_embeddings(num_embeddings : int, embedding_dim : int, device : to
     users_embeddings = users_embeddings.to(device, dtype = dtype)
     return users_embeddings
 
+def load_categories_embeddings(device : torch.device, categories_embeddings_state_dict : dict = None, dtype = torch.float32) -> nn.Embedding:
+    categories_embeddings = nn.Embedding(N_CATEGORIES, CATEGORIES_EMBEDDINGS_DIM)
+    if categories_embeddings_state_dict is not None:
+        categories_embeddings.load_state_dict(categories_embeddings_state_dict)
+    categories_embeddings = categories_embeddings.to(device, dtype = dtype)
+    return categories_embeddings
+
 def load_finetuning_model(transformer_path : str, device : torch.device, projection_state_dict : dict = None, users_embeddings_state_dict : dict = None,
-                          val_users_embeddings_idxs : torch.tensor = None, projection_dim : int = 256, n_users : int = 4111, n_unfreeze_layers : int = 4) -> FinetuningModel:
+                          categories_attached : bool = True, categories_embeddings_state_dict : dict = None, val_users_embeddings_idxs : torch.tensor = None,
+                          projection_dim : int = 256, n_users : int = 4111, n_unfreeze_layers : int = 4) -> FinetuningModel:
     transformer_model = load_transformer_model(transformer_path, device)
     embedding_dim = get_transformer_embedding_dim(transformer_model)
     if type(projection_state_dict) == str:
@@ -191,9 +223,14 @@ def load_finetuning_model(transformer_path : str, device : torch.device, project
         users_embeddings_state_dict = torch.load(users_embeddings_state_dict, map_location = device, weights_only = True)
     if users_embeddings_state_dict is not None:
         n_users = users_embeddings_state_dict["weight"].shape[0]
+    if type(categories_embeddings_state_dict) == str:
+        categories_embeddings_state_dict = torch.load(categories_embeddings_state_dict, map_location = device, weights_only = True)
     projection = load_projection(embedding_dim, projection_dim, device, projection_state_dict)
-    users_embeddings = load_users_embeddings(n_users, projection_dim + 1, device, users_embeddings_state_dict)
-    return FinetuningModel(transformer_model, projection, users_embeddings, val_users_embeddings_idxs, n_unfreeze_layers = n_unfreeze_layers)
+    users_embeddings = load_users_embeddings(n_users, projection_dim + 1 + (CATEGORIES_EMBEDDINGS_DIM if categories_attached else 0), device, users_embeddings_state_dict)
+    categories_embeddings = None
+    if categories_attached:
+        categories_embeddings = load_categories_embeddings(device, categories_embeddings_state_dict)
+    return FinetuningModel(transformer_model, projection, users_embeddings, val_users_embeddings_idxs, categories_embeddings, n_unfreeze_layers = n_unfreeze_layers)
 
 def fix_gte_config(model_path : str) -> None:
     config_path = os.path.join(model_path, "config.json")
@@ -209,8 +246,9 @@ def fix_gte_config(model_path : str) -> None:
     with open(config_path, 'w') as f:
         json.dump(config, f, indent = 2)
 
-def load_finetuning_model_full(finetuning_model_path : str, device : torch.device, val_users_embeddings_idxs : torch.tensor = None,
-                               pretrained_projection : bool = True, pretrained_users_embeddings : bool = True, n_unfreeze_layers : int = 4) -> FinetuningModel:
+def load_finetuning_model_full(finetuning_model_path : str, device : torch.device, val_users_embeddings_idxs : torch.tensor = None, categories_attached : bool = True,
+                               pretrained_projection : bool = True, pretrained_users_embeddings : bool = True, pretrained_categories_embeddings : bool = True, 
+                               n_unfreeze_layers : int = 4) -> FinetuningModel:
     finetuning_model_path = finetuning_model_path.rstrip("/") + "/"
     transformer_model_path = finetuning_model_path + "transformer_model"
     fix_gte_config(transformer_model_path)
@@ -219,7 +257,13 @@ def load_finetuning_model_full(finetuning_model_path : str, device : torch.devic
     else:
         projection_state_dict = None
     if pretrained_users_embeddings:
-        users_embeddings_state_dict = torch.load(finetuning_model_path + "users_embeddings.pt", map_location = device, weights_only = True)
+        users_embeddings_path = finetuning_model_path + f"{'users_embeddings_categories.pt' if categories_attached else 'users_embeddings.pt'}"
+        users_embeddings_state_dict = torch.load(users_embeddings_path, map_location = device, weights_only = True)
     else:
         users_embeddings_state_dict = None
-    return load_finetuning_model(transformer_model_path, device, projection_state_dict, users_embeddings_state_dict, val_users_embeddings_idxs, n_unfreeze_layers = n_unfreeze_layers)
+    if categories_attached and pretrained_categories_embeddings:
+        pretrained_categories_state_dict = torch.load(finetuning_model_path + "categories_embeddings.pt", map_location = device, weights_only = True)
+    else:
+        pretrained_categories_state_dict = None
+    return load_finetuning_model(transformer_model_path, device, projection_state_dict, users_embeddings_state_dict, categories_attached, pretrained_categories_state_dict,
+                                 val_users_embeddings_idxs, n_unfreeze_layers = n_unfreeze_layers)

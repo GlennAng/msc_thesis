@@ -3,11 +3,14 @@ from torch.utils.data import Dataset, Sampler
 import torch
 
 class FinetuningDataset(Dataset):
-    def __init__(self, user_idx_tensor : torch.Tensor, paper_id_tensor : torch.Tensor, label_tensor : torch.Tensor, input_ids_tensor : torch.Tensor, attention_mask_tensor : torch.Tensor) -> None:
+    def __init__(self, user_idx_tensor : torch.Tensor, paper_id_tensor : torch.Tensor, label_tensor : torch.Tensor, input_ids_tensor : torch.Tensor, attention_mask_tensor : torch.Tensor,
+                       category_idx_tensor : torch.Tensor = None) -> None:
         assert len(user_idx_tensor) == len(paper_id_tensor) == len(label_tensor) == len(input_ids_tensor) == len(attention_mask_tensor)
+        if category_idx_tensor is not None:
+            assert len(user_idx_tensor) == len(category_idx_tensor), "Category idx tensor must have the same length as all other tensors"
         self.n_samples = len(user_idx_tensor)
         self.user_idx_tensor, self.paper_id_tensor, self.label_tensor = user_idx_tensor, paper_id_tensor, label_tensor
-        self.input_ids_tensor, self.attention_mask_tensor = input_ids_tensor, attention_mask_tensor
+        self.input_ids_tensor, self.attention_mask_tensor, self.category_idx_tensor = input_ids_tensor, attention_mask_tensor, category_idx_tensor
 
         self.n_users = len(user_idx_tensor.unique())
         assert self.user_idx_tensor.unique().tolist() == sorted(self.user_idx_tensor.unique().tolist()), "User idxs must be sorted"
@@ -19,6 +22,8 @@ class FinetuningDataset(Dataset):
     def __getitem__(self, idx : int) -> dict:
         batch = {"user_idx" : self.user_idx_tensor[idx], "paper_id" : self.paper_id_tensor[idx], "label" : self.label_tensor[idx],
                  "input_ids" : self.input_ids_tensor[idx], "attention_mask" : self.attention_mask_tensor[idx]}
+        if self.category_idx_tensor is not None:
+            batch["category_idx"] = self.category_idx_tensor[idx]
         return batch
 
     def get_users_data(self) -> None:
@@ -121,9 +126,12 @@ class FinetuningSampler(Sampler):
                 assert n_pos == n_neg, f"User {user_idx} must have the same number of positive and negative samples, but got {n_pos} positive and {n_neg} negative samples"
         return True
 
-def create_dataset(dataset : dict, users_embeddings_ids_to_idxs : dict) -> FinetuningDataset:
+def create_dataset(dataset : dict, users_embeddings_ids_to_idxs : dict, papers_ids_to_categories_idxs : dict = None) -> FinetuningDataset:
     user_idx_tensor = torch.tensor([users_embeddings_ids_to_idxs[user_id.item()] for user_id in dataset["user_id"]], dtype = dataset["user_id"].dtype)
-    dataset = FinetuningDataset(user_idx_tensor, dataset["paper_id"], dataset["label"], dataset["input_ids"], dataset["attention_mask"])
+    category_idx_tensor = None
+    if papers_ids_to_categories_idxs is not None:
+        category_idx_tensor = torch.tensor([papers_ids_to_categories_idxs[paper_id.item()] for paper_id in dataset["paper_id"]], dtype = dataset["paper_id"].dtype)
+    dataset = FinetuningDataset(user_idx_tensor, dataset["paper_id"], dataset["label"], dataset["input_ids"], dataset["attention_mask"], category_idx_tensor)
     return dataset
 
 def create_train_val_dataset(train_dataset : FinetuningDataset, val_dataset : FinetuningDataset) -> FinetuningDataset:
@@ -134,17 +142,27 @@ def create_train_val_dataset(train_dataset : FinetuningDataset, val_dataset : Fi
     label_tensor = train_dataset.label_tensor[mask]
     input_ids_tensor = train_dataset.input_ids_tensor[mask]
     attention_mask_tensor = train_dataset.attention_mask_tensor[mask]
-    return FinetuningDataset(user_idx_tensor, paper_id_tensor, label_tensor, input_ids_tensor, attention_mask_tensor)
+    category_idx_tensor = None
+    if train_dataset.category_idx_tensor is not None:
+        category_idx_tensor = train_dataset.category_idx_tensor[mask]
+    return FinetuningDataset(user_idx_tensor, paper_id_tensor, label_tensor, input_ids_tensor, attention_mask_tensor, category_idx_tensor)
 
-def load_datasets_dict() -> dict:
+def load_datasets_dict(categories_attached : bool = False) -> dict:
     datasets_dict = {}
     datasets_dict["train_users_ids"], datasets_dict["val_users_ids"], datasets_dict["test_users_no_overlap_ids"] = load_finetuning_users_ids()
     datasets_dict["users_embeddings_ids_to_idxs"] = load_users_embeddings_ids_to_idxs()
+    negative_samples = load_negative_samples()
+    negative_samples["category_idx"] = None
     train_dataset, val_dataset = load_train_dataset(), load_val_dataset()
-    datasets_dict["train_dataset"] = create_dataset(train_dataset, datasets_dict["users_embeddings_ids_to_idxs"])
-    datasets_dict["val_dataset"] = create_dataset(val_dataset, datasets_dict["users_embeddings_ids_to_idxs"])
+    papers_ids_to_categories_idxs = None
+    if categories_attached:
+        papers_ids_to_categories_idxs = load_papers_ids_to_categories_idxs()
+        negative_samples["category_idx"] = torch.tensor([papers_ids_to_categories_idxs[paper_id.item()] for paper_id in negative_samples["paper_id"]], dtype = negative_samples["paper_id"].dtype)
+    datasets_dict["negative_samples"] = negative_samples
+    datasets_dict["train_dataset"] = create_dataset(train_dataset, datasets_dict["users_embeddings_ids_to_idxs"], papers_ids_to_categories_idxs)
+    datasets_dict["val_dataset"] = create_dataset(val_dataset, datasets_dict["users_embeddings_ids_to_idxs"], papers_ids_to_categories_idxs)
     datasets_dict["train_val_dataset"] = create_train_val_dataset(datasets_dict["train_dataset"], datasets_dict["val_dataset"])
     datasets_dict["val_users_embeddings_idxs"] = load_val_users_embeddings_idxs(datasets_dict["val_users_ids"], datasets_dict["users_embeddings_ids_to_idxs"])
-    datasets_dict["negative_samples"] = load_negative_samples()
+    
     datasets_dict["test_papers"] = load_test_papers()
     return datasets_dict

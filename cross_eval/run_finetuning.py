@@ -13,7 +13,6 @@ for batch_size in batch_sizes:
             os.system(command)
 """
 
-os.system("python src/finetuning.py --transformer_model_lr 1e-4 --projection_lr 1e-3 --users_embeddings_lr 1e-3")
-os.system("python src/finetuning.py --batch_size 64")
-os.system("python src/finetuning.py --batch_size 32")
-os.system("python src/finetuning.py --class_balancing")
+random_seeds = [42, 100, 200]
+for seed in random_seeds:
+    os.system(f"python src/finetuning.py --not_pretrained_categories_embeddings --not_categories_attached --seed {seed}")
