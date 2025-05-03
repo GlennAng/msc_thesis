@@ -1,5 +1,7 @@
 from data_handling import get_negative_samples_ids, get_rated_papers_ids_for_user, get_titles_and_abstracts, get_cache_papers_ids_for_user
 from main import get_users_ids
+from papers_categories import get_glove_categories_embeddings
+from papers_categories_dicts import PapersCategories, PAPERS_CATEGORIES
 from training_data import load_negrated_ranking_ids_for_user
 from sklearn.model_selection import train_test_split
 from transformers import AutoTokenizer
@@ -14,7 +16,7 @@ GTE_BASE_PATH = "Alibaba-NLP/gte-base-en-v1.5"
 GTE_LARGE_PATH = "Alibaba-NLP/gte-large-en-v1.5"
 FILES_SAVE_PATH = "/home/scholar/glenn_rp/msc_thesis/data/finetuning"
 
-def save_projection_tensor(pca_components : np.ndarray, pca_mean : np.ndarray, file_name : str = "gte_base_256/projection") -> None:
+def save_projection_tensor(pca_components : np.ndarray, pca_mean : np.ndarray, transformer_model_name : str = "gte_large_256") -> None:
     file_name = file_name.rstrip(".pt")
     bias = -(pca_mean @ pca_components.T)
     pca_components = torch.from_numpy(pca_components).to(torch.float32)
@@ -23,10 +25,10 @@ def save_projection_tensor(pca_components : np.ndarray, pca_mean : np.ndarray, f
     with torch.no_grad():
         projection.weight.copy_(pca_components)
         projection.bias.copy_(pca_bias)
-    torch.save(projection.state_dict(), f"{FILES_SAVE_PATH}/state_dicts/{file_name}.pt")
+    torch.save(projection.state_dict(), f"{FILES_SAVE_PATH}/{transformer_model_name}/projection.pt")
 
-def save_users_embeddings_tensor(train_users_ids : list, users_coefs : np.ndarray, users_ids_to_idxs : dict, file_name : str = "gte_base_256/users_embeddings", 
-                                 save_users_embeddings_ids_to_idxs : bool = True) -> None:
+def save_users_embeddings_tensor(train_users_ids : list, users_coefs : np.ndarray, users_ids_to_idxs : dict, transformer_model_name : str = "gte_large_256", 
+                                 categories_attached : bool = True, save_users_embeddings_ids_to_idxs : bool = True) -> None:
     file_name = file_name.rstrip(".pt")
     users_embeddings_ids_to_idxs = {}
     num_embeddings, embedding_dim = len(train_users_ids), users_coefs.shape[1]
@@ -35,7 +37,8 @@ def save_users_embeddings_tensor(train_users_ids : list, users_coefs : np.ndarra
         with torch.no_grad():
             users_embeddings.weight.data[idx] = torch.from_numpy(users_coefs[users_ids_to_idxs[user_id]]).to(torch.float32)
         users_embeddings_ids_to_idxs[user_id] = idx
-    torch.save(users_embeddings.state_dict(), f"{FILES_SAVE_PATH}/state_dicts/{file_name}.pt")
+    users_embeddings_path = f"{FILES_SAVE_PATH}/{transformer_model_name}/state_dicts/users_embeddings{'_categories' if categories_attached else ''}.pt"
+    torch.save(users_embeddings.state_dict(), users_embeddings_path)
     if save_users_embeddings_ids_to_idxs:
         with open(f"{FILES_SAVE_PATH}/users/users_embeddings_ids_to_idxs.pkl", "wb") as f:
             pickle.dump(users_embeddings_ids_to_idxs, f)
@@ -45,6 +48,25 @@ def load_users_embeddings_ids_to_idxs() -> dict:
         users_embeddings_ids_to_idxs = pickle.load(f)
     assert list(users_embeddings_ids_to_idxs.values()) == sorted(list(users_embeddings_ids_to_idxs.values()))
     return users_embeddings_ids_to_idxs
+
+def save_categories_embeddings_tensor(papers_categories : PapersCategories = None, dim : int = 100, normalization : str = "l2_unit",
+                                      transformer_models_names = ["gte_base_256", "gte_large_256"]) -> None:
+    if papers_categories is None:
+        papers_categories = PAPERS_CATEGORIES
+    glove_categories_embeddings = get_glove_categories_embeddings(papers_categories.categories_to_glove, dim, normalization)
+    keys_sorted = sorted([category for category in glove_categories_embeddings.keys() if category is not None])
+    if None in glove_categories_embeddings:
+        keys_sorted = [None] + keys_sorted
+    categories_to_idxs = {}
+    categories_embeddings = torch.nn.Embedding(len(glove_categories_embeddings), dim, dtype = torch.float32)
+    for idx, category in enumerate(keys_sorted):
+        with torch.no_grad():
+            categories_embeddings.weight.data[idx] = torch.from_numpy(glove_categories_embeddings[category]).to(torch.float32)
+        categories_to_idxs[category] = idx
+    for transformer_model_name in transformer_models_names:
+        torch.save(categories_embeddings.state_dict(), f"{FILES_SAVE_PATH}/{transformer_model_name}/state_dicts/categories_embeddings.pt")
+        with open(f"{FILES_SAVE_PATH}/{transformer_model_name}/state_dicts/categories_to_idxs.pkl", "wb") as f:
+            pickle.dump(categories_to_idxs, f)
 
 def save_finetuning_users_ids(n_val_users : int = 500, n_test_users_no_overlap : int = 500, min_n_posrated : int = 20, min_n_negrated : int = 20, random_state : int = 42) -> None:
     all_users = get_users_ids(users_selection = "random", max_users = None, min_n_posrated = min_n_posrated, min_n_negrated = min_n_negrated)
@@ -209,3 +231,8 @@ def load_train_dataset() -> dict:
 def load_val_users_embeddings_idxs(val_users_ids : list, users_embeddings_ids_to_idxs : dict) -> torch.tensor:
     val_users_embeddings_idxs = [users_embeddings_ids_to_idxs[user_id] for user_id in val_users_ids]
     return torch.tensor(val_users_embeddings_idxs, dtype = torch.int64)
+
+if __name__ == "__main__":
+    tokenizer = AutoTokenizer.from_pretrained(GTE_LARGE_PATH)
+    train_users_ids, val_users_ids, test_users_no_overlap_ids = load_finetuning_users_ids()
+    save_categories_embeddings_tensor()
