@@ -34,7 +34,7 @@ PAPERS_CATEGORIES_ORIGINAL = PapersCategories(
         "geography": {"geography" : 1.0},
         "sociology": {"sociology" : 1.0}})
 
-PAPERS_CATEGORIES = PapersCategories(
+PAPERS_CATEGORIES_GROUPED = PapersCategories(
     original_categories_to_categories = { 
         "physics" : "physics",
         "computer_science" : "computer_science",
@@ -61,3 +61,5 @@ PAPERS_CATEGORIES = PapersCategories(
         "medicine" : {"medicine" : 1.0},
         "engineering" : {"engineering" : 1.0 - DOMAIN_PROBABILITY, "electrical" : DOMAIN_PROBABILITY},
         "social_science" : {"sociology" : 0.2, "psychology" : 0.2, "economics" : 0.2, "linguistics" : 0.2, "philosophy" : 0.2}})
+
+PAPERS_CATEGORIES = PAPERS_CATEGORIES_ORIGINAL
