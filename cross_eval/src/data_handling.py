@@ -321,7 +321,7 @@ def load_papers_ids_to_categories(file_path : str = "../data/papers_ids_to_categ
         papers_ids_to_categories = pickle.load(file)
     return papers_ids_to_categories
 
-def get_papers_categories_dataset_distribution(papers_ids_to_categories : dict = "../data/papers_ids_to_categories_original.pkl") -> tuple:
+def get_papers_categories_dataset_distribution(papers_ids_to_categories : dict = "../data/papers_ids_to_categories_original.pkl", print_results : bool = True) -> tuple:
     if type(papers_ids_to_categories) == str:
         papers_ids_to_categories = load_papers_ids_to_categories(papers_ids_to_categories)
     unique_categories = set(papers_ids_to_categories.values())
@@ -335,13 +335,14 @@ def get_papers_categories_dataset_distribution(papers_ids_to_categories : dict =
             print(f"Unknown category: {value}.")
     categories_counts = {category: count / n_total for category, count in categories_counts.items()}
     sorted_categories = sorted(categories_counts.items(), key = lambda x: x[1], reverse = True)
-    print(f"Total papers: {n_total}.")
-    for category, count in sorted_categories:
-        print(f"{category}: {count:.2%} ({int(count * n_total)})")
-    print("____________________________________________________________")
+    if print_results:
+        print(f"Total papers: {n_total}.")
+        for category, count in sorted_categories:
+            print(f"{category}: {count:.2%} ({int(count * n_total)})")
+        print("____________________________________________________________")
     return sorted_categories, n_total
 
-def get_papers_categories_ratings_distribution(papers_ids_to_categories : dict = "../data/papers_ids_to_categories_original.pkl") -> tuple:
+def get_papers_categories_ratings_distribution(papers_ids_to_categories : dict = "../data/papers_ids_to_categories_original.pkl", print_results : bool = True, count_duplicates : bool = True) -> tuple:
     if type(papers_ids_to_categories) == str:
         papers_ids_to_categories = load_papers_ids_to_categories(papers_ids_to_categories)
     unique_categories = set(papers_ids_to_categories.values())
@@ -352,16 +353,21 @@ def get_papers_categories_ratings_distribution(papers_ids_to_categories : dict =
     for row in result:
         paper_id = row[0]
         if paper_id in papers_ids_to_categories:
-            categories_counts[papers_ids_to_categories[paper_id]] += row[1]
-            n_total += row[1]
+            if count_duplicates:
+                categories_counts[papers_ids_to_categories[paper_id]] += row[1]
+                n_total += row[1]
+            else:
+                categories_counts[papers_ids_to_categories[paper_id]] += 1
+                n_total += 1
         else:
             print(f"Unknown paper id: {paper_id}.")
     categories_counts = {category: count / n_total for category, count in categories_counts.items()}
     sorted_categories = sorted(categories_counts.items(), key = lambda x: x[1], reverse = True)
-    print(f"Total papers: {n_total}.")
-    for category, count in sorted_categories:
-        print(f"{category}: {count:.2%} ({int(count * n_total)})")
-    print("____________________________________________________________")
+    if print_results:
+        print(f"Total papers: {n_total}.")
+        for category, count in sorted_categories:
+            print(f"{category}: {count:.2%} ({int(count * n_total)})")
+        print("____________________________________________________________")
     return sorted_categories, n_total
 
 def get_cache_categories_dataset_distribution(papers_ids_to_categories : dict = "../data/papers_ids_to_categories_original.pkl", 

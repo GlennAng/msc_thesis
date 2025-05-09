@@ -1,7 +1,7 @@
 from finetuning_preprocessing import FILES_SAVE_PATH
 from finetuning_model import FinetuningModel, load_finetuning_model_full
 from finetuning_data import FinetuningDataset
-from finetuning_preprocessing import load_finetuning_users_ids, load_test_papers, load_users_embeddings_ids_to_idxs
+from finetuning_preprocessing import load_finetuning_users_ids, load_test_papers, load_users_embeddings_ids_to_idxs, load_test_papers_seeds
 from papers_categories import attach_papers_categories
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.font_manager import FontProperties
@@ -362,8 +362,8 @@ if __name__ == "__main__":
 
     finetuning_model = load_finetuning_model_full(state_dicts_folder, device, categories_attached = config["categories_attached"])
     train_users_ids, val_users_ids, test_users_no_overlap_ids = load_finetuning_users_ids()
-    test_papers = load_test_papers()
+    test_papers = load_test_papers_seeds()
     users_embeddings_ids_to_idxs = load_users_embeddings_ids_to_idxs()
-    #run_evaluation(finetuning_model, val_users_ids, test_users_no_overlap_ids, test_papers, users_embeddings_ids_to_idxs, categories_attached = config["categories_attached"])
+    run_evaluation(finetuning_model, val_users_ids, test_users_no_overlap_ids, test_papers, users_embeddings_ids_to_idxs, categories_attached = config["categories_attached"])
     config, train_losses, val_losses, hyperparameters_tables, hyperparameters_tables_baselines = load_visualization_files(finetuning_model_path)
     visualize_results(config, train_losses, val_losses, hyperparameters_tables, hyperparameters_tables_baselines)

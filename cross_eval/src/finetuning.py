@@ -41,7 +41,7 @@ def parse_arguments() -> dict:
 
     parser.add_argument("--n_epochs", type = int, default = 5)
     parser.add_argument("--n_batches_per_val", type = int, default = 500)
-    parser.add_argument("--early_stopping_patience", type = int, default = 5)
+    parser.add_argument("--early_stopping_patience", type = int, default = 20)
     parser.add_argument("--val_metric", type = str, default = "bcel", choices = EXPLICIT_NEGATIVES_METRICS)
     parser.add_argument("--val_measure_training", action = "store_true", default = False)
     parser.add_argument("--val_measure_negative_samples", action = "store_true", default = False)
@@ -218,6 +218,8 @@ def run_training(finetuning_model : FinetuningModel, optimizer : torch.optim.Opt
                     return
             if n_batches_processed_so_far % len(dataloader) == 0:
                 log_string(f"Finished Epoch {i + 1} of {args_dict['n_epochs']}. Time: {time.time() - epoch_start_time:.2f} seconds.")
+            if n_batches_processed_so_far >= 10000:
+                return
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
