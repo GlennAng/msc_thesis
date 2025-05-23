@@ -1,303 +1,262 @@
-from finetuning_preprocessing import FILES_SAVE_PATH
-from finetuning_model import FinetuningModel, load_finetuning_model_full
+from algorithm import Score, SCORES_DICT
+from finetuning_preprocessing import FILES_SAVE_PATH, VALIDATION_RANDOM_STATE, TESTING_NO_OVERLAP_RANDOM_STATES
+from finetuning_preprocessing import load_finetuning_users_ids, load_papers, load_users_embeddings_ids_to_idxs, load_papers_ids_to_categories_idxs
+from finetuning_model import FinetuningModel, load_finetuning_model
 from finetuning_data import FinetuningDataset
-from finetuning_preprocessing import load_finetuning_users_ids, load_test_papers, load_users_embeddings_ids_to_idxs, load_test_papers_seeds
-from papers_categories import attach_papers_categories
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.font_manager import FontProperties
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib import gridspec
 from sklearn.metrics import roc_auc_score, ndcg_score
+from torch.nn.functional import log_softmax
 from visualization_tools import print_table, PLOT_CONSTANTS, PRINT_SCORES, format_number
+import argparse
 import json
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import pandas as pd
 import pickle
+import time
 import torch
 
-RANKING_METRICS = ["auc", "ndcg@5", "mrr", "hr@1"]
-CLASSIFICATION_METRICS = ["bcel", "recall", "specificity", "balanced_accuracy"]
-EXPLICIT_NEGATIVES_METRICS = CLASSIFICATION_METRICS + [metric + "_explicit_negatives" for metric in RANKING_METRICS]
-NEGATIVE_SAMPLES_METRICS = [metric + "_negative_samples" for metric in RANKING_METRICS]
+CLASSIFICATION_METRICS = ["bcel", "recall", "specificity", "balacc"]
+RANKING_METRICS = ["ndcg", "mrr", "hr@1", "infonce"]
 
-def generate_config(file_path : str, users_ids : list, evaluation : str, users_coefs_path : str = None, attach_categories : bool = False) -> str:
-    if file_path.endswith(".json"):
-        file_path = file_path[:-5]
-    with open(f"{FILES_SAVE_PATH}/example_config.json", "r") as config_file:
-        example_config = json.load(config_file)
-    example_config["embedding_folder"] = embeddings_folder + ("/categories" if attach_categories else "")
-    example_config["users_selection"] = users_ids
-    if users_coefs_path is not None:
-        example_config["users_coefs_path"] = users_coefs_path
-        example_config["load_users_coefs"] = True
-    example_config["evaluation"] = evaluation
-    file_path += ("_categories" if attach_categories else "") + ".json"
-    with open(file_path, "w") as config_file:
-        json.dump(example_config, config_file, indent = 3)
-    return file_path.split("/")[-1].split(".")[0]
-    
-def generate_configs(transformer_model_name : str, val_users_ids : list = None, test_users_no_overlap_ids : list = None, load_coefs : bool = False, 
-                     attach_categories : bool = False) -> list:
-    configs_names = []
-    if val_users_ids is not None:
-        configs_names.append(generate_config(f"{configs_folder}/{transformer_model_name}_overlap", val_users_ids, "train_test_split", attach_categories = attach_categories))
-        if load_coefs:
-            configs_names.append(generate_config(f"{configs_folder}/{transformer_model_name}_overlap_users_coefs", val_users_ids, "train_test_split", 
-                                 users_coefs_path = embeddings_folder, attach_categories = attach_categories))
-    if test_users_no_overlap_ids is not None:
-        configs_names.append(generate_config(f"{configs_folder}/{transformer_model_name}_no_overlap", test_users_no_overlap_ids, "cross_validation", attach_categories = attach_categories))
-    return configs_names
+def parse_arguments() -> dict:
+    parser = argparse.ArgumentParser(description = "Evaluation script.")
+    parser.add_argument("--finetuning_model_path", type = str, required = True)
+    parser.add_argument("--not_perform_evaluation", action = "store_false", dest = "perform_evaluation")
+    parser.add_argument("--allow_configs", action = "store_true", default = False)
+    parser.add_argument("--allow_outputs", action = "store_true", default = False)
+    args_dict = vars(parser.parse_args())
+    args_dict["finetuning_model_path"] = args_dict["finetuning_model_path"].rstrip("/")
+    args_dict["state_dicts_folder"] = args_dict["finetuning_model_path"] + "/state_dicts"
+    args_dict["embeddings_folder"] = args_dict["finetuning_model_path"] + "/embeddings"
+    args_dict["compute_test_embeddings"] = (not os.path.exists(args_dict["embeddings_folder"])) or len(os.listdir(args_dict["embeddings_folder"])) == 0
+    os.makedirs(args_dict["embeddings_folder"], exist_ok = True)
+    args_dict["configs_folder"] = args_dict["finetuning_model_path"] + "/configs"
+    os.makedirs(args_dict["configs_folder"], exist_ok = True)
+    if len(os.listdir(args_dict["configs_folder"])) and not args_dict["allow_configs"]:
+        raise ValueError(f"Folder {args_dict['configs_folder']} is not empty. Please remove the files inside it.")
+    args_dict["outputs_folder"] = args_dict["finetuning_model_path"] + "/outputs"
+    os.makedirs(args_dict["outputs_folder"], exist_ok = True)
+    if len(os.listdir(args_dict["outputs_folder"])) > 0 and not args_dict["allow_outputs"]:
+        raise ValueError(f"Folder {args_dict['outputs_folder']} is not empty. Please remove the files inside it.")
+    return args_dict
 
-def save_users_coefs(finetuning_model : FinetuningModel, val_users_ids : list, users_embeddings_ids_to_idxs : dict) -> None:
+def save_users_coefs(finetuning_model : FinetuningModel, val_users_ids : list, users_embeddings_ids_to_idxs : dict, embeddings_folder : str) -> None:
     users_coefs = finetuning_model.users_embeddings.weight.detach().cpu().numpy().astype(np.float64)
     np.save(f"{embeddings_folder}/users_coefs.npy", users_coefs)
     with open(f"{embeddings_folder}/users_coefs_ids_to_idxs.pkl", "wb") as f:
         pickle.dump(users_embeddings_ids_to_idxs, f)
 
-def run_evaluation(finetuning_model : FinetuningModel, val_users_ids : list, test_users_no_overlap_ids : list, test_papers : dict, users_embeddings_ids_to_idxs : dict, 
-                   categories_attached : bool) -> None:
-    attach_categories = not categories_attached
+def compute_test_embeddings(finetuning_model : FinetuningModel, test_papers : dict, embeddings_folder : str) -> None:
     training_mode = finetuning_model.training
     finetuning_model.eval()
-    if categories_attached:
-        with open(f"../data/finetuning/{finetuning_model.transformer_model_name}/state_dicts/papers_ids_to_categories_idxs.pkl", "rb") as f:
-            papers_ids_to_categories_idxs = pickle.load(f)
-        test_papers_ids_to_categories_idxs = [papers_ids_to_categories_idxs[paper_id.item()] for paper_id in test_papers["paper_id"]]
-        test_papers["category_idx"] = torch.tensor(test_papers_ids_to_categories_idxs, dtype = torch.int64)
-    else:
-        test_papers["category_idx"] = None
     papers_ids_to_idxs = {paper_id.item() : idx for idx, paper_id in enumerate(test_papers["paper_id"])}
     embeddings = finetuning_model.compute_papers_embeddings(test_papers["input_ids"], test_papers["attention_mask"], test_papers["category_idx"])
     np.save(f"{embeddings_folder}/abs_X.npy", embeddings)
     with open(f"{embeddings_folder}/abs_paper_ids_to_idx.pkl", "wb") as f:
         pickle.dump(papers_ids_to_idxs, f)
-    save_users_coefs(finetuning_model, val_users_ids, users_embeddings_ids_to_idxs)
-    configs_names = generate_configs(finetuning_model.transformer_model_name, val_users_ids, test_users_no_overlap_ids, load_coefs = True, attach_categories = False)
-    if attach_categories:
-        embeddings = embeddings.numpy()
-        embeddings_folder_categories = f"{embeddings_folder}/categories"
-        os.makedirs(embeddings_folder_categories, exist_ok = True)
-        embeddings_categories = attach_papers_categories(embeddings, papers_ids_to_idxs)
-        np.save(f"{embeddings_folder_categories}/abs_X.npy", embeddings_categories)
-        with open(f"{embeddings_folder_categories}/abs_paper_ids_to_idx.pkl", "wb") as f:
-            pickle.dump(papers_ids_to_idxs, f)
-        configs_names.extend(generate_configs(finetuning_model.transformer_model_name, val_users_ids, test_users_no_overlap_ids, load_coefs = False, attach_categories = True))
-    os.system(f"python run_cross_eval.py --config_path {configs_folder} --save_hyperparameters_table")
-    for config_name in configs_names:
-        os.system(f"mv outputs/{config_name} {outputs_folder}/{config_name}")
+    save_users_coefs(finetuning_model, val_users_ids, users_embeddings_ids_to_idxs, embeddings_folder)
     if training_mode:
         finetuning_model.train()
 
-def get_users_starting_ending_idxs(user_idx_tensor : torch.tensor, offset : int) -> torch.tensor:
-    counts = torch.unique(user_idx_tensor, return_inverse = False, return_counts = True)
-    ending_idxs = torch.cumsum(counts[1], dim = 0)
-    starting_idxs = torch.cat((torch.tensor([0]), ending_idxs[:-1]), dim = 0)
-    ending_idxs = ending_idxs - offset
-    return starting_idxs, ending_idxs
+def generate_config(file_path : str, embeddings_folder : str, users_ids : list, evaluation : str, random_state : int = 42, users_coefs_path : str = None) -> str:
+    with open(f"{FILES_SAVE_PATH}/example_config.json", "r") as config_file:
+        example_config = json.load(config_file)
+    example_config["embedding_folder"] = embeddings_folder
+    example_config["users_selection"] = users_ids
+    example_config["evaluation"] = evaluation
+    example_config["model_random_state"] = random_state
+    example_config["cache_random_state"] = random_state
+    example_config["ranking_random_state"] = random_state
+    if users_coefs_path is not None:
+        example_config["users_coefs_path"] = users_coefs_path
+        example_config["load_users_coefs"] = True
+    file_path = file_path.rstrip(".json") + ".json"
+    with open(file_path, "w") as config_file:
+        json.dump(example_config, config_file, indent = 3)
+    return file_path.split("/")[-1].split(".")[0]
 
-def compute_ranking_scores(y_true : torch.tensor, y_proba : torch.tensor) -> torch.tensor:
-    ranking_scores = np.zeros(4, dtype = np.float32)
-    y_true, y_proba = y_true.numpy(), y_proba.numpy()
-    for i, metric in enumerate(RANKING_METRICS):
-        if metric == "auc":
-            ranking_scores[i] = roc_auc_score(y_true, y_proba)
-        elif metric == "ndcg@5":
-            ranking_scores[i] = ndcg_score(y_true.reshape(1, -1), y_proba.reshape(1, -1), k = 5)
-        elif metric == "mrr":
-            sorted_indices = np.argsort(y_proba)[::-1]
-            for rank, idx in enumerate(sorted_indices, 1):
-                if y_true[idx] > 0:
-                    ranking_scores[i] = 1.0 / rank
-                    break
-        elif metric == "hr@1":
-            top_1_idx = np.argmax(y_proba)
-            ranking_scores[i] = float(y_true[top_1_idx] > 0)
-        else:
-            raise ValueError(f"Unknown metric: {metric}")
-    return torch.tensor(ranking_scores, dtype = torch.float32)
+def run_testing_single(name : str, embeddings_folder : str, configs_folder : str, outputs_folder : str, users_ids : list, evaluation : str, random_states : list, 
+                       users_coefs_path : str = None) -> None:
+    configs_names, configs_folder_single, outputs_folder_single = [], f"{configs_folder}/{name}", f"{outputs_folder}/{name}"
+    os.makedirs(configs_folder_single, exist_ok = True)
+    os.makedirs(outputs_folder_single, exist_ok = True)
+    for random_state in random_states:
+        configs_names.append(generate_config(f"{configs_folder_single}/{name}_s{random_state}", embeddings_folder, users_ids, evaluation, random_state, users_coefs_path))
+    os.system(f"python run_cross_eval.py --config_path {configs_folder_single} --save_scores_tables")
+    for config_name in configs_names:
+        os.system(f"mv outputs/{config_name} {outputs_folder_single}/{config_name}")
 
-def get_ranking_scores_for_user(pos_scores : torch.tensor, neg_ranking_scores : torch.tensor) -> torch.tensor:
-    user_ranking_scores = torch.zeros(size = (len(pos_scores), len(RANKING_METRICS)), dtype = torch.float32)
-    y_true = torch.cat((torch.tensor([1]), torch.zeros(len(neg_ranking_scores), dtype = torch.int32)))
-    for i, pos_score in enumerate(pos_scores):
-        pos_score = pos_score.unsqueeze(0)
-        y_pred = torch.cat((pos_score, neg_ranking_scores))
-        user_ranking_scores[i] = compute_ranking_scores(y_true, y_pred)
-    return torch.mean(user_ranking_scores, dim = 0)
+def run_testing(finetuning_model : FinetuningModel, embeddings_folder : str, configs_folder : str, outputs_folder : str, val_users_ids : list, test_users_no_overlap_ids : list,
+                validation_random_state : int = VALIDATION_RANDOM_STATE, testing_no_overlap_random_states : list = TESTING_NO_OVERLAP_RANDOM_STATES) -> None:
+    assert validation_random_state not in testing_no_overlap_random_states
+    if val_users_ids is not None:
+        run_testing_single("overlap", embeddings_folder, configs_folder, outputs_folder, val_users_ids, "train_test_split", [validation_random_state])
+        run_testing_single("overlap_users_coefs", embeddings_folder, configs_folder, outputs_folder, val_users_ids, "train_test_split", [validation_random_state],
+                           users_coefs_path = embeddings_folder)
+    if test_users_no_overlap_ids is not None:
+        run_testing_single("no_overlap", embeddings_folder, configs_folder, outputs_folder, test_users_no_overlap_ids, "cross_validation", testing_no_overlap_random_states)
 
-def compute_classification_scores(user_labels : torch.tensor, user_scores : torch.tensor) -> torch.tensor:
-    bcel = torch.nn.BCEWithLogitsLoss()(user_scores, user_labels)
-    recall = torch.sum(user_scores[user_labels == 1] > 0) / torch.sum(user_labels == 1)
-    specificity = torch.sum(user_scores[user_labels == 0] <= 0) / torch.sum(user_labels == 0)
-    balanced_accuracy = (recall + specificity) / 2
-    return torch.tensor([bcel, recall, specificity, balanced_accuracy], dtype = torch.float32)
-
-def get_user_scores(dataset : FinetuningDataset, user_idx : int, users_scores : torch.tensor) -> tuple:
-    user_starting_idx, user_ending_idx = dataset.users_pos_starting_idxs[user_idx], dataset.users_pos_starting_idxs[user_idx] + dataset.users_counts[user_idx]
-    user_labels = dataset.label_tensor[user_starting_idx:user_ending_idx].to(torch.float32)
-    user_scores = users_scores[user_starting_idx:user_ending_idx]
-    user_pos_scores = user_scores[:dataset.users_pos_counts[user_idx]]
-    return user_labels, user_scores, user_pos_scores
-
-def run_validation(finetuning_model : FinetuningModel, val_dataset : FinetuningDataset, negative_samples : torch.tensor = None, train_val_dataset : FinetuningDataset = None) -> dict:
+def scores_table_to_df(scores_table : list) -> pd.DataFrame:
+    scores_names, val_scores, train_scores = [], [], []
+    scores_table_first_row = scores_table.pop(0)
+    index_score, index_val, index_train = scores_table_first_row.index("Score"), scores_table_first_row.index("All"), scores_table_first_row.index("All_T")
+    for i, row in enumerate(scores_table):
+        scores_names.append(row[index_score])
+        val_scores.append(row[index_val])
+        train_scores.append(row[index_train])
+    scores_df = pd.DataFrame({"Score": scores_names, "Validation": val_scores, "Train": train_scores})
+    scores_df["Validation"] = pd.to_numeric(scores_df["Validation"], errors = "coerce")
+    scores_df["Train"] = pd.to_numeric(scores_df["Train"], errors = "coerce")
+    return scores_df
+        
+def get_scores_dict(outputs_folder : str) -> dict:
     scores_dict = {}
-    assert val_dataset.user_idx_tensor.unique().tolist() == finetuning_model.val_users_embeddings_idxs.tolist()
-    if train_val_dataset is not None:
-        assert train_val_dataset.user_idx_tensor.unique().tolist() == finetuning_model.val_users_embeddings_idxs.tolist()
-    training_mode = finetuning_model.training
-    finetuning_model.eval()
-    val_users_scores = finetuning_model.compute_val_scores(val_dataset.user_idx_tensor, val_dataset.input_ids_tensor, val_dataset.attention_mask_tensor, val_dataset.category_idx_tensor)
-    val_classification_scores = torch.zeros(size = (val_dataset.n_users, len(CLASSIFICATION_METRICS)), dtype = torch.float32)
-    val_explicit_negatives_ranking_scores = torch.zeros(size = (val_dataset.n_users, len(RANKING_METRICS)), dtype = torch.float32)
-    if train_val_dataset is not None:
-        train_val_users_scores = finetuning_model.compute_val_scores(train_val_dataset.user_idx_tensor, train_val_dataset.input_ids_tensor, train_val_dataset.attention_mask_tensor,
-                                                                     train_val_dataset.category_idx_tensor)
-        train_val_classification_scores = torch.zeros(size = (train_val_dataset.n_users, len(CLASSIFICATION_METRICS)), dtype = torch.float32)
-        train_val_explicit_negatives_ranking_scores = torch.zeros(size = (train_val_dataset.n_users, len(RANKING_METRICS)), dtype = torch.float32)
-    if negative_samples is not None:
-        negative_samples_scores = finetuning_model.compute_negative_samples_scores(negative_samples)
-        val_negative_samples_ranking_scores = torch.zeros(size = (val_dataset.n_users, len(RANKING_METRICS)), dtype = torch.float32)
-        if train_val_dataset is not None:
-            train_val_negative_samples_ranking_scores = torch.zeros(size = (train_val_dataset.n_users, len(RANKING_METRICS)), dtype = torch.float32)
-
-    for i in range(val_dataset.n_users):
-        val_user_labels, val_user_scores, val_user_pos_scores = get_user_scores(val_dataset, i, val_users_scores)
-        user_neg_ranking_scores = val_user_scores[-4:]
-        val_classification_scores[i] = compute_classification_scores(val_user_labels, val_user_scores)
-        val_explicit_negatives_ranking_scores[i] = get_ranking_scores_for_user(val_user_pos_scores, user_neg_ranking_scores)
-        if train_val_dataset is not None:
-            train_val_user_labels, train_val_user_scores, train_val_user_pos_scores = get_user_scores(train_val_dataset, i, train_val_users_scores)
-            train_val_classification_scores[i] = compute_classification_scores(train_val_user_labels, train_val_user_scores)
-            train_val_explicit_negatives_ranking_scores[i] = get_ranking_scores_for_user(train_val_user_pos_scores, user_neg_ranking_scores)
-        if negative_samples is not None:
-            val_negative_samples_ranking_scores[i] = get_ranking_scores_for_user(val_user_pos_scores, negative_samples_scores[i])
-            if train_val_dataset is not None:
-                train_val_negative_samples_ranking_scores[i] = get_ranking_scores_for_user(train_val_user_pos_scores, negative_samples_scores[i])
-
-    val_classification_scores = torch.mean(val_classification_scores, dim = 0)
-    val_explicit_negatives_ranking_scores = torch.mean(val_explicit_negatives_ranking_scores, dim = 0)
-    if train_val_dataset is not None:
-        train_val_classification_scores = torch.mean(train_val_classification_scores, dim = 0)
-        train_val_explicit_negatives_ranking_scores = torch.mean(train_val_explicit_negatives_ranking_scores, dim = 0)
-    if negative_samples is not None:
-        val_negative_samples_ranking_scores = torch.mean(val_negative_samples_ranking_scores, dim = 0)
-        if train_val_dataset is not None:
-            train_val_negative_samples_ranking_scores = torch.mean(train_val_negative_samples_ranking_scores, dim = 0)
-
-    for i, metric in enumerate(CLASSIFICATION_METRICS):
-        scores_dict[f"{metric}_val"] = val_classification_scores[i].item()
-        if train_val_dataset is not None:
-            scores_dict[f"{metric}_train"] = train_val_classification_scores[i].item()
-    for i, metric in enumerate(RANKING_METRICS):
-        scores_dict[f"{metric}_explicit_negatives_val"] = val_explicit_negatives_ranking_scores[i].item()
-        if train_val_dataset is not None:
-            scores_dict[f"{metric}_explicit_negatives_train"] = train_val_explicit_negatives_ranking_scores[i].item()
-        if negative_samples is not None:
-            scores_dict[f"{metric}_negative_samples_val"] = val_negative_samples_ranking_scores[i].item()
-            if train_val_dataset is not None:
-                scores_dict[f"{metric}_negative_samples_train"] = train_val_negative_samples_ranking_scores[i].item()
+    for folder in os.listdir(outputs_folder):
+        folder_name = " ".join([w.capitalize() for w in folder.split("_")])
+        scores_dfs = []
+        random_states = []
+        for random_state in os.listdir(f"{outputs_folder}/{folder}"):
+            random_states.append(random_state.split("_")[-1][1:])
+            with open(f"{outputs_folder}/{folder}/{random_state}/scores_table_1.pkl", "rb") as f:
+                scores_table_1 = pickle.load(f)
+                scores_table_1 = scores_table_to_df(scores_table_1)
+            with open(f"{outputs_folder}/{folder}/{random_state}/scores_table_2.pkl", "rb") as f:
+                scores_table_2 = pickle.load(f)
+                scores_table_2 = scores_table_to_df(scores_table_2)
+            scores_df = pd.concat([scores_table_1, scores_table_2[1:]], axis = 0)
+            scores_df.set_index("Score", inplace = True)
+            scores_dfs.append(scores_df)
+        mean_scores_df = pd.concat(scores_dfs).groupby(level = 0).mean()
+        std_scores_df = pd.concat(scores_dfs).groupby(level = 0).std()
+        std_scores_df.fillna(0, inplace = True)
+        random_states = sorted(random_states, key = lambda x : int(x))
+        scores_dict[folder_name] = {"mean": mean_scores_df, "std": std_scores_df, "random_states": random_states}
     return scores_dict
+
+def scores_df_to_table(mean_df : pd.DataFrame, std_df : pd.DataFrame, random_states : list) -> list:
+    mean_row_val, std_row_val, mean_row_train, std_row_train = ["Val_μ"], ["Val_σ"], ["Train_μ"], ["Train_σ"]
+    for i in range(len(mean_df)):
+        mean_row_val.append(format_number(mean_df.iloc[i, 0]))
+        std_row_val.append(format_number(std_df.iloc[i, 0]))
+        mean_row_train.append(format_number(mean_df.iloc[i, 1]))
+        std_row_train.append(format_number(std_df.iloc[i, 1]))
+    if len(random_states) > 1:
+        return [mean_row_val, std_row_val, mean_row_train, std_row_train]
+    else:
+        return [mean_row_val, mean_row_train]
+
+def visualize_testing(finetuning_model_path : str, outputs_folder : str, testing_metrics : list = PRINT_SCORES) -> None:
+    scores_dict = get_scores_dict(outputs_folder)
+    file_name = f"{finetuning_model_path}/visualization.pdf"
+    with PdfPages(file_name) as pdf:
+        try:
+            config, train_losses, val_scores = load_visualization_files(finetuning_model_path)
+        except Exception as e:
+            config, train_losses, val_scores = None, None, None
+        if config is not None:
+            visualize_config(pdf, config)
+        visualize_scores(pdf, scores_dict, testing_metrics)
+        if config is not None:
+            visualize_training_curve(pdf, train_losses, val_scores, config["loss_function"], config["n_batches_per_val"])
+
+def visualize_scores(pdf : PdfPages, scores_dict : dict, testing_metrics : list) -> None:
+    fig, ax = plt.subplots(figsize = PLOT_CONSTANTS["FIG_SIZE"])
+    ax.axis("off")
+    ax.text(0.5, 1.11, "Testing Scores:", fontsize = 16, ha = 'center', va = 'center', fontweight = 'bold')
+    testing_metrics_abbreviations = [SCORES_DICT[metric]["abbreviation"] for metric in testing_metrics]
+    scores_dict_keys_sorted = sorted(scores_dict.keys())
+    text_positions = [1.061, 0.68, 0.458]
+    columns = [""]
+    for i, key in enumerate(scores_dict_keys_sorted):
+        mean_df, std_df = scores_dict[key]["mean"], scores_dict[key]["std"]
+        mean_df, std_df = mean_df[mean_df.index.isin(testing_metrics_abbreviations)], std_df[std_df.index.isin(testing_metrics_abbreviations)]
+        mean_df, std_df = mean_df.reindex(testing_metrics_abbreviations), std_df.reindex(testing_metrics_abbreviations)
+        if columns == [""]:
+            columns += mean_df.index.tolist()
+        random_states = scores_dict[key]["random_states"]
+        scores_table = scores_df_to_table(mean_df, std_df, random_states)
+        n_rows = len(scores_table)
+        if len(random_states) > 1:
+            seeds_title = f" (Seeds {', '.join(random_states)}):"
+        else:
+            seeds_title = f" (Seed {random_states[0]}):"
+        ax.text(0.5, text_positions[i], key + seeds_title, fontsize = 11, ha = 'center', va = 'center', fontweight = 'bold')
+        print_table(scores_table, [-0.14, 0.72 - (i * n_rows * 0.11), 1.25, 0.08 * n_rows], columns, [0.1] + len(testing_metrics) * [0.15], grey_row = [1, 3])
+    pdf.savefig(fig)
+    plt.close(fig)
+
+def visualize_config(pdf : PdfPages, config : dict) -> None:
+    fig, ax = plt.subplots(figsize = PLOT_CONSTANTS["FIG_SIZE"])
+    ax.axis("off")
+    ax.text(0.5, 1.1, "Finetuning Configuration:", fontsize = 16, ha = 'center', va = 'center', fontweight = 'bold')
+    ax.text(0.5, 1.0, get_config_string(config), fontsize = 9, ha = 'center', va = 'top', wrap = True)
+    pdf.savefig(fig)
+    plt.close(fig)
+
+def get_config_string(config : dict) -> str:
+    config_string = []
+    hours, minutes = divmod(config["time_elapsed"], 3600)
+    config_string.append(f"Folder Name: {config['outputs_folder'].split('/')[-1]}   |   Random Seed: {config['seed']}")
+    frozen_string = f"Number of unfrozen Transformer Layers: {config['n_unfreeze_layers']} (out of {config['n_transformer_layers']})"
+    n_transformer_params, n_unfrozen_transformer_params = round(config["n_transformer_parameters"] / 1000000), round(config["n_unfrozen_transformer_parameters"] / 1000000)
+    frozen_string += f"   |   Number of unfrozen Transformer Parameters: {n_unfrozen_transformer_params}M (out of {n_transformer_params}M)"
+    config_string.append(frozen_string)
+    pretrained_string = "Layers pretrained?   "
+    pretrained_string += f"Projection: {'Yes' if config['pretrained_projection'] else 'No'}"
+    pretrained_string += f"   |   Users Embeddings: {'Yes' if config['pretrained_users_embeddings'] else 'No'}"
+    pretrained_string += f"   |   Categories Embeddings: {'Yes' if config['pretrained_categories_embeddings'] else 'No'}"
+    config_string.append(pretrained_string)
+    config_string.append("\n")
+
+    config_string.append(f"Training Time: {int(hours)}h {int(minutes)%60}m   |   Max Number of Batches: {config['n_batches_total']//1000}K")
+    val_string = f"Validation Metric: {config['val_metric']}"
+    val_string += f"   |   Number of Batches per Validation Check: {config['n_batches_per_val']}   |   Early Stopping Patience: {config['early_stopping_patience']}"
+    config_string.append(val_string)
+    loss_string = f"Train Loss Function: {config['loss_function']}"
+    if config["loss_function"] == "info_nce": loss_string += f" (Temperate: {config['info_nce_temperature']}   |   Log-Q Correction? {config['info_nce_log_q_correction']})"
+    config_string.append(loss_string)
+    config_string.append(f"Number of negative Samples during Training: {config['n_train_negative_samples']}")
+    config_string.append("\n")
+
+    batch_string = f"Batch Size: {config['batch_size']}   |   Users Sampling Strategy: {config['users_sampling_strategy']}"
+    batch_string += f"   |   Number of Samples in Batch per selected User: {config['n_samples_per_user']}"
+    config_string.append(batch_string)
+    min_max_string = "Min / Max Number of Samples for each User?   "
+    min_max_string += f"Positive: {config['n_min_positive_samples_per_user']} / {config['n_max_positive_samples_per_user']}"
+    min_max_string += f"   |   Negative: {config['n_min_negative_samples_per_user']} / {config['n_max_negative_samples_per_user']}"
+    config_string.append(min_max_string)
+    config_string.append("\n")
+
+    scheduler_string = f"Learning Rate Scheduler: {config['lr_scheduler']}"
+    if config["lr_scheduler"] == "linear_decay":
+        scheduler_string += f"   |   Percentage of Warmup Steps: {config['percentage_warmup_steps']}"
+    config_string.append(scheduler_string)
+    config_string.append(f"Learning Rates:   Transformer: {config['lr_transformer_model']}   |   Other: {config['lr_other']}")
+    config_string.append(f"L2 Regularization:   Transformer: {config['l2_regularization_transformer_model']}   |   Other: {config['l2_regularization_other']}")
+    return "\n\n".join(config_string)
 
 def load_visualization_files(finetuning_model_path : str) -> tuple:
     with open(f"{finetuning_model_path}/config.json", "r") as f:
         config = json.load(f)
     with open(f"{finetuning_model_path}/train_losses.pkl", "rb") as f:
         train_losses = pickle.load(f)
-    with open(f"{finetuning_model_path}/val_losses.pkl", "rb") as f:
-        val_losses = pickle.load(f)
-    hyperparameters_tables = {}
-    for folder in os.listdir(f"{finetuning_model_path}/outputs"):
-        with open(f"{finetuning_model_path}/outputs/{folder}/hyperparameters_table.pkl", "rb") as f:
-            hyperparameters_tables[folder] = pickle.load(f)
-    hyperparameters_tables_baselines = {}
-    for folder in os.listdir(f"../data/finetuning/{finetuning_model.transformer_model_name}/outputs"):
-        with open(f"../data/finetuning/{finetuning_model.transformer_model_name}/outputs/{folder}/hyperparameters_table.pkl", "rb") as f:
-            hyperparameters_tables_baselines[folder] = pickle.load(f)
-    return config, train_losses, val_losses, hyperparameters_tables, hyperparameters_tables_baselines
+    with open(f"{finetuning_model_path}/val_scores.pkl", "rb") as f:
+        val_scores = pickle.load(f)
+    return config, train_losses, val_scores
 
-def visualize_results(config : dict, train_losses : list, val_losses : list, hyperparameters_tables : dict, hyperparameters_tables_baselines : dict) -> None:
-    file_name = finetuning_model_path + "/visualization.pdf"
-    with PdfPages(file_name) as pdf:
-        visualize_config(pdf, config, val_losses)
-        visualize_hyperparameters_tables(pdf, hyperparameters_tables, hyperparameters_tables_baselines, config["categories_attached"])
-        visualize_training_curve(pdf, train_losses, val_losses, config["n_batches_per_val"])
-
-def visualize_config(pdf : PdfPages, config : dict, val_losses : list) -> None:
-    fig, ax = plt.subplots(figsize = PLOT_CONSTANTS["FIG_SIZE"])
-    ax.axis("off")
-    ax.text(0.5, 1.1, "Finetuning Configuration:", fontsize = 16, ha = 'center', va = 'center', fontweight = 'bold')
-    ax.text(0.5, 1.0, get_config_string(config, val_losses), fontsize = 9, ha = 'center', va = 'top', wrap = True)
-    pdf.savefig(fig)
-    plt.close(fig)
-
-def get_config_string(config : dict, val_losses : list) -> str:
-    config_string = []
-    config_string.append(f"Folder Name: {config['outputs_folder'].split('/')[-1]}.")
-    config_string.append(f"Model Name: {finetuning_model.transformer_model_name}.")
-    config_string.append(f"Number of unfrozen Transformer Layers: {config['n_unfreeze_layers']} (out of {config['n_transformer_layers']}).")
-    n_transformer_params, n_unfrozen_transformer_params = round(config["n_transformer_parameters"] / 1000000), round(config["n_unfrozen_transformer_parameters"] / 1000000)
-    config_string.append(f"Number of unfrozen Transformer Parameters: {n_unfrozen_transformer_params}M (out of {n_transformer_params}M).")
-    config_string.append(f"Paper Categories Embeddings attached? {'Yes' if config['categories_attached'] else 'No'}.")
-    config_string.append(f"Projection Layer pretrained? {'Yes' if config['pretrained_projection'] else 'No'}.")
-    config_string.append(f"Users Embeddings Layer pretrained? {'Yes' if config['pretrained_users_embeddings'] else 'No'}.")
-    if config["categories_attached"]:
-        config_string.append(f"Categories Embeddings Layer pretrained? {'Yes' if config['pretrained_categories_embeddings'] else 'No'}.")
-    config_string.append("\n")
-    config_string.append(f"Random Seed: {config['seed']}.")
-    config_string.append(f"Batch Size: {config['batch_size']}.")
-    config_string.append(f"Users Sampling Strategy: {config['users_sampling_strategy']}.")
-    config_string.append(f"Number of Samples in Batch per selected User: {config['n_samples_per_user']}.")
-    config_string.append(f"Same Number of positive and negative Samples for each User? {'Yes' if config['class_balancing'] else 'No'}.")
-    config_string.append("\n")
-    config_string.append(f"Learning Rate Scheduler: {config['lr_scheduler']}.")
-    config_string.append(f"Transformer Model Learning Rate: {config['transformer_model_lr']}.")
-    config_string.append(f"Projection Layer Learning Rate: {config['projection_lr']}.")
-    config_string.append(f"Users Embeddings Learning Rate: {config['users_embeddings_lr']}.")
-    if config["categories_attached"]:
-        config_string.append(f"Categories Embeddings Learning Rate: {config['categories_embeddings_lr']}.")
-    config_string.append("\n")
-    config_string.append(f"Maximum Number of Epochs: {config['n_epochs']}.")
-    config_string.append(f"Number of Batches per Epoch: {config['n_batches_per_epoch']}.")
-    config_string.append(f"Number of Batches per Validation Check: {config['n_batches_per_val']}.")
-    config_string.append(f"Early Stopping Metric: {config['val_metric']}.")
-    config_string.append(f"Early Stopping Achieved after Batch: {val_losses[-1][0]}.")
-    return "\n\n".join(config_string)
-
-
-def visualize_hyperparameters_tables(pdf : PdfPages, hyperparameters_tables : dict, hyperparameters_tables_baselines : dict, categories_attached : bool) -> None:
-    fig, ax = plt.subplots(figsize = PLOT_CONSTANTS["FIG_SIZE"])
-    ax.axis("off")
-    n_hyperparameters = len([val for val in hyperparameters_tables[f"{finetuning_model.transformer_model_name}_no_overlap"][1] if val == "N/A"]) - 1
-    if categories_attached:
-        input_keys = ["no_overlap", "overlap_users_coefs", "overlap"]
-        titles = ["Cross Validation Results, 500 Users without Training Overlap:", "Train-Test Split Results, 500 Users with Training Overlap (Torch Users Coefs):", 
-                  "Train-Test Split Results, 500 Users with Training Overlap:"]
-    else:
-        input_keys = ["no_overlap", "no_overlap_categories", "overlap_users_coefs", "overlap", "overlap_categories"]
-        titles = ["Cross Validation Results, 500 Users without Training Overlap:", "Cross Validation Results, 500 Users with Training Overlap (including Categories):", 
-                  "Train-Test Split Results, 500 Users with Training Overlap (Torch Users Coefs):", "Train-Test Split Results, 500 Users with Training Overlap:", 
-                  "Train-Test Split Results, 500 Users with Training Overlap (including Categories):"]
-    input_keys, titles = list(reversed(input_keys)), list(reversed(titles))
-    for i in range(len(input_keys)):
-        input_key = f"{finetuning_model.transformer_model_name}_{input_keys[i]}"
-        hyperparameters_table = hyperparameters_tables[input_key]
-        columns, data = hyperparameters_table[0], [hyperparameters_table[2]]
-        if categories_attached:
-            input_key = input_key.rstrip("_users_coefs") + "_categories"
-        data = [hyperparameters_tables_baselines[input_key][2]] + data
-        ax.text(0.5, 0.1105 + i * 0.25, titles[i], fontsize = 11, ha = 'center', va = 'center', fontweight = 'bold')
-        print_table(data, [-0.14, -0.075 + i * 0.25, 1.25, 0.165], columns, n_hyperparameters * [0.125] + len(PRINT_SCORES) * [0.15] + [0.15], grey_row = 2)
-    pdf.savefig(fig)
-    plt.close(fig)
-
-def visualize_training_curve(pdf : PdfPages, train_losses : list, val_losses : list, n_batches_per_val : int) -> None:
+def visualize_training_curve(pdf : PdfPages, train_losses : list, val_scores : list, loss_function : str, n_batches_per_val : int) -> None:
     train_idxs, train_losses = zip(*train_losses)
     train_idxs, train_losses = np.array(train_idxs), np.array(train_losses)
     assert len(train_losses) % n_batches_per_val == 0
-    val_idxs, val_losses = zip(*val_losses)
-    val_idxs, val_losses = np.array(list([val_idxs[0]]) + list(val_idxs[4:])), np.array(list([val_losses[0]]) + list(val_losses[4:]))
+    val_idxs, val_losses = zip(*val_scores)
+    val_losses = [val_dict[f"val_{loss_function}"] for val_dict in val_losses]
+    val_idxs, val_losses = np.array(val_idxs), np.array(val_losses)
 
     num_chunks = len(train_losses) // n_batches_per_val
     chunks = [train_losses[i * n_batches_per_val:(i + 1) * n_batches_per_val] for i in range(num_chunks)]
@@ -331,7 +290,9 @@ def visualize_training_curve(pdf : PdfPages, train_losses : list, val_losses : l
     ax.set_xlim(-50, len(train_losses) + 50)
     ax.set_ylim(0, 0.6)
     ax2 = ax.twinx()
-    ax2.set_ylim(0, 0.6)
+    if loss_function == "bcel":
+        ax2.set_ylim(0, 0.6)
+        ax.set_ylabel("BCEL", fontsize = 13)
     ax2.set_yticks([min_train_loss, min_val_loss])
     ax2.set_yticklabels([f"{min_train_loss:.3f}", f"{min_val_loss:.3f}"], fontsize=10)
     ax.plot(train_idxs, train_losses, label = "Train Loss (per Batch)", linewidth = 2, color = "blue", alpha = 0.25)
@@ -340,30 +301,131 @@ def visualize_training_curve(pdf : PdfPages, train_losses : list, val_losses : l
     ax.scatter(chunks_idxs[min_train_loss_idx], chunks_means[min_train_loss_idx], s = 50, zorder = 5, facecolor = train_line.get_color(), edgecolor = 'black')
     ax.scatter(val_idxs[min_val_loss_idx], val_losses[min_val_loss_idx], s = 50, zorder = 5, facecolor = val_line.get_color(), edgecolor = 'black')
     ax.set_xlabel("Batch Number (in K)", fontsize = 13)
-    ax.set_ylabel("BCEL", fontsize = 13)
+    
     ax.legend(fontsize = 12)
     ax.grid(True, linestyle = "-", alpha = 0.4)
     pdf.savefig(fig)
     plt.close(fig)
 
-if __name__ == "__main__":
-    import sys
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    finetuning_model_path = sys.argv[1].rstrip("/")
-    
-    config = json.load(open(f"{finetuning_model_path}/config.json", "r"))
-    state_dicts_folder = finetuning_model_path + "/state_dicts"
-    embeddings_folder = finetuning_model_path + "/embeddings"
-    os.makedirs(embeddings_folder, exist_ok = True)
-    configs_folder = finetuning_model_path + "/configs"
-    os.makedirs(configs_folder, exist_ok = True)
-    outputs_folder = finetuning_model_path + "/outputs"
-    os.makedirs(outputs_folder, exist_ok = True)
+def get_user_scores(dataset : FinetuningDataset, user_idx : int, users_scores : torch.tensor) -> tuple:
+    user_starting_idx, user_ending_idx = dataset.users_pos_starting_idxs[user_idx], dataset.users_pos_starting_idxs[user_idx] + dataset.users_counts[user_idx]
+    user_labels = dataset.label_tensor[user_starting_idx:user_ending_idx].to(torch.float32)
+    user_scores = users_scores[user_starting_idx:user_ending_idx]
+    user_scores_pos = user_scores[:dataset.users_pos_counts[user_idx]]
+    return user_labels, user_scores, user_scores_pos
 
-    finetuning_model = load_finetuning_model_full(state_dicts_folder, device, categories_attached = config["categories_attached"])
+def compute_user_classification_metrics(user_labels : torch.tensor, user_scores : torch.tensor) -> torch.tensor:
+    bcel = torch.nn.BCEWithLogitsLoss()(user_scores, user_labels)
+    recall = torch.sum(user_scores[user_labels == 1] > 0) / torch.sum(user_labels == 1)
+    specificity = torch.sum(user_scores[user_labels == 0] < 0) / torch.sum(user_labels == 0)
+    balanced_accuracy = (recall + specificity) / 2
+    return torch.tensor([bcel, recall, specificity, balanced_accuracy], dtype = torch.float32)
+
+def compute_user_ranking_metrics_single(pos_rank : int) -> torch.tensor:
+    ndcg = 1 / np.log2(pos_rank + 1)
+    mrr = 1 / pos_rank
+    hr_at_1 = 1.0 if pos_rank == 1 else 0.0
+    results = [ndcg, mrr, hr_at_1]
+    if len(results) < len(RANKING_METRICS):
+        results += [0.0] * (len(RANKING_METRICS) - len(results))
+    return torch.tensor(results, dtype = torch.float32)
+
+def compute_user_ranking_metrics(user_scores_pos : torch.tensor, user_scores_explicit_negatives : torch.tensor, user_scores_negative_samples : torch.tensor, info_nce_temperature : float) -> tuple:
+    user_ranking_metrics_explicit_negatives = torch.zeros(size = (len(user_scores_pos), len(RANKING_METRICS)), dtype = torch.float32)
+    user_ranking_metrics_negative_samples = torch.zeros(size = (len(user_scores_pos), len(RANKING_METRICS)), dtype = torch.float32)
+    user_ranking_metrics_all = torch.zeros(size = (len(user_scores_pos), len(RANKING_METRICS)), dtype = torch.float32)
+
+    info_nce_tensor_explicit_negatives = user_scores_explicit_negatives / info_nce_temperature
+    info_nce_tensor_negative_samples = user_scores_negative_samples / info_nce_temperature
+    info_nce_tensor_all = torch.cat((info_nce_tensor_explicit_negatives, info_nce_tensor_negative_samples))
+
+    for i, pos_score in enumerate(user_scores_pos):
+        pos_score_unsqueezed = pos_score.unsqueeze(0)
+        pos_rank_explicit_negatives = torch.sum(user_scores_explicit_negatives >= pos_score).item() + 1
+        pos_rank_negative_samples = torch.sum(user_scores_negative_samples >= pos_score).item() + 1
+        pos_rank_all = torch.sum(torch.cat((user_scores_explicit_negatives, user_scores_negative_samples)) >= pos_score).item() + 1
+
+        user_ranking_metrics_explicit_negatives[i] = compute_user_ranking_metrics_single(pos_rank_explicit_negatives)
+        user_ranking_metrics_explicit_negatives[i, -1] = -torch.log_softmax(torch.cat((pos_score_unsqueezed, info_nce_tensor_explicit_negatives)) + 1e-10, dim = 0)[0].item()
+        user_ranking_metrics_negative_samples[i] = compute_user_ranking_metrics_single(pos_rank_negative_samples)
+        user_ranking_metrics_negative_samples[i, -1] = -torch.log_softmax(torch.cat((pos_score_unsqueezed, info_nce_tensor_negative_samples)) + 1e-10, dim = 0)[0].item()
+        user_ranking_metrics_all[i] = compute_user_ranking_metrics_single(pos_rank_all)
+        user_ranking_metrics_all[i, -1] = -torch.log_softmax(torch.cat((pos_score_unsqueezed, info_nce_tensor_all)) + 1e-10, dim = 0)[0].item()
+    user_ranking_metrics_explicit_negatives = torch.mean(user_ranking_metrics_explicit_negatives, dim = 0)
+    user_ranking_metrics_negative_samples = torch.mean(user_ranking_metrics_negative_samples, dim = 0)
+    user_ranking_metrics_all = torch.mean(user_ranking_metrics_all, dim = 0)
+    return user_ranking_metrics_explicit_negatives, user_ranking_metrics_negative_samples, user_ranking_metrics_all
+
+def print_metrics(scores_dict : dict, metrics : list) -> str:
+    METRIC_STRINGS = {"bcel": "BCEL", "recall": "Recall", "specificity": "Specificity", "balacc": "Balanced Accuracy",
+                      "ndcg": "NDCG", "mrr": "MRR", "hr@1": "HR@1", "infonce": "InfoNCE"}
+    metrics_string = ""
+    for i, metric in enumerate(metrics):
+        metric_string = metric.split("_")[1]
+        if i > 0:
+            metrics_string += ", "
+        metrics_string += f"{METRIC_STRINGS[metric_string]}: {format_number(scores_dict[metric])}"
+    return metrics_string
+
+def print_validation(scores_dict : dict) -> str:
+    validation_str = ""
+    validation_str += "\nClassification: " + print_metrics(scores_dict, [f"val_{metric}" for metric in CLASSIFICATION_METRICS])
+    validation_str += "\nRanking (Explicit Negatives): " + print_metrics(scores_dict, [f"val_{metric}_explicit_negatives" for metric in RANKING_METRICS])
+    validation_str += "\nRanking (Negative Samples): " + print_metrics(scores_dict, [f"val_{metric}_negative_samples" for metric in RANKING_METRICS])
+    validation_str += "\nRanking (All): " + print_metrics(scores_dict, [f"val_{metric}_all" for metric in RANKING_METRICS])
+    return validation_str
+        
+def run_validation(finetuning_model : FinetuningModel, val_ratings : FinetuningDataset, val_negative_samples : dict, info_nce_temperature : float, print_results : bool = True) -> tuple:
+    scores_dict = {}
+    assert val_ratings.user_idx_tensor.unique().tolist() == finetuning_model.val_users_embeddings_idxs.tolist()
+    training_mode = finetuning_model.training
+    finetuning_model.eval()
+    val_users_scores = finetuning_model.compute_val_ratings_scores(val_ratings.input_ids_tensor, val_ratings.attention_mask_tensor, val_ratings.category_idx_tensor, val_ratings.user_idx_tensor)
+    val_negative_samples_scores = finetuning_model.compute_val_negative_samples_scores(val_negative_samples["input_ids"], val_negative_samples["attention_mask"], val_negative_samples["category_idx"])
+
+    val_classification_metrics = torch.zeros(size = (val_ratings.n_users, len(CLASSIFICATION_METRICS)), dtype = torch.float32)
+    val_ranking_metrics_explicit_negatives = torch.zeros(size = (val_ratings.n_users, len(RANKING_METRICS)), dtype = torch.float32)
+    val_ranking_metrics_negative_samples = torch.zeros(size = (val_ratings.n_users, len(RANKING_METRICS)), dtype = torch.float32)
+    val_ranking_metrics_all = torch.zeros(size = (val_ratings.n_users, len(RANKING_METRICS)), dtype = torch.float32)
+
+    for i in range(val_ratings.n_users):
+        val_user_labels, val_user_scores, val_user_scores_pos = get_user_scores(val_ratings, i, val_users_scores)
+        val_classification_metrics[i] = compute_user_classification_metrics(val_user_labels, val_user_scores)
+        val_user_scores_explicit_negatives = val_user_scores[-4:]
+        val_user_scores_negative_samples = val_negative_samples_scores[i]
+        val_user_ranking_metrics = compute_user_ranking_metrics(val_user_scores_pos, val_user_scores_explicit_negatives, val_user_scores_negative_samples, info_nce_temperature)
+        val_ranking_metrics_explicit_negatives[i] = val_user_ranking_metrics[0]
+        val_ranking_metrics_negative_samples[i] = val_user_ranking_metrics[1]
+        val_ranking_metrics_all[i] = val_user_ranking_metrics[2]
+
+    val_classification_metrics = torch.mean(val_classification_metrics, dim = 0)
+    val_ranking_metrics_explicit_negatives = torch.mean(val_ranking_metrics_explicit_negatives, dim = 0)
+    val_ranking_metrics_negative_samples = torch.mean(val_ranking_metrics_negative_samples, dim = 0)
+    val_ranking_metrics_all = torch.mean(val_ranking_metrics_all, dim = 0)
+
+    for i, metric in enumerate(CLASSIFICATION_METRICS):
+        scores_dict[f"val_{metric}"] = val_classification_metrics[i].item()
+    for i, metric in enumerate(RANKING_METRICS):
+        scores_dict[f"val_{metric}_explicit_negatives"] = val_ranking_metrics_explicit_negatives[i].item()
+        scores_dict[f"val_{metric}_negative_samples"] = val_ranking_metrics_negative_samples[i].item()
+        scores_dict[f"val_{metric}_all"] = val_ranking_metrics_all[i].item()
+    validation_str = print_validation(scores_dict)
+    if print_results:
+        print(validation_str)
+    if training_mode:
+        finetuning_model.train()
+    return scores_dict, validation_str
+    
+if __name__ == "__main__":
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    evaluation_config = parse_arguments()
     train_users_ids, val_users_ids, test_users_no_overlap_ids = load_finetuning_users_ids()
-    test_papers = load_test_papers_seeds()
     users_embeddings_ids_to_idxs = load_users_embeddings_ids_to_idxs()
-    run_evaluation(finetuning_model, val_users_ids, test_users_no_overlap_ids, test_papers, users_embeddings_ids_to_idxs, categories_attached = config["categories_attached"])
-    config, train_losses, val_losses, hyperparameters_tables, hyperparameters_tables_baselines = load_visualization_files(finetuning_model_path)
-    visualize_results(config, train_losses, val_losses, hyperparameters_tables, hyperparameters_tables_baselines)
+    papers_ids_to_categories_idxs = load_papers_ids_to_categories_idxs()
+    test_papers = load_papers(path = "test", papers_ids_to_categories_idxs = papers_ids_to_categories_idxs)
+    finetuning_model = load_finetuning_model(evaluation_config["state_dicts_folder"], device, n_unfreeze_layers = 0)
+    if evaluation_config["compute_test_embeddings"]:
+        compute_test_embeddings(finetuning_model, test_papers, evaluation_config["embeddings_folder"])
+    run_testing(finetuning_model, evaluation_config["embeddings_folder"], evaluation_config["configs_folder"], evaluation_config["outputs_folder"], 
+                val_users_ids, test_users_no_overlap_ids)        
+    visualize_testing(evaluation_config["finetuning_model_path"], evaluation_config["outputs_folder"])

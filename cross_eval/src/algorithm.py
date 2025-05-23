@@ -1,4 +1,5 @@
 from enum import Enum, auto
+from scipy.special import softmax
 from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, log_loss, roc_auc_score, ndcg_score
@@ -20,15 +21,14 @@ class Score(Enum):
     SPECIFICITY = auto()
     BALANCED_ACCURACY = auto()
     PRECISION = auto()
-    F1_SCORE = auto()
     CEL = auto()
     CEL_POS = auto()
     CEL_NEG = auto()
     AUROC_CLASSIFICATION = auto()
-    AUROC_RANKING = auto()
     NDCG= auto()
     MRR = auto()
     HIT_RATE_AT_1 = auto()
+    INFO_NCE = auto()
     CONFIDENCE_ALL = auto()
     CONFIDENCE_TP = auto()
     CONFIDENCE_FP = auto()
@@ -38,17 +38,16 @@ class Score(Enum):
     SAMPLES_ABOVE_THRESHOLD = auto()
     SPECIFICITY_SAMPLES = auto()
     PRECISION_SAMPLES = auto()
-    F1_SCORE_SAMPLES = auto()
     CONFIDENCE_ALL_SAMPLES = auto()
     CONFIDENCE_TOP_1_SAMPLES = auto()
-    AUROC_100_SAMPLES = auto()
-    AUROC_TOP_4_SAMPLES = auto()
-    NDCG_AT_5_100_SAMPLES = auto()
-    NDCG_AT_10_100_SAMPLES = auto()
-    NDCG_TOP_4_SAMPLES = auto()
-    MRR_100_SAMPLES = auto()
-    MRR_TOP_4_SAMPLES = auto()
-    HIT_RATE_AT_1_100_SAMPLES = auto()
+    NDCG_SAMPLES = auto()
+    NDCG_ALL = auto()
+    MRR_SAMPLES = auto()
+    MRR_ALL = auto()
+    HIT_RATE_AT_1_SAMPLES = auto()
+    HIT_RATE_AT_1_ALL = auto()
+    INFO_NCE_SAMPLES = auto()
+    INFO_NCE_ALL = auto()
 SCORES_DICT = { Score.POSITIVE_GT_RATIO : {"name": "Positive Ground Truth Ratio", "abbreviation": "PGTRo", "increase_better": True, "derivable": False, "ranking": False},
                 Score.POSITIVE_PRED_RATIO : {"name": "Positive Prediction Ratio", "abbreviation": "PPRRo", "increase_better": True, "derivable": False, "ranking": False},
                 Score.TRUE_POSITIVE_RATIO : {"name": "True Positive Ratio", "abbreviation": "TPRo", "increase_better": True, "derivable": False, "ranking": False},
@@ -60,15 +59,14 @@ SCORES_DICT = { Score.POSITIVE_GT_RATIO : {"name": "Positive Ground Truth Ratio"
                 Score.SPECIFICITY : {"name": "Specificity", "abbreviation": "SPE", "increase_better": True, "derivable": False, "ranking": False},
                 Score.BALANCED_ACCURACY : {"name": "Balanced Accuracy", "abbreviation": "BAL", "increase_better": True, "derivable": True, "ranking": False},
                 Score.PRECISION : {"name": "Precision", "abbreviation": "PRE", "increase_better": True, "derivable": False, "ranking": False},
-                Score.F1_SCORE : {"name": "F1 Score", "abbreviation": "F1", "increase_better": True, "derivable": True, "ranking": False},
                 Score.CEL : {"name": "Cross-Entropy Loss", "abbreviation": "CEL", "increase_better": False, "derivable": False, "ranking": False},
                 Score.CEL_POS : {"name": "CEL positive GT", "abbreviation": "CELP", "increase_better": False, "derivable": False, "ranking": False},
                 Score.CEL_NEG : {"name": "CEL negative GT", "abbreviation": "CELN", "increase_better": False, "derivable": False, "ranking": False},
                 Score.AUROC_CLASSIFICATION : {"name": "Area under Roc Curve Classification", "abbreviation": "AUC_C", "increase_better": True, "derivable": False, "ranking": False},
-                Score.AUROC_RANKING : {"name": "Area under Roc Curve RANKING", "abbreviation": "AUC_R", "increase_better": True, "derivable": False, "ranking": True},
                 Score.NDCG : {"name": "Normalized Discounted Cumulative Gain", "abbreviation": "NDCG", "increase_better": True, "derivable": False, "ranking": True},
                 Score.MRR : {"name": "Mean Reciprocal Rank", "abbreviation": "MRR", "increase_better": True, "derivable": False, "ranking": True},
                 Score.HIT_RATE_AT_1 : {"name": "Hit Rate @ 1", "abbreviation": "HR@1", "increase_better": True, "derivable": False, "ranking": True},
+                Score.INFO_NCE : {"name": "InfoNCE", "abbreviation": "INCE", "increase_better": False, "derivable": False, "ranking": True},
                 Score.CONFIDENCE_ALL : {"name": "Confidence All", "abbreviation": "C_ALL", "increase_better": True, "derivable": False, "ranking": False},
                 Score.CONFIDENCE_TP : {"name": "Confidence True Positives", "abbreviation": "C_TP", "increase_better": True, "derivable": False, "ranking": False},
                 Score.CONFIDENCE_FP : {"name": "Confidence False Positives", "abbreviation": "C_FP", "increase_better": False, "derivable": False, "ranking": False},
@@ -80,17 +78,17 @@ SCORES_DICT = { Score.POSITIVE_GT_RATIO : {"name": "Positive Ground Truth Ratio"
                                                     "increase_better": True, "derivable": False, "ranking": False},
                 Score.SPECIFICITY_SAMPLES : {"name": "Specificity Samples", "abbreviation": "SPE\nSmpl", "increase_better": True, "derivable": False, "ranking": False},   
                 Score.PRECISION_SAMPLES : {"name": "Precision Samples", "abbreviation": "PRE\nSmpl", "increase_better": True, "derivable": False, "ranking": False},
-                Score.F1_SCORE_SAMPLES : {"name": "F1 Score Samples", "abbreviation": "F1\nSmpl", "increase_better": True, "derivable": True, "ranking": False},
                 Score.CONFIDENCE_ALL_SAMPLES : {"name": "Confidence All Samples", "abbreviation": "C_ALL\nSmpl", "increase_better": False, "derivable": False, "ranking": False},
                 Score.CONFIDENCE_TOP_1_SAMPLES : {"name": "Confidence Top 1 Samples", "abbreviation": "C_T1\nSmpl", "increase_better": False, "derivable": False, "ranking": False},
-                Score.AUROC_100_SAMPLES : {"name": "Area under Roc Curve (100 Samples)", "abbreviation": "AUC\n100 S", "increase_better": True, "derivable": False, "ranking": True},
-                Score.AUROC_TOP_4_SAMPLES : {"name": "Area under Roc Curve (Top 4 Samples)", "abbreviation": "AUC\nT4 S", "increase_better": True, "derivable": False, "ranking": True},
-                Score.NDCG_AT_5_100_SAMPLES : {"name": "Normalized Discounted Cumulative Gain @ 5 (100 Samples)", "abbreviation": "NDCG\n@5 S", "increase_better": True, "derivable": False, "ranking": True},
-                Score.NDCG_AT_10_100_SAMPLES : {"name": "Normalized Discounted Cumulative Gain @ 10 (100 Samples)", "abbreviation": "NDCG\n@10 S", "increase_better": True, "derivable": False, "ranking": True},
-                Score.NDCG_TOP_4_SAMPLES : {"name": "Normalized Discounted Cumulative Gain (Top 4 Samples)", "abbreviation": "NDCG\nT4 S", "increase_better": True, "derivable": False, "ranking": True},
-                Score.MRR_100_SAMPLES : {"name": "Mean Reciprocal Rank (100 Samples)", "abbreviation": "MRR\n100 S", "increase_better": True, "derivable": False, "ranking": True},
-                Score.MRR_TOP_4_SAMPLES : {"name": "Mean Reciprocal Rank (Top 4 Samples)", "abbreviation": "MRR\nT4 S", "increase_better": True, "derivable": False, "ranking": True},
-                Score.HIT_RATE_AT_1_100_SAMPLES : {"name": "Hit Rate @ 1 (100 Samples)", "abbreviation": "HR@1\nSmpl", "increase_better": True, "derivable": False, "ranking": True}}
+                Score.NDCG_SAMPLES : {"name": "Normalized Discounted Cumulative Gain Samples", "abbreviation": "NDCG\nSmpl", "increase_better": True, "derivable": False, "ranking": True},
+                Score.NDCG_ALL : {"name": "Normalized Discounted Cumulative Gain All", "abbreviation": "NDCG\nAll", "increase_better": True, "derivable": False, "ranking": True},
+                Score.MRR_SAMPLES : {"name": "Mean Reciprocal Rank Samples", "abbreviation": "MRR\nSmpl", "increase_better": True, "derivable": False, "ranking": True},
+                Score.MRR_ALL : {"name": "Mean Reciprocal Rank All", "abbreviation": "MRR\nAll", "increase_better": True, "derivable": False, "ranking": True},
+                Score.HIT_RATE_AT_1_SAMPLES : {"name": "Hit Rate @ 1 Samples", "abbreviation": "HR@1\nSmpl", "increase_better": True, "derivable": False, "ranking": True},
+                Score.HIT_RATE_AT_1_ALL : {"name": "Hit Rate @ 1 All", "abbreviation": "HR@1\nAll", "increase_better": True, "derivable": False, "ranking": True},
+                Score.INFO_NCE_SAMPLES : {"name": "InfoNCE Samples", "abbreviation": "INCE\nSmpl", "increase_better": False, "derivable": False, "ranking": True},
+                Score.INFO_NCE_ALL : {"name": "InfoNCE All", "abbreviation": "INCE\nAll", "increase_better": False, "derivable": False, "ranking": True}
+                }
 RANKING_SCORES = [score for score in Score if SCORES_DICT[score]["ranking"]]
 
 def get_score_from_arg(score_arg : str) -> Score:
@@ -188,55 +186,55 @@ def derive_score(score : Score, user_scores : list, scores_indices_dict : dict, 
             return 0
         return 2 * (precision_samples * recall_samples) / (precision_samples + recall_samples)
 
-def get_ranking_scores(y_train_rated: np.ndarray, y_train_rated_proba: np.ndarray, y_val: np.ndarray, y_val_proba: np.ndarray, 
-                       y_negrated_ranking_proba : np.ndarray, y_negative_samples_proba: np.ndarray) -> dict:
+def get_ranking_scores(y_train_rated: np.ndarray, y_train_rated_logits: np.ndarray, y_val: np.ndarray, y_val_logits: np.ndarray, 
+                       y_negrated_ranking_logits : np.ndarray, y_negative_samples_logits: np.ndarray, info_nce_temperature : float) -> dict:
     ranking_scores = {}
-    y_train_pos_proba, y_val_pos_proba = y_train_rated_proba[y_train_rated == 1], y_val_proba[y_val == 1]
-    y_train_pos_proba_n, y_val_pos_proba_n = len(y_train_pos_proba), len(y_val_pos_proba)
-    y_pos_proba = np.concatenate((y_train_pos_proba, y_val_pos_proba))
-    y_negative_samples_proba_top_4 = np.sort(y_negative_samples_proba)[-4:]
+    y_train_pos_logits, y_val_pos_logits = y_train_rated_logits[y_train_rated == 1], y_val_logits[y_val == 1]
+    y_train_pos_logits_n, y_val_pos_logits_n = len(y_train_pos_logits), len(y_val_pos_logits)
+    y_pos_logits = np.concatenate((y_train_pos_logits, y_val_pos_logits))
+    y_negative_all_logits = np.concatenate((y_negrated_ranking_logits, y_negative_samples_logits))
     for ranking_score in RANKING_SCORES:
-        ranking_scores[f"train_{ranking_score.name.lower()}"] = np.zeros(max(1, y_train_pos_proba_n))
-        ranking_scores[f"val_{ranking_score.name.lower()}"] = np.zeros(max(1, y_val_pos_proba_n))
-    y_ranking = np.concatenate(([1], np.zeros_like(y_negrated_ranking_proba)))
-    y_ranking_samples = np.concatenate(([1], np.zeros_like(y_negative_samples_proba)))
-    y_ranking_samples_top_4 = np.concatenate(([1], np.zeros_like(y_negative_samples_proba_top_4)))
-    for i, y_pos_prob in enumerate(y_pos_proba):
-        y_proba = np.concatenate(([y_pos_prob], y_negrated_ranking_proba))
-        y_proba_samples = np.concatenate(([y_pos_prob], y_negative_samples_proba))
-        y_proba_samples_top_4 = np.concatenate(([y_pos_prob], y_negative_samples_proba_top_4))
-        prefix, j = ("train", i) if i < y_train_pos_proba_n else ("val", i - y_train_pos_proba_n)
+        ranking_scores[f"train_{ranking_score.name.lower()}"] = np.zeros(max(1, y_train_pos_logits_n))
+        ranking_scores[f"val_{ranking_score.name.lower()}"] = np.zeros(max(1, y_val_pos_logits_n))
+    for i, y_pos_logit in enumerate(y_pos_logits):
+        pos_rank = np.sum(y_negrated_ranking_logits >= y_pos_logit) + 1
+        pos_rank_samples = np.sum(y_negative_samples_logits >= y_pos_logit) + 1
+        pos_rank_all = np.sum(y_negative_all_logits >= y_pos_logit) + 1
+        prefix, j = ("train", i) if i < y_train_pos_logits_n else ("val", i - y_train_pos_logits_n)
         for ranking_score in RANKING_SCORES:
-            ranking_scores[f"{prefix}_{ranking_score.name.lower()}"][j] = get_ranking_score(ranking_score, y_ranking, y_proba, y_ranking_samples, y_proba_samples, 
-                                                                                            y_ranking_samples_top_4, y_proba_samples_top_4)
+            if ranking_score in [Score.INFO_NCE, Score.INFO_NCE_SAMPLES, Score.INFO_NCE_ALL]:
+                ranking_scores[f"{prefix}_{ranking_score.name.lower()}"][j] = get_info_nce_score(ranking_score, y_pos_logit, y_negrated_ranking_logits, y_negative_samples_logits,
+                                                                                                 y_negative_all_logits, info_nce_temperature)    
+            else:
+                ranking_scores[f"{prefix}_{ranking_score.name.lower()}"][j] = get_ranking_score(ranking_score, pos_rank, pos_rank_samples, pos_rank_all)
     for ranking_score in RANKING_SCORES:
         ranking_scores[f"train_{ranking_score.name.lower()}"] = np.mean(ranking_scores[f"train_{ranking_score.name.lower()}"])
         ranking_scores[f"val_{ranking_score.name.lower()}"] = np.mean(ranking_scores[f"val_{ranking_score.name.lower()}"])
     return ranking_scores
 
-def get_ranking_score(ranking_score : Score, y_ranking : np.ndarray, y_proba : np.ndarray, y_ranking_samples : np.ndarray, y_proba_samples : np.ndarray, 
-                        y_ranking_samples_top_4 : np.ndarray, y_proba_samples_top_4 : np.ndarray) -> float:
+def get_ranking_score(ranking_score : Score, pos_rank : int, pos_rank_samples : int, pos_rank_all : int) -> float:
     ranking_score_split = ranking_score.name.lower().split("_")
-    if not ranking_score_split[-1] == "samples":
-        ranking, proba = y_ranking, y_proba
-    else:
-        if ranking_score_split[-2] == "100":
-            ranking, proba = y_ranking_samples, y_proba_samples
-        elif ranking_score_split[-2] == "4":
-            ranking, proba = y_ranking_samples_top_4, y_proba_samples_top_4
-    if ranking_score in [Score.AUROC_RANKING, Score.AUROC_TOP_4_SAMPLES, Score.AUROC_100_SAMPLES]:
-        return roc_auc_score(ranking, proba)
-    elif ranking_score in [Score.NDCG, Score.NDCG_TOP_4_SAMPLES, Score.NDCG_AT_5_100_SAMPLES, Score.NDCG_AT_10_100_SAMPLES]:
-        k = 10 if ranking_score == Score.NDCG_AT_10_100_SAMPLES else 5
-        return ndcg_score(ranking.reshape(1, -1), proba.reshape(1, -1), k = k)
-    elif ranking_score in [Score.MRR, Score.MRR_TOP_4_SAMPLES, Score.MRR_100_SAMPLES]:
-        sorted_indices = np.argsort(proba)[::-1]
-        for rank, idx in enumerate(sorted_indices, 1):
-            if ranking[idx] > 0:
-                return 1.0 / rank
-    elif ranking_score in [Score.HIT_RATE_AT_1, Score.HIT_RATE_AT_1_100_SAMPLES]:
-        top_1_idx = np.argmax(proba)
-        return float(ranking[top_1_idx] > 0)
+    if ranking_score_split[-1] == "samples":
+        pos_rank = pos_rank_samples
+    elif ranking_score_split[-1] == "all":
+        pos_rank = pos_rank_all
+    if ranking_score in [Score.NDCG, Score.NDCG_SAMPLES, Score.NDCG_ALL]:
+        return 1.0 / np.log2(pos_rank + 1)
+    elif ranking_score in [Score.MRR, Score.MRR_SAMPLES, Score.MRR_ALL]:
+        return 1.0 / pos_rank
+    elif ranking_score in [Score.HIT_RATE_AT_1, Score.HIT_RATE_AT_1_SAMPLES, Score.HIT_RATE_AT_1_ALL]:
+        return float(pos_rank == 1)
+
+def get_info_nce_score(ranking_score : Score, y_pos_logit : float, y_negrated_ranking_logits : np.ndarray, y_negative_samples_logits : np.ndarray, y_negative_all_logits : np.ndarray,
+                       info_nce_temperature : float) -> float:
+    if ranking_score == Score.INFO_NCE:
+        info_nce_array = np.concatenate((np.array([y_pos_logit]), y_negrated_ranking_logits))
+    elif ranking_score == Score.INFO_NCE_SAMPLES:
+        info_nce_array = np.concatenate((np.array([y_pos_logit]), y_negative_samples_logits))
+    elif ranking_score == Score.INFO_NCE_ALL:
+        info_nce_array = np.concatenate((np.array([y_pos_logit]), y_negative_all_logits))
+    info_nce_array /= info_nce_temperature
+    return -np.log(softmax(info_nce_array)[0] + 1e-10)
   
 class Algorithm(Enum):
     LOGREG = auto()

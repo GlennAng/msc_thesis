@@ -5,6 +5,7 @@ from visualization_tools import *
 
 from matplotlib.backends.backend_pdf import PdfPages
 import argparse
+import pickle
 import sys
 
 OPTIMIZATION_CONSTANTS = {"N_TAIL_USERS": 15, "N_PRINT_BEST_HYPERPARAMETERS_COMBINATIONS": 25, "PERCENTAGE_HI/LO_VOTES": 0.1, 
@@ -16,7 +17,7 @@ def parse_args() -> dict:
     parser.add_argument("--score", type = str, default = "balanced_accuracy")
     parser.add_argument("--optimize_tail", action = "store_true", default = False)
     parser.add_argument("--no-optimize_tail", action = "store_false", dest = "optimize_tail")
-    parser.add_argument("--save_hyperparameters_table", action = "store_true", default = False)
+    parser.add_argument("--save_scores_tables", action = "store_true", default = False)
     args_dict = vars(parser.parse_args())
     args_dict["outputs_folder"] = args_dict["outputs_folder"].rstrip("/")
     args_dict["score"] = get_score_from_arg(args_dict["score"])
@@ -185,12 +186,12 @@ class Global_Visualizer:
         users_info_table = get_users_info_table(self.users_info)
         print_third_page(pdf, self.n_users, users_info_table, self.config["users_selection"], self.users_ids)
 
-    def generate_fourth_page(self, pdf : PdfPages, table_save_path : str = None) -> None:
-        hyperparameters_combinations_table = get_hyperparameters_combinations_table(self.val_upper_bounds, self.score, self.best_global_hyperparameters_combinations_idxs, 
-                                                                                    self.results_after_averaging_over_users, self.hyperparameters_combinations)
-        print_fourth_page(pdf, hyperparameters_combinations_table, self.score, self.hyperparameters, table_save_path)
+    def generate_fourth_page(self, pdf : PdfPages) -> None:
+        hyperparameters_combinations_table_val = get_hyperparameters_combinations_table(self.val_upper_bounds, self.score, self.best_global_hyperparameters_combinations_idxs, 
+                                                                                        self.results_after_averaging_over_users, self.hyperparameters_combinations)
+        print_fourth_page(pdf, hyperparameters_combinations_table_val, self.score, self.hyperparameters)
 
-    def generate_fifth_page(self, pdf : PdfPages) -> None:
+    def generate_fifth_page(self, pdf : PdfPages, scores_tables_save_path : str = None) -> None:
         title = f"Scores of the Best Global Combi {self.best_global_hyperparameters_combination_idx}"
         best_global_hyperparameters_combination = self.hyperparameters_combinations[self.hyperparameters_combinations["combination_idx"] == self.best_global_hyperparameters_combination_idx]
         for i, hyperparameter in enumerate(self.hyperparameters):
@@ -209,7 +210,8 @@ class Global_Visualizer:
         for s in range(len(scores_tables)):
             s_title = f"{s + 1}/{len(scores_tables)}   -   {title}"
             grey_row = optimizer_row + 1 if s == optimizer_page else -1
-            print_fifth_page(pdf, s_title, legend_text, scores_tables[s], grey_row)
+            scores_table_save_path = f"{scores_tables_save_path}_{s + 1}.pkl" if scores_tables_save_path else None
+            print_fifth_page(pdf, s_title, legend_text, scores_tables[s], grey_row, scores_table_save_path)
 
     def generate_sixth_page(self, pdf : PdfPages) -> None:
         title = "Worst"
@@ -235,18 +237,15 @@ class Global_Visualizer:
         plot_tail_df = get_plot_df(self.results_after_averaging_over_tails, self.hyperparameters_combinations_with_explicit_X_hyperparameter)
         plot_hyperparameter_for_all_combinations(pdf, self.hyperparameters, self.hyperparameters_combinations_with_explicit_X_hyperparameter, plot_df, plot_tail_df)
 
-    def generate_pdf(self, save_hyperparameters_table : bool = False) -> None:
+    def generate_pdf(self, save_scores_tables : bool = False) -> None:
         file_name = f"{self.folder}/global_visu_{SCORES_DICT[self.score]['abbreviation'].lower()}.pdf"
-        if save_hyperparameters_table:
-            hyperparameters_table_save_path = f"{self.folder}/hyperparameters_table.pkl"
-        else:
-            hyperparameters_table_save_path = None
+        scores_tables_save_path = f"{self.folder}/scores_table" if save_scores_tables else None
         with PdfPages(file_name) as pdf:
             self.generate_first_page(pdf)
             self.generate_second_page(pdf)
             self.generate_third_page(pdf)
-            self.generate_fourth_page(pdf, hyperparameters_table_save_path)
-            self.generate_fifth_page(pdf)
+            self.generate_fourth_page(pdf)
+            self.generate_fifth_page(pdf, scores_tables_save_path)
             self.generate_sixth_page(pdf)
             self.generate_seventh_page(pdf)
             if len(self.hyperparameters_combinations) > 1:
@@ -289,4 +288,4 @@ if __name__ == '__main__':
     config, users_info, hyperparameters_combinations, results_before_averaging_over_folds = load_outputs_files(args_dict["outputs_folder"])
     global_visualizer = Global_Visualizer(config, users_info, hyperparameters_combinations, results_before_averaging_over_folds, args_dict["outputs_folder"],
                                           args_dict["score"], args_dict["optimize_tail"])
-    global_visualizer.generate_pdf(args_dict["save_hyperparameters_table"])
+    global_visualizer.generate_pdf(args_dict["save_scores_tables"])

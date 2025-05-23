@@ -54,7 +54,9 @@ class Evaluator:
             self.global_cache_ids, self.global_cache_idxs, self.global_cache_n, self.y_global_cache = load_global_cache(self.embedding, 
                                                            self.config["max_cache"], self.config["cache_random_state"], self.draw_cache_from_users_ratings)
         self.negative_samples_ids, self.negative_samples_embeddings = load_negative_samples_embeddings(self.embedding, self.config["n_negative_samples"], self.config["ranking_random_state"])
-        
+        self.cache_attached_ids = load_negative_samples_embeddings(self.embedding, self.config["n_cache_attached"], self.config["cache_random_state"], self.negative_samples_ids)[0]
+        self.cache_attached_idxs = self.embedding.get_idxs(self.cache_attached_ids)
+        assert len(self.cache_attached_ids) == len(self.cache_attached_idxs) == self.config["n_cache_attached"]
         if self.config["n_jobs"] == 1:
             for user_id in self.users_ids:
                 self.evaluate_user(user_id)
@@ -133,6 +135,11 @@ class Evaluator:
                                                             self.config["cache_random_state"], pos_n, negrated_n, target_ratio, self.draw_cache_from_users_ratings)
             else:
                 cache_ids, cache_idxs, cache_n, y_cache = [], [], 0, []
+        if self.include_global_cache or self.config["include_cache"]:
+            cache_ids += self.cache_attached_ids
+            cache_idxs = np.concatenate((cache_idxs, self.cache_attached_idxs))
+            cache_n += len(self.cache_attached_idxs)
+            y_cache = np.concatenate((y_cache, np.zeros(len(self.cache_attached_idxs), dtype = LABEL_DTYPE)))
         return cache_ids, cache_idxs, cache_n, y_cache
         
     def store_user_info(self, user_id : int, posrated_n : int, negrated_n : int, base_n : int = 0, zerorated_n = 0, cache_n = 0) -> dict:
@@ -180,12 +187,12 @@ class Evaluator:
                 sample_weights[user_data_statistics["train_rated_base_zerorated_n"]:user_data_statistics["total_n"]] = w_c
                 model.fit(X_train, y_train, sample_weight = sample_weights)
             y_train_rated_pred, y_val_pred, y_negative_samples_pred = model.predict(X_train_rated), model.predict(X_val), model.predict(self.negative_samples_embeddings)
-            y_train_rated_proba = model.predict_proba(X_train_rated)[:, 1]
-            y_val_proba = model.predict_proba(X_val)[:, 1]
-            y_negrated_ranking_proba = y_val_proba[negrated_ranking_val_idxs]
-            y_negative_samples_proba = model.predict_proba(self.negative_samples_embeddings)[:, 1]
-            scores = self.get_scores_for_user(y_train_rated, y_train_rated_pred, y_train_rated_proba, y_val, y_val_pred, y_val_proba, 
-                                              y_negrated_ranking_proba, y_negative_samples_pred, y_negative_samples_proba)
+            y_train_rated_proba, y_train_rated_logits = model.predict_proba(X_train_rated)[:, 1], model.decision_function(X_train_rated)
+            y_val_proba, y_val_logits = model.predict_proba(X_val)[:, 1], model.decision_function(X_val)
+            y_negrated_ranking_proba, y_negrated_ranking_logits = y_val_proba[negrated_ranking_val_idxs], y_val_logits[negrated_ranking_val_idxs]
+            y_negative_samples_proba, y_negative_samples_logits = model.predict_proba(self.negative_samples_embeddings)[:, 1], model.decision_function(self.negative_samples_embeddings)
+            scores = self.get_scores_for_user(y_train_rated, y_train_rated_pred, y_train_rated_proba, y_train_rated_logits, y_val, y_val_pred, y_val_proba, y_val_logits,
+                                              y_negrated_ranking_proba, y_negrated_ranking_logits, y_negative_samples_pred, y_negative_samples_proba, y_negative_samples_logits)
             user_results[combination_idx] = scores
             if self.config["save_users_predictions"]:
                 user_predictions["train_predictions"][combination_idx] = y_train_rated_proba.tolist()
@@ -204,8 +211,9 @@ class Evaluator:
                          logreg_solver = self.config["logreg_solver"] if self.config["algorithm"] == Algorithm.LOGREG else None,
                          svm_kernel = self.config["svm_kernel"] if self.config["algorithm"] == Algorithm.SVM else None)
     
-    def get_scores_for_user(self, y_train_rated : np.ndarray, y_train_rated_pred : np.ndarray, y_train_rated_proba : np.ndarray, y_val : np.ndarray, y_val_pred : np.ndarray, 
-                            y_val_proba : np.ndarray, y_negrated_ranking_proba : np.ndarray, y_negative_samples_pred : np.ndarray, y_negative_samples_proba : np.ndarray) -> tuple:
+    def get_scores_for_user(self, y_train_rated : np.ndarray, y_train_rated_pred : np.ndarray, y_train_rated_proba : np.ndarray, y_train_rated_logits : np.ndarray,
+                            y_val : np.ndarray, y_val_pred : np.ndarray, y_val_proba : np.ndarray, y_val_logits : np.ndarray, y_negrated_ranking_proba : np.ndarray, 
+                            y_negrated_ranking_logits : np.ndarray, y_negative_samples_pred : np.ndarray, y_negative_samples_proba : np.ndarray, y_negative_samples_logits : np.ndarray) -> tuple:
         user_scores = [0] * self.scores_n
         for score in self.non_derivable_scores:
             if not SCORES_DICT[score]["ranking"]:
@@ -213,7 +221,7 @@ class Evaluator:
                                                                                     y_negative_samples_pred, y_negative_samples_proba)
                 user_scores[self.scores[f"val_{score.name.lower()}"]] = get_score(score, y_val, y_val_pred, y_val_proba, 
                                                                                   y_negative_samples_pred, y_negative_samples_proba)
-        ranking_scores = get_ranking_scores(y_train_rated, y_train_rated_proba, y_val, y_val_proba, y_negrated_ranking_proba, y_negative_samples_proba)
+        ranking_scores = get_ranking_scores(y_train_rated, y_train_rated_logits, y_val, y_val_logits, y_negrated_ranking_logits, y_negative_samples_logits, self.config["info_nce_temperature"])
         for ranking_score in ranking_scores:
             user_scores[self.scores[ranking_score]] = ranking_scores[ranking_score]
         user_scores_copy = user_scores.copy()

@@ -28,7 +28,6 @@ DB_PORT = os.getenv('DB_PORT') if os.getenv('DB_PORT') is not None else "5432"
 SQL_CONNECTION_STRING = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 global_sql_engine = create_engine(SQL_CONNECTION_STRING, pool_size = 20, pool_recycle = 3600, pool_pre_ping = True)
 
-
 def create_sql_connection():
     """
     Creates a new sql connection
@@ -88,6 +87,12 @@ def sql_execute(query, sql_connection, **kwargs):
     else:
         res = None
     return res
+
+def get_all_papers_ids() -> list:
+    query = '''SELECT paper_id FROM papers;'''
+    papers_ids = [t[0] for t in sql_execute(query)]
+    assert len(papers_ids) == len(set(papers_ids)), "Duplicate paper ids found in the database."
+    return sorted(papers_ids)
 
 def get_users_ids_with_sufficient_votes(min_n_posrated : int, min_n_negrated : int, sort_ids : bool = False) -> pd.DataFrame:
     query = f"""
@@ -292,111 +297,102 @@ def get_db_backup_date() -> str:
     backup_date = str(sql_execute(query)[0][0])
     return backup_date.split(" ")[0]
 
-def convert_paper_category_original(category_str : str) -> str:
-    transformed_category_str = category_str.lower()
-    transformed_category_str = transformed_category_str.replace(" ", "_")
-    return transformed_category_str
-
-def turn_parquet_to_dict(conversion_function : callable, parquet_df : pd.DataFrame = "../data/tsne_with_meta_full_for_plot_sorted.parquet") -> dict:
+def load_parquet_df(file_path : str = "../data/categories/tsne_with_meta_full_for_plot_sorted.parquet") -> pd.DataFrame:
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File {file_path} does not exist.")
+    return pd.read_parquet(file_path, engine = "pyarrow")
+    
+def turn_parquet_to_dict(parquet_df : pd.DataFrame = None, level : str = "l1") -> dict:
+    if parquet_df is None:
+        parquet_df = load_parquet_df()
     papers_query = """SELECT paper_id FROM papers"""
     papers_ids = [t[0] for t in sql_execute(papers_query)]
-    if type(parquet_df) == str:
-        parquet_df = pd.read_parquet(parquet_df, engine = "pyarrow")
     papers_ids_to_categories = {paper_id : None for paper_id in papers_ids}
     for row in tqdm.tqdm(parquet_df.iterrows(), total = len(parquet_df), desc = "Loading papers ids to categories"):
         paper_id = row[1].paper_id
         if paper_id in papers_ids_to_categories:
-            papers_ids_to_categories[paper_id] = conversion_function(row[1].l1)
+            papers_ids_to_categories[paper_id] = row[1][level]
     assert len(papers_ids_to_categories) == len(papers_ids)
     return papers_ids_to_categories
 
-def save_papers_ids_to_categories(conversion_function : callable, file_path : str = "../data/papers_ids_to_categories_original.pkl", papers_ids_to_categories : dict = None) -> None:
+def save_papers_ids_to_categories(papers_ids_to_categories : dict = None, file_name : str = None, parquet_df : pd.DataFrame = None, level : str = "l1") -> None:
     if papers_ids_to_categories is None:
-        papers_ids_to_categories = turn_parquet_to_dict(conversion_function)
-    with open(file_path, "wb") as file:
+        papers_ids_to_categories = turn_parquet_to_dict(parquet_df, level)
+    if file_name is None:
+        file_name = f"../data/categories/papers_ids_to_categories_{level}.pkl"
+    with open(file_name, "wb") as file:
         pickle.dump(papers_ids_to_categories, file)
-    
-def load_papers_ids_to_categories(file_path : str = "../data/papers_ids_to_categories_original.pkl") -> dict:
-    with open(file_path, "rb") as file:
+
+def load_papers_ids_to_categories(file_name : str = None, level : str = "l1") -> dict:
+    if file_name is None:
+        file_name = f"../data/categories/papers_ids_to_categories_{level}.pkl"
+    with open(file_name, "rb") as file:
         papers_ids_to_categories = pickle.load(file)
     return papers_ids_to_categories
 
-def get_papers_categories_dataset_distribution(papers_ids_to_categories : dict = "../data/papers_ids_to_categories_original.pkl", print_results : bool = True) -> tuple:
-    if type(papers_ids_to_categories) == str:
-        papers_ids_to_categories = load_papers_ids_to_categories(papers_ids_to_categories)
+def count_to_str(count: int) -> str:
+    return f"{count:,}"
+
+def get_categories_distribution(papers_ids_to_categories : dict = None, print_results : bool = True) -> tuple:
+    if papers_ids_to_categories is None:
+        papers_ids_to_categories = load_papers_ids_to_categories(level = "l1")
     unique_categories = set(papers_ids_to_categories.values())
     categories_counts = {category: 0 for category in unique_categories}
     n_total = 0
     for key, value in papers_ids_to_categories.items():
-        if value in categories_counts:
-            categories_counts[value] += 1
-            n_total += 1
-        else:
-            print(f"Unknown category: {value}.")
+        categories_counts[value] += 1
+        n_total += 1
     categories_counts = {category: count / n_total for category, count in categories_counts.items()}
-    sorted_categories = sorted(categories_counts.items(), key = lambda x: x[1], reverse = True)
     if print_results:
-        print(f"Total papers: {n_total}.")
-        for category, count in sorted_categories:
-            print(f"{category}: {count:.2%} ({int(count * n_total)})")
+        categories_counts_copy = categories_counts.copy()
+        categories_counts_copy["Total"] = 1.0
+        categories_counts_copy = sorted(categories_counts_copy.items(), key = lambda x: x[1], reverse = True)
+        for category, count in categories_counts_copy:
+            print(f"{category}: {count:.2%} ({count_to_str(int(count * n_total))})")
         print("____________________________________________________________")
-    return sorted_categories, n_total
+    return categories_counts, n_total
 
-def get_papers_categories_ratings_distribution(papers_ids_to_categories : dict = "../data/papers_ids_to_categories_original.pkl", print_results : bool = True, count_duplicates : bool = True) -> tuple:
-    if type(papers_ids_to_categories) == str:
-        papers_ids_to_categories = load_papers_ids_to_categories(papers_ids_to_categories)
-    unique_categories = set(papers_ids_to_categories.values())
-    categories_counts = {category: 0 for category in unique_categories}
-    n_total = 0
-    query = """SELECT paper_id, COUNT(*) as count FROM users_ratings GROUP BY paper_id"""   
-    result = sql_execute(query)
-    for row in result:
-        paper_id = row[0]
-        if paper_id in papers_ids_to_categories:
-            if count_duplicates:
-                categories_counts[papers_ids_to_categories[paper_id]] += row[1]
-                n_total += row[1]
-            else:
-                categories_counts[papers_ids_to_categories[paper_id]] += 1
-                n_total += 1
-        else:
-            print(f"Unknown paper id: {paper_id}.")
-    categories_counts = {category: count / n_total for category, count in categories_counts.items()}
-    sorted_categories = sorted(categories_counts.items(), key = lambda x: x[1], reverse = True)
-    if print_results:
-        print(f"Total papers: {n_total}.")
-        for category, count in sorted_categories:
-            print(f"{category}: {count:.2%} ({int(count * n_total)})")
-        print("____________________________________________________________")
-    return sorted_categories, n_total
+def get_categories_distribution_ratings(papers_ids_to_categories : dict = None, print_results : bool = True) -> tuple:
+    if papers_ids_to_categories is None:
+        papers_ids_to_categories = load_papers_ids_to_categories(level = "l1")
+    query = '''SELECT DISTINCT paper_id FROM users_ratings'''
+    papers_ids = [t[0] for t in sql_execute(query)]
+    papers_ids_to_categories_ratings = {paper_id: papers_ids_to_categories[paper_id] for paper_id in papers_ids}
+    return get_categories_distribution(papers_ids_to_categories_ratings, print_results)    
 
-def get_cache_categories_dataset_distribution(papers_ids_to_categories : dict = "../data/papers_ids_to_categories_original.pkl", 
-                                                     max_cache = 5000, random_state = 42) -> tuple:
-    if type(papers_ids_to_categories) == str:
-        papers_ids_to_categories = load_papers_ids_to_categories(papers_ids_to_categories)
+def get_categories_distribution_cache(papers_ids_to_categories : dict = None, print_results : bool = True, max_cache : int = 5000, random_state : int = 42) -> tuple:
+    if papers_ids_to_categories is None:
+        papers_ids_to_categories = load_papers_ids_to_categories(level = "l1")
     cache_papers_ids = get_global_cache_papers_ids(max_cache = max_cache, random_state = random_state)
-    cache_papers_ids_to_categories = {paper_id: papers_ids_to_categories[paper_id] for paper_id in cache_papers_ids}
-    get_papers_categories_dataset_distribution(cache_papers_ids_to_categories)
+    papers_ids_to_categories_cache = {paper_id: papers_ids_to_categories[paper_id] for paper_id in cache_papers_ids}
+    return get_categories_distribution(papers_ids_to_categories_cache, print_results)
 
-def get_negative_samples_categories_dataset_distribution(papers_ids_to_categories : dict = "../data/papers_ids_to_categories_original.pkl",
-                                                         n_negative_samples : int = 100, random_state : int = 42) -> tuple:
-    if type(papers_ids_to_categories) == str:
-        papers_ids_to_categories = load_papers_ids_to_categories(papers_ids_to_categories)
+def get_categories_distribution_negative_samples(papers_ids_to_categories : dict = None, print_results : bool = True, n_negative_samples : int = 100, random_state : int = 42) -> tuple:
+    if papers_ids_to_categories is None:
+        papers_ids_to_categories = load_papers_ids_to_categories(level = "l1")
     negative_samples_ids = get_negative_samples_ids(n_negative_samples, random_state)
-    negative_samples_ids_to_categories = {paper_id: papers_ids_to_categories[paper_id] for paper_id in negative_samples_ids}
-    get_papers_categories_dataset_distribution(negative_samples_ids_to_categories)
+    papers_ids_to_categories_negative_samples = {paper_id: papers_ids_to_categories[paper_id] for paper_id in negative_samples_ids}
+    return get_categories_distribution(papers_ids_to_categories_negative_samples, print_results)
 
-def get_negative_samples_ids(n_negative_samples : int, random_state : int, papers_ids_to_categories : dict = "../data/papers_ids_to_categories_original.pkl") -> list:
-    if type(papers_ids_to_categories) == str:
-        papers_ids_to_categories = load_papers_ids_to_categories(papers_ids_to_categories)
-    categories_ratios = {"physics" : 0.2, "astronomy" : 0.1, "biology" : 0.15, "medicine" : 0.1, "chemistry" : 0.1, 
-                         "economics" : 0.05, "psychology" : 0.05, "materials_science" : 0.05, "earth_science" : 0.05, 
-                         "linguistics" : 0.05, "philosophy" : 0.05, "geography" : 0.05}
+def get_categories_ratios() -> dict:
+    categories_ratios = {"Physics" : 0.2, "Astronomy" : 0.1, "Biology" : 0.15, "Medicine" : 0.1, "Chemistry" : 0.1, 
+                         "Economics" : 0.05, "Psychology" : 0.05, "Materials Science" : 0.05, "Earth Science" : 0.05, 
+                         "Linguistics" : 0.05, "Philosophy" : 0.05, "Geography" : 0.05}
+    return categories_ratios
+
+def get_categories_ratios_finetuning() -> dict:
+    return get_categories_ratios()
+
+def get_negative_samples_ids(n_negative_samples : int, random_state : int, categories_ratios : dict = None, papers_to_exclude : set = None) -> list:
+    papers_ids_to_categories = load_papers_ids_to_categories(level = "l1")
+    if categories_ratios is None:
+        categories_ratios = get_categories_ratios()
     samples_per_category = {category : int(n_negative_samples * ratio) for category, ratio in categories_ratios.items()}
     negative_samples_ids = []
     rng = random.Random(random_state)
-    exclude_query = """SELECT paper_id FROM users_ratings UNION SELECT paper_id FROM base_papers UNION SELECT paper_id FROM cache_papers"""
-    papers_to_exclude = set([t[0] for t in sql_execute(exclude_query)])
+    if papers_to_exclude is None:
+        exclude_query = '''SELECT paper_id FROM users_ratings UNION SELECT paper_id FROM base_papers UNION SELECT paper_id FROM cache_papers'''
+        papers_to_exclude = set([t[0] for t in sql_execute(exclude_query)])
     for category in list(categories_ratios.keys()):
         n_samples_category = samples_per_category[category]
         if n_samples_category == 0:
@@ -404,3 +400,11 @@ def get_negative_samples_ids(n_negative_samples : int, random_state : int, paper
         potential_papers = sorted([paper_id for paper_id, paper_category in papers_ids_to_categories.items() if paper_category == category and paper_id not in papers_to_exclude])
         negative_samples_ids += rng.sample(potential_papers, n_samples_category)
     return sorted(negative_samples_ids)
+
+def get_papers_to_exclude(random_states : list = []) -> set:
+    exclude_query = '''SELECT paper_id FROM users_ratings UNION SELECT paper_id FROM base_papers UNION SELECT paper_id FROM cache_papers'''
+    papers_to_exclude = set([t[0] for t in sql_execute(exclude_query)])
+    negative_samples_to_exclude = set()
+    for random_state in random_states:
+        negative_samples_to_exclude.update(get_negative_samples_ids(100, random_state, papers_to_exclude = papers_to_exclude))
+    return papers_to_exclude | negative_samples_to_exclude

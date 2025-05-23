@@ -38,6 +38,10 @@ def load_config(config_file : str) -> dict:
         with open(config_file) as file:
             config = json.load(file)
             config["experiment_name"] = config_file.split("/")[-1].split(".")[0]
+            if "info_nce_temperature" not in config:
+                config["info_nce_temperature"] = 1.0
+            if "n_cache_attached" not in config:
+                config["n_cache_attached"] = 0
             thesis_assertions(config)
     except FileNotFoundError:
         sys.exit(f"Config File '{config_file}' not found.")

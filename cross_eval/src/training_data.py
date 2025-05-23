@@ -53,8 +53,8 @@ def load_filtered_cache_for_user(embedding : Embedding, cache_type : Cache_Type,
     y_user_filtered_cache = np.zeros(user_filtered_cache_n, dtype = LABEL_DTYPE)
     return user_filtered_cache_ids, user_filtered_cache_idxs, user_filtered_cache_n, y_user_filtered_cache
 
-def load_negative_samples_embeddings(embedding : Embedding, n_negative_samples : int, random_state : int) -> tuple:
-    negative_samples_ids = get_negative_samples_ids(n_negative_samples, random_state)
+def load_negative_samples_embeddings(embedding : Embedding, n_negative_samples : int, random_state : int, papers_to_exclude : list = None) -> tuple:
+    negative_samples_ids = get_negative_samples_ids(n_negative_samples, random_state, papers_to_exclude = papers_to_exclude)
     return negative_samples_ids, embedding.matrix[embedding.get_idxs(negative_samples_ids)]
 
 def load_negrated_ranking_ids_for_user(negrated_ids : list, random_state : int) -> list:
