@@ -29,9 +29,42 @@ class FinetuningModel(nn.Module):
         self.unfreeze_layers(n_unfreeze_layers)
         
     def forward(self, eval_type : str, input_ids_tensor : torch.tensor, attention_mask_tensor : torch.tensor, category_idx_tensor : torch.tensor,
-                user_idx_tensor : torch.tensor = None) -> torch.tensor:
+                user_idx_tensor : torch.tensor = None, sorted_unique_user_idx_tensor : torch.tensor = None, batch_negatives_indices : torch.tensor = None) -> torch.tensor:
         eval_type = eval_type.lower()
         assert eval_type in ["train", "negative_samples", "val", "test"]
+        input_ids_tensor, attention_mask_tensor, category_idx_tensor, user_idx_tensor, sorted_unique_user_idx_tensor, batch_negatives_indices = self.check_devices(
+            input_ids_tensor, attention_mask_tensor, category_idx_tensor, user_idx_tensor, sorted_unique_user_idx_tensor, batch_negatives_indices)
+        
+        papers_embeddings = self.transformer_model(input_ids = input_ids_tensor, attention_mask = attention_mask_tensor).last_hidden_state[:, 0, :]
+        papers_embeddings = self.projection(papers_embeddings)
+        papers_embeddings = F.normalize(papers_embeddings, p = 2, dim = 1)
+        categories_embeddings = self.categories_embeddings(category_idx_tensor)
+        papers_embeddings = torch.cat((papers_embeddings, categories_embeddings), dim = 1)
+        
+        if sorted_unique_user_idx_tensor is not None:
+            assert sorted_unique_user_idx_tensor.tolist() == sorted(sorted_unique_user_idx_tensor.tolist())
+            sorted_unique_users_embeddings = self.users_embeddings(sorted_unique_user_idx_tensor)
+        
+        if eval_type == "test":
+            return papers_embeddings
+        if eval_type == "negative_samples":
+            dot_products = torch.matmul(sorted_unique_users_embeddings[:, :-1], papers_embeddings.transpose(0, 1))
+            dot_products = dot_products + sorted_unique_users_embeddings[:, -1].unsqueeze(1)
+            return dot_products
+        if eval_type == "val" or eval_type == "train":
+            users_embeddings = self.users_embeddings(user_idx_tensor)
+            dot_products = torch.sum(papers_embeddings * users_embeddings[:, :-1], dim = 1) + self.users_embeddings(user_idx_tensor)[:, -1]
+            if eval_type == "val":
+                return dot_products
+            batch_negatives_scores = None
+            if batch_negatives_indices is not None:
+                batch_negatives_papers = papers_embeddings[batch_negatives_indices]
+                batch_negatives_scores = torch.bmm(batch_negatives_papers, sorted_unique_users_embeddings[:, :-1].unsqueeze(-1)).squeeze(-1)
+                batch_negatives_scores = batch_negatives_scores + sorted_unique_users_embeddings[:, -1].unsqueeze(1)
+            return dot_products, batch_negatives_scores
+
+    def check_devices(self, input_ids_tensor : torch.tensor, attention_mask_tensor : torch.tensor, category_idx_tensor : torch.tensor, 
+                            user_idx_tensor : torch.tensor = None, sorted_unique_user_idx_tensor : torch.tensor = None, batch_negatives_indices : torch.tensor = None) -> tuple:
         if input_ids_tensor.device != self.device:
             input_ids_tensor = input_ids_tensor.to(self.device)
         if attention_mask_tensor.device != self.device:
@@ -41,26 +74,14 @@ class FinetuningModel(nn.Module):
         if user_idx_tensor is not None:
             if user_idx_tensor.device != self.device:
                 user_idx_tensor = user_idx_tensor.to(self.device)
-
-        papers_embeddings = self.transformer_model(input_ids = input_ids_tensor, attention_mask = attention_mask_tensor).last_hidden_state[:, 0, :]
-        papers_embeddings = self.projection(papers_embeddings)
-        papers_embeddings = F.normalize(papers_embeddings, p = 2, dim = 1)
-        categories_embeddings = self.categories_embeddings(category_idx_tensor)
-        papers_embeddings = torch.cat((papers_embeddings, categories_embeddings), dim = 1)
+        if sorted_unique_user_idx_tensor is not None:
+            if sorted_unique_user_idx_tensor.device != self.device:
+                sorted_unique_user_idx_tensor = sorted_unique_user_idx_tensor.to(self.device)
+        if batch_negatives_indices is not None:
+            if batch_negatives_indices.device != self.device:
+                batch_negatives_indices = batch_negatives_indices.to(self.device)
+        return (input_ids_tensor, attention_mask_tensor, category_idx_tensor, user_idx_tensor, sorted_unique_user_idx_tensor, batch_negatives_indices)
         
-        if eval_type == "test":
-            return papers_embeddings
-        if eval_type == "negative_samples":
-            assert user_idx_tensor.tolist() == sorted(user_idx_tensor.tolist())
-            val_users_embeddings = self.users_embeddings(user_idx_tensor)
-            dot_products = torch.matmul(val_users_embeddings[:, :-1], papers_embeddings.transpose(0, 1))
-            dot_products = dot_products + val_users_embeddings[:, -1].unsqueeze(1)
-            return dot_products
-        if eval_type == "val" or eval_type == "train":
-            users_embeddings = self.users_embeddings(user_idx_tensor)
-            dot_products = torch.sum(papers_embeddings * users_embeddings[:, :-1], dim = 1) + self.users_embeddings(user_idx_tensor)[:, -1]
-            return dot_products
-
     def save_finetuning_model(self, model_path : str) -> None:
         model_path = model_path.rstrip("/") + "/"
         if not os.path.exists(model_path):
@@ -170,7 +191,7 @@ class FinetuningModel(nn.Module):
         with torch.autocast(device_type = self.device.type, dtype = torch.float16):
             with torch.inference_mode():
                 return self(eval_type = "negative_samples", input_ids_tensor = input_ids_tensor, attention_mask_tensor = attention_mask_tensor,
-                            category_idx_tensor = category_idx_tensor, user_idx_tensor = self.val_users_embeddings_idxs).cpu()
+                            category_idx_tensor = category_idx_tensor, sorted_unique_user_idx_tensor = self.val_users_embeddings_idxs).cpu()
 
 def load_transformer_model(transformer_path : str, device : torch.device) -> AutoModel:
     return AutoModel.from_pretrained(transformer_path, trust_remote_code = True, unpad_inputs = True, torch_dtype = "auto").to(device)

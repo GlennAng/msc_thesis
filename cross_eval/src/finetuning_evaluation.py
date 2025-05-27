@@ -23,6 +23,7 @@ import torch
 
 CLASSIFICATION_METRICS = ["bcel", "recall", "specificity", "balacc"]
 RANKING_METRICS = ["ndcg", "mrr", "hr@1", "infonce"]
+INFO_NCE_TEMPERATURE = 1.0
 
 def parse_arguments() -> dict:
     parser = argparse.ArgumentParser(description = "Evaluation script.")
@@ -330,13 +331,13 @@ def compute_user_ranking_metrics_single(pos_rank : int) -> torch.tensor:
         results += [0.0] * (len(RANKING_METRICS) - len(results))
     return torch.tensor(results, dtype = torch.float32)
 
-def compute_user_ranking_metrics(user_scores_pos : torch.tensor, user_scores_explicit_negatives : torch.tensor, user_scores_negative_samples : torch.tensor, info_nce_temperature : float) -> tuple:
+def compute_user_ranking_metrics(user_scores_pos : torch.tensor, user_scores_explicit_negatives : torch.tensor, user_scores_negative_samples : torch.tensor) -> tuple:
     user_ranking_metrics_explicit_negatives = torch.zeros(size = (len(user_scores_pos), len(RANKING_METRICS)), dtype = torch.float32)
     user_ranking_metrics_negative_samples = torch.zeros(size = (len(user_scores_pos), len(RANKING_METRICS)), dtype = torch.float32)
     user_ranking_metrics_all = torch.zeros(size = (len(user_scores_pos), len(RANKING_METRICS)), dtype = torch.float32)
 
-    info_nce_tensor_explicit_negatives = user_scores_explicit_negatives / info_nce_temperature
-    info_nce_tensor_negative_samples = user_scores_negative_samples / info_nce_temperature
+    info_nce_tensor_explicit_negatives = user_scores_explicit_negatives / INFO_NCE_TEMPERATURE
+    info_nce_tensor_negative_samples = user_scores_negative_samples / INFO_NCE_TEMPERATURE
     info_nce_tensor_all = torch.cat((info_nce_tensor_explicit_negatives, info_nce_tensor_negative_samples))
 
     for i, pos_score in enumerate(user_scores_pos):
@@ -375,7 +376,7 @@ def print_validation(scores_dict : dict) -> str:
     validation_str += "\nRanking (All): " + print_metrics(scores_dict, [f"val_{metric}_all" for metric in RANKING_METRICS])
     return validation_str
         
-def run_validation(finetuning_model : FinetuningModel, val_ratings : FinetuningDataset, val_negative_samples : dict, info_nce_temperature : float, print_results : bool = True) -> tuple:
+def run_validation(finetuning_model : FinetuningModel, val_ratings : FinetuningDataset, val_negative_samples : dict, print_results : bool = True) -> tuple:
     scores_dict = {}
     assert val_ratings.user_idx_tensor.unique().tolist() == finetuning_model.val_users_embeddings_idxs.tolist()
     training_mode = finetuning_model.training
@@ -393,7 +394,7 @@ def run_validation(finetuning_model : FinetuningModel, val_ratings : FinetuningD
         val_classification_metrics[i] = compute_user_classification_metrics(val_user_labels, val_user_scores)
         val_user_scores_explicit_negatives = val_user_scores[-4:]
         val_user_scores_negative_samples = val_negative_samples_scores[i]
-        val_user_ranking_metrics = compute_user_ranking_metrics(val_user_scores_pos, val_user_scores_explicit_negatives, val_user_scores_negative_samples, info_nce_temperature)
+        val_user_ranking_metrics = compute_user_ranking_metrics(val_user_scores_pos, val_user_scores_explicit_negatives, val_user_scores_negative_samples)
         val_ranking_metrics_explicit_negatives[i] = val_user_ranking_metrics[0]
         val_ranking_metrics_negative_samples[i] = val_user_ranking_metrics[1]
         val_ranking_metrics_all[i] = val_user_ranking_metrics[2]

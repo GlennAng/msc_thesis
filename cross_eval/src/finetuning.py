@@ -25,6 +25,7 @@ def args_dict_assertions(args_dict : dict) -> None:
     assert args_dict["n_max_negative_samples_per_user"] <= args_dict["n_samples_per_user"]
     assert args_dict["n_min_positive_samples_per_user"] + args_dict["n_min_negative_samples_per_user"] <= args_dict["n_samples_per_user"]
     assert args_dict["n_max_positive_samples_per_user"] + args_dict["n_max_negative_samples_per_user"] >= args_dict["n_samples_per_user"]
+    assert args_dict["n_batch_negatives"] <= (args_dict["batch_size"] - args_dict["n_samples_per_user"])
 
 def parse_arguments() -> dict:
     parser = argparse.ArgumentParser(description = "Finetuning script")
@@ -33,23 +34,25 @@ def parse_arguments() -> dict:
     parser.add_argument("--batch_size", type = int, default = 128)
     parser.add_argument("--users_sampling_strategy", type = str, default = "uniform", choices = ["uniform", "proportional", "square_root_proportional", "cube_root_proportional"])
     parser.add_argument("--n_samples_per_user", type = int, default = 8)
-    parser.add_argument("--n_min_positive_samples_per_user", type = int, default = 3)
-    parser.add_argument("--n_min_negative_samples_per_user", type = int, default = 3)
+    parser.add_argument("--n_min_positive_samples_per_user", type = int, default = 0)
+    parser.add_argument("--n_min_negative_samples_per_user", type = int, default = 4)
     parser.add_argument("--n_max_positive_samples_per_user", type = int, default = None)
-    parser.add_argument("--n_max_negative_samples_per_user", type = int, default = None)
-    parser.add_argument("--n_train_negative_samples", type = int, default = 100)
+    parser.add_argument("--n_max_negative_samples_per_user", type = int, default = 4)
+    parser.add_argument("--n_train_negative_samples", type = int, default = 0)
+    parser.add_argument("--n_batch_negatives", type = int, default = 7)
 
-    parser.add_argument("--loss_function", type = str, default = "bcel", choices = ["bcel", "info_nce"])
-    parser.add_argument("--info_nce_temperature", type = float, default = 1.0)
+    parser.add_argument("--loss_function", type = str, default = "info_nce", choices = ["bcel", "info_nce"])
+    parser.add_argument("--info_nce_temperature_explicit_negatives", type = float, default = 2.5)
+    parser.add_argument("--info_nce_temperature_batch_negatives", type = float, default = 2.5)
+    parser.add_argument("--info_nce_temperature_negative_samples", type = float, default = 1.5)
     parser.add_argument("--info_nce_log_q_correction", action = "store_true", default = False)
-    parser.add_argument("--bcel_pos_weight", type = float, default = 1.0)
     parser.add_argument("--n_batches_total", type = int, default = 10000)
     parser.add_argument("--n_batches_per_val", type = int, default = 500)
-    parser.add_argument("--val_metric", type = str, default = "infonce_all")
+    parser.add_argument("--val_metric", type = str, default = "ndcg_all")
     parser.add_argument("--early_stopping_patience", type = int, default = None)
 
     parser.add_argument("--model_path", type = str, default = "/home/scholar/glenn_rp/msc_thesis/data/finetuning/gte_large_256/state_dicts")
-    parser.add_argument("--n_unfreeze_layers", type = int, default = 2)
+    parser.add_argument("--n_unfreeze_layers", type = int, default = 4)
     parser.add_argument("--not_pretrained_projection", action = "store_false", dest = "pretrained_projection")
     parser.add_argument("--not_pretrained_users_embeddings", action = "store_false", dest = "pretrained_users_embeddings")
     parser.add_argument("--not_pretrained_categories_embeddings", action = "store_false", dest = "pretrained_categories_embeddings")
@@ -59,7 +62,7 @@ def parse_arguments() -> dict:
     parser.add_argument("--lr_scheduler", type = str, default = "linear_decay", choices = ["constant", "linear_decay"])
     parser.add_argument("--l2_regularization_transformer_model", type = float, default = 0)
     parser.add_argument("--l2_regularization_other", type = float, default = 0)
-    parser.add_argument("--percentage_warmup_steps", type = float, default = 0.1)
+    parser.add_argument("--n_warmup_steps", type = float, default = 500)
     
     parser.add_argument("--testing", action = "store_true", default = False)
     args_dict = vars(parser.parse_args())
@@ -90,7 +93,7 @@ def get_dataloaders(args_dict : dict, users_embeddings_ids_to_idxs : dict, paper
     return train_ratings_dataloader, train_negative_samples_dataloader
 
 def load_optimizer(finetuning_model : FinetuningModel, lr_transformer_model, l2_regularization_transformer_model, lr_other, l2_regularization_other,
-                   lr_scheduler : str, n_batches_total : int, percentage_warmup_steps : float) -> torch.optim.Optimizer:
+                   lr_scheduler : str, n_batches_total : int, n_warmup_steps : int) -> torch.optim.Optimizer:
     param_groups = [{'params': finetuning_model.transformer_model.parameters(), 'lr': lr_transformer_model, 'weight_decay': l2_regularization_transformer_model}, 
                     {'params': finetuning_model.projection.parameters(), 'lr': lr_other, 'weight_decay': l2_regularization_other}, 
                     {'params': finetuning_model.users_embeddings.parameters(), 'lr': lr_other, 'weight_decay': l2_regularization_other},
@@ -99,7 +102,6 @@ def load_optimizer(finetuning_model : FinetuningModel, lr_transformer_model, l2_
     if lr_scheduler == "constant":
         return optimizer, None
     elif lr_scheduler == "linear_decay":
-        n_warmup_steps = round(n_batches_total * percentage_warmup_steps)
         scheduler = get_linear_schedule_with_warmup(optimizer, n_total_steps = n_batches_total, n_warmup_steps = n_warmup_steps)
     return optimizer, scheduler
 
@@ -121,35 +123,51 @@ def save_config(args_dict : dict) -> None:
     with open(f"{args_dict['outputs_folder']}/config.json", "w") as f:
         json.dump(args_dict, f, indent = 4)
 
-def compute_info_nce_loss(train_ratings_scores : torch.tensor, user_idx_tensor : torch.tensor, label_tensor : torch.tensor, 
-                          negative_samples_scores : torch.tensor, sorted_unique_user_idx_tensor : torch.tensor, args_dict : dict) -> float:
-    info_nce_temperature = args_dict["info_nce_temperature"]
+def compute_info_nce_loss(train_ratings_scores : torch.tensor, user_idx_tensor : torch.tensor, label_tensor : torch.tensor, negative_samples_scores : torch.tensor, 
+                          batch_negatives_scores : torch.tensor, sorted_unique_user_idx_tensor : torch.tensor, args_dict : dict) -> float:
+    temperature_explicit_negatives = args_dict["info_nce_temperature_explicit_negatives"]
+    temperature_batch_negatives = args_dict["info_nce_temperature_batch_negatives"]
+    temperature_negative_samples = args_dict["info_nce_temperature_negative_samples"]
     enumerated_users_dict = {user_idx.item(): i for i, user_idx in enumerate(sorted_unique_user_idx_tensor)}
     negatives_users_dict = {}
     for user_idx in enumerated_users_dict.keys():
         negative_train_ratings_scores_user = train_ratings_scores[(user_idx_tensor == user_idx) & (label_tensor == 0)]
-        if negative_samples_scores is not None:
-            negative_samples_scores_user = negative_samples_scores[(user_idx_tensor == user_idx) & (label_tensor == 0)]
-            negatives_users_dict[user_idx] = torch.cat((negative_train_ratings_scores_user, negative_samples_scores_user))
-        else:
-            negatives_users_dict[user_idx] = negative_train_ratings_scores_user
-        negatives_users_dict[user_idx] /= info_nce_temperature
-
+        negative_samples_scores_user = None if negative_samples_scores is None else negative_samples_scores[enumerated_users_dict[user_idx]]
+        batch_negatives_scores_user = None if batch_negatives_scores is None else batch_negatives_scores[enumerated_users_dict[user_idx]]
+        negative_users_dict_user = negative_train_ratings_scores_user / temperature_explicit_negatives
+        if negative_samples_scores_user is not None:
+            negative_samples_scores_user = negative_samples_scores_user / temperature_negative_samples
+            negative_users_dict_user = torch.cat((negative_users_dict_user, negative_samples_scores_user), dim = 0)
+        if batch_negatives_scores_user is not None:
+            batch_negatives_scores_user = batch_negatives_scores_user / temperature_batch_negatives
+            negative_users_dict_user = torch.cat((negative_users_dict_user, batch_negatives_scores_user), dim = 0)
+        negatives_users_dict[user_idx] = negative_users_dict_user
     positive_indices = torch.where(label_tensor == 1)[0]
     positive_scores, positive_users_idxs = train_ratings_scores[positive_indices], user_idx_tensor[positive_indices]
     losses = []
     for i, pos_idx in enumerate(positive_indices):
         pos_score, pos_user_idx = positive_scores[i], positive_users_idxs[i].item()
-        pos_score = pos_score / info_nce_temperature
+        pos_score = pos_score / temperature_explicit_negatives
         losses.append(-torch.log_softmax(torch.cat((pos_score.unsqueeze(0), negatives_users_dict[pos_user_idx])), dim = 0)[0])
     return torch.mean(torch.stack(losses))
+
+def generate_batch_negatives_indices(user_idx_tensor : torch.tensor, sorted_unique_user_idx_tensor : torch.tensor, n_batch_negatives : int, random_state : int) -> torch.tensor:
+    batch_negatives_indices = torch.zeros((len(sorted_unique_user_idx_tensor), n_batch_negatives), dtype = torch.long)
+    for i, user_idx in enumerate(sorted_unique_user_idx_tensor):
+        non_user_indices = torch.where(user_idx_tensor != user_idx)[0]
+        if len(non_user_indices) < n_batch_negatives:
+            raise ValueError(f"Not enough negative samples for user {user_idx.item()}. Required: {n_batch_negatives}, Available: {len(non_user_indices)}.")
+        sampled_indices = np.random.RandomState(random_state).choice(non_user_indices.cpu().numpy(), size = n_batch_negatives, replace = False)
+        batch_negatives_indices[i] = torch.from_numpy(sampled_indices).to(user_idx_tensor.device)
+    assert batch_negatives_indices.shape == (len(sorted_unique_user_idx_tensor), n_batch_negatives)
+    return batch_negatives_indices
 
 def process_val(finetuning_model : FinetuningModel, args_dict : dict, val_data : dict, n_updates_so_far : int, logger : logging.Logger,
                 baseline_metric : float = None, early_stopping_counter : int = None) -> tuple:
     if baseline_metric is None or early_stopping_counter is None:
         assert n_updates_so_far == 0
     baseline_metric_string = "None" if baseline_metric is None else round_number(baseline_metric)
-    val_scores_batch, val_scores_batch_string = run_validation(finetuning_model, val_data["val_ratings"], val_data["val_negative_samples"], info_nce_temperature = args_dict["info_nce_temperature"], print_results = False)
+    val_scores_batch, val_scores_batch_string = run_validation(finetuning_model, val_data["val_ratings"], val_data["val_negative_samples"], print_results = False)
     val_scores_batch_string = f"VALIDATION METRICS AFTER UPDATE {n_updates_so_far} / {args_dict['n_batches_total']}:" + val_scores_batch_string
     baseline_metric_batch = val_scores_batch[f"val_{args_dict['val_metric']}"]
     if baseline_metric is None:
@@ -177,21 +195,24 @@ def process_batch(finetuning_model : FinetuningModel, args_dict : dict, optimize
     sorted_unique_user_idx_tensor = torch.unique(user_idx_tensor, sorted = True).to(finetuning_model.device)
     optimizer.zero_grad()
     with torch.autocast(device_type = 'cuda', dtype = torch.float16):
-        train_ratings_scores = finetuning_model(eval_type = "train", input_ids_tensor = train_ratings_batch["input_ids"], attention_mask_tensor = train_ratings_batch["attention_mask"],
-                                                user_idx_tensor = user_idx_tensor, category_idx_tensor = train_ratings_batch["category_idx"])
+        batch_negatives_indices = None
+        if args_dict["n_batch_negatives"] > 0:
+            batch_negatives_indices = generate_batch_negatives_indices(user_idx_tensor, sorted_unique_user_idx_tensor, args_dict["n_batch_negatives"], args_dict["seed"])
+        train_ratings_scores, batch_negatives_scores = finetuning_model(eval_type = "train", input_ids_tensor = train_ratings_batch["input_ids"],
+            attention_mask_tensor = train_ratings_batch["attention_mask"], category_idx_tensor = train_ratings_batch["category_idx"],
+            user_idx_tensor = user_idx_tensor, sorted_unique_user_idx_tensor = sorted_unique_user_idx_tensor, batch_negatives_indices = batch_negatives_indices)
+        train_negative_samples_scores = None
         if train_negative_samples_batch is not None:
             train_negative_samples_scores = finetuning_model(eval_type = "negative_samples", input_ids_tensor = train_negative_samples_batch["input_ids"],
-                                                            attention_mask_tensor = train_negative_samples_batch["attention_mask"], user_idx_tensor = sorted_unique_user_idx_tensor, 
+                                                            attention_mask_tensor = train_negative_samples_batch["attention_mask"], sorted_unique_user_idx_tensor = sorted_unique_user_idx_tensor,
                                                             category_idx_tensor = train_negative_samples_batch["category_idx"])
-        else:
-            train_negative_samples_scores = None
         if args_dict["loss_function"] == "bcel":
             label_tensor = train_ratings_batch["label"].float().to(finetuning_model.device)
-            pos_weight = torch.tensor(args_dict["bcel_pos_weight"]).to(finetuning_model.device)
+            pos_weight = torch.tensor(2.0).to(finetuning_model.device)
             loss = torch.nn.BCEWithLogitsLoss(pos_weight = pos_weight)(train_ratings_scores, label_tensor)
         elif args_dict["loss_function"] == "info_nce":
             label_tensor = train_ratings_batch["label"].to(finetuning_model.device)
-            loss = compute_info_nce_loss(train_ratings_scores, user_idx_tensor, label_tensor, train_negative_samples_scores, sorted_unique_user_idx_tensor, args_dict)
+            loss = compute_info_nce_loss(train_ratings_scores, user_idx_tensor, label_tensor, train_negative_samples_scores, batch_negatives_scores, sorted_unique_user_idx_tensor, args_dict)
         loss.backward()
         optimizer.step()
         if scheduler is not None:
@@ -244,7 +265,7 @@ if __name__ == "__main__":
     args_dict["n_transformer_layers"] = finetuning_model.count_transformer_layers()
     args_dict["n_transformer_parameters"], args_dict["n_unfrozen_transformer_parameters"] = finetuning_model.count_transformer_parameters()
     optimizer, scheduler = load_optimizer(finetuning_model, args_dict["lr_transformer_model"], args_dict["l2_regularization_transformer_model"], 
-                                          args_dict["lr_other"], args_dict["l2_regularization_other"], args_dict["lr_scheduler"], args_dict["n_batches_total"], args_dict["percentage_warmup_steps"])
+                                          args_dict["lr_other"], args_dict["l2_regularization_other"], args_dict["lr_scheduler"], args_dict["n_batches_total"], args_dict["n_warmup_steps"])
     if not args_dict["testing"]:
         args_dict["outputs_folder"] = FILES_SAVE_PATH + f"/experiments/{finetuning_model.transformer_model_name}_{time.strftime('%Y-%m-%d-%H-%M')}"
         os.makedirs(args_dict["outputs_folder"], exist_ok = True)

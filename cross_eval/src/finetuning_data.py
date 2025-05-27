@@ -58,7 +58,7 @@ def create_dataset(dataset : dict) -> FinetuningDataset:
     user_idx_tensor, paper_id_tensor, label_tensor = dataset["user_idx"], dataset["paper_id"], dataset["label"]
     input_ids_tensor, attention_mask_tensor, category_idx_tensor = dataset["input_ids"], dataset["attention_mask"], dataset["category_idx"]
     return FinetuningDataset(user_idx_tensor = user_idx_tensor, paper_id_tensor = paper_id_tensor, label_tensor = label_tensor,
-                            input_ids_tensor = input_ids_tensor, attention_mask_tensor = attention_mask_tensor, category_idx_tensor = category_idx_tensor)
+                             input_ids_tensor = input_ids_tensor, attention_mask_tensor = attention_mask_tensor, category_idx_tensor = category_idx_tensor)
 
 class TrainRatingsBatchSampler(BatchSampler):
     def __init__(self, dataset : FinetuningDataset, args_dict : dict) -> None:
