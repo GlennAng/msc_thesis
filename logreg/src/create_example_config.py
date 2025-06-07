@@ -3,8 +3,7 @@ import json, os
 
 def create_example_config() -> dict:
     example_config = {}
-    example_config.update({"survey": False, "draw_cache_from_users_ratings": False, "rated_paper_removal": "none", "base_paper_removal": "none"})
-    example_config.update({"random_state": 42, "users_random_state": 42, "model_random_state": 42, "cache_random_state": 42, "ranking_random_state": 42})
+    example_config.update({"users_random_state": 42, "model_random_state": 42, "cache_random_state": 42, "ranking_random_state": 42})
     example_config.update({"save_users_predictions": False, "save_users_coefs": False, "save_tfidf_coefs": False})
     example_config.update({"load_users_coefs": False, "users_coefs_path": None})
     example_config.update({"users_selection": "random", "max_users": 500, "take_complement_of_users": False, "remove_null_dates": True})

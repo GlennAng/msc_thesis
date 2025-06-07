@@ -8,18 +8,6 @@ import tqdm
 from enum import Enum, auto
 from sqlalchemy import create_engine, bindparam
 
-class Paper_Removal(Enum):
-    NONE = auto()
-    OLDEST = auto()
-    RANDOM = auto()
-    NEWEST = auto()
-
-def get_paper_removal_from_arg(paper_removal_arg : str) -> Paper_Removal:
-    valid_paper_removal_args = [paper_removal.name.lower() for paper_removal in Paper_Removal]
-    if paper_removal_arg.lower() not in valid_paper_removal_args:
-        raise ValueError(f"Invalid argument {paper_removal_arg} 'paper_removal'. Possible values: {valid_paper_removal_args}.")
-    return Paper_Removal[paper_removal_arg.upper()]
-
 DB_NAME = "backup_2025_02_23"
 DB_USER = os.getenv('DB_USER') if os.getenv('DB_USER') is not None else "scholar"
 DB_PASSWORD = os.getenv('DB_PASSWORD') if os.getenv('DB_PASSWORD') is not None else "scholar"
@@ -129,25 +117,15 @@ def get_users_ids_from_sha_keys(sha_keys : list) -> dict:
         users_dict[sha_key] = get_user_id_from_sha_key(sha_key)
     return users_dict
 
-def get_rated_papers_ids_for_user(user_id : int, rating : int, paper_removal : Paper_Removal = None, remaining_percentage : float = None, random_state : int = None) -> list:
+def get_rated_papers_ids_for_user(user_id : int, rating : int) -> list:
     query = f"""
     SELECT paper_id FROM users_ratings 
     WHERE user_id = {user_id} 
-    AND rating = {rating}
-    {"ORDER BY time" if paper_removal in [Paper_Removal.OLDEST, Paper_Removal.NEWEST] else ""};
+    AND rating = {rating};
     """
-    result = [t[0] for t in sql_execute(query)]
-    if paper_removal == Paper_Removal.OLDEST:
-        result = result[:int(len(result) * remaining_percentage)]
-    elif paper_removal == Paper_Removal.NEWEST:
-        result = result[-int(len(result) * remaining_percentage):]
-    elif paper_removal == Paper_Removal.RANDOM:
-        result = sorted(result)
-        rng = random.Random(random_state)
-        result = rng.sample(result, int(len(result) * remaining_percentage))
-    return sorted(result)
+    return sorted([t[0] for t in sql_execute(query)])
 
-def get_base_papers_ids_for_user(user_id : int, paper_removal : Paper_Removal = None,  remaining_percentage : float = None, random_state : int = None) -> list:
+def get_base_papers_ids_for_user(user_id : int) -> list:
     query = f"""
     SELECT paper_id FROM base_papers
     WHERE user_id = {user_id}
@@ -155,19 +133,9 @@ def get_base_papers_ids_for_user(user_id : int, paper_removal : Paper_Removal = 
         SELECT paper_id FROM users_ratings
         WHERE user_id = {user_id}
         AND rating IN (-1, 1)
-    )
-    {"ORDER BY time" if paper_removal in [Paper_Removal.OLDEST, Paper_Removal.NEWEST] else ""};
+    );
     """
-    result = [t[0] for t in sql_execute(query)]
-    if paper_removal == Paper_Removal.OLDEST:
-        result = result[:int(len(result) * remaining_percentage)]
-    elif paper_removal == Paper_Removal.NEWEST:
-        result = result[-int(len(result) * remaining_percentage):]
-    elif paper_removal == Paper_Removal.RANDOM:
-        result = sorted(result)
-        rng = random.Random(random_state)
-        result = rng.sample(result, int(len(result) * remaining_percentage))
-    return sorted(result)
+    return sorted([t[0] for t in sql_execute(query)])
 
 def get_voting_weight_for_user(user_id : int) -> float:
     query = '''
@@ -176,11 +144,8 @@ def get_voting_weight_for_user(user_id : int) -> float:
     '''
     return sql_execute(query, user_id = user_id)[0][0]
 
-def get_global_cache_papers_ids(max_cache : int = None, random_state : int = None, draw_cache_from_users_ratings : bool = False) -> list:
-    if draw_cache_from_users_ratings:
-        query = '''SELECT paper_id FROM users_ratings WHERE rating IN (-1, 1) AND time IS NOT NULL;'''
-    else:
-        query = '''SELECT paper_id FROM cache_papers;'''
+def get_global_cache_papers_ids(max_cache : int = None, random_state : int = None) -> list:
+    query = '''SELECT paper_id FROM cache_papers;'''
     cache = [t[0] for t in sql_execute(query)]
     n_cache = len(cache)
     max_cache = n_cache if max_cache is None else min(max_cache, n_cache)
@@ -192,26 +157,16 @@ def get_global_cache_papers_ids(max_cache : int = None, random_state : int = Non
         cache = rng.sample(cache, max_cache)
     return sorted(cache)
 
-def get_cache_papers_ids_for_user(user_id : int, max_cache : int = None, random_state : int = None, draw_cache_from_users_ratings : bool = False) -> list:
-    if draw_cache_from_users_ratings:
-        query = """
-                SELECT DISTINCT paper_id FROM users_ratings
-                WHERE rating IN (-1, 1) 
-                AND user_id != :user_id
-                AND paper_id NOT IN (
-                    SELECT paper_id FROM base_papers
-                    WHERE user_id = :user_id)
-                """
-    else:
-        query = """
-                SELECT paper_id FROM cache_papers
-                WHERE paper_id NOT IN (
-                    SELECT paper_id FROM users_ratings
-                    WHERE user_id = :user_id)
-                AND paper_id NOT IN (
-                    SELECT paper_id FROM base_papers
-                    WHERE user_id = :user_id);
-                """
+def get_cache_papers_ids_for_user(user_id : int, max_cache : int = None, random_state : int = None) -> list:
+    query = """
+        SELECT paper_id FROM cache_papers
+            WHERE paper_id NOT IN (
+                SELECT paper_id FROM users_ratings
+                WHERE user_id = :user_id)
+            AND paper_id NOT IN (
+                SELECT paper_id FROM base_papers
+                WHERE user_id = :user_id);
+            """
     cache = [t[0] for t in sql_execute(query, user_id = user_id)]
     n_cache = len(cache)
     max_cache = n_cache if max_cache is None else min(max_cache, n_cache)

@@ -26,8 +26,7 @@ class Evaluator:
         for score in Score:
             self.derivable_scores.append(score) if SCORES_DICT[score]["derivable"] else self.non_derivable_scores.append(score)
         self.users_voting_weights = {user_id : get_voting_weight_for_user(user_id) for user_id in users_ids} if wh.need_voting_weight else None
-        self.include_global_cache = self.config["include_cache"] and self.config["cache_type"] == Cache_Type.GLOBAL
-        self.draw_cache_from_users_ratings = self.config["include_cache"] and self.config["draw_cache_from_users_ratings"]
+        self.include_global_cache = self.config["include_cache"] and self.config["cache_type"] == "global"
         if self.config["evaluation"] == Evaluation.CROSS_VALIDATION:
             self.cross_val = get_cross_val(config["stratified"], config["k_folds"], self.config["model_random_state"])
         
@@ -52,7 +51,7 @@ class Evaluator:
                 self.users_coefs_ids_to_idxs = pickle.load(f)
         if self.include_global_cache:
             self.global_cache_ids, self.global_cache_idxs, self.global_cache_n, self.y_global_cache = load_global_cache(self.embedding, 
-                                                           self.config["max_cache"], self.config["cache_random_state"], self.draw_cache_from_users_ratings)
+                                                           self.config["max_cache"], self.config["cache_random_state"])
             print(self.global_cache_ids[500:600])
         self.negative_samples_ids, self.negative_samples_embeddings = load_negative_samples_embeddings(self.embedding, self.config["n_negative_samples"], self.config["ranking_random_state"])
         self.cache_attached_ids = load_negative_samples_embeddings(self.embedding, self.config["n_cache_attached"], self.config["cache_random_state"], self.negative_samples_ids)[0]
@@ -133,7 +132,7 @@ class Evaluator:
                 target_ratio = self.config["target_ratio"] if "target_ratio" in self.config else None
                 assert target_ratio is None or (target_ratio > 0 and target_ratio < 1)
                 cache_ids, cache_idxs, cache_n, y_cache = load_filtered_cache_for_user(self.embedding, self.config["cache_type"], user_id, self.config["max_cache"], 
-                                                            self.config["cache_random_state"], pos_n, negrated_n, target_ratio, self.draw_cache_from_users_ratings)
+                                                            self.config["cache_random_state"], pos_n, negrated_n)
             else:
                 cache_ids, cache_idxs, cache_n, y_cache = [], [], 0, []
         if self.include_global_cache or self.config["include_cache"]:

@@ -1,5 +1,4 @@
 from algorithm import Algorithm, Evaluation, Score, get_score_from_arg, SCORES_DICT
-from data_handling import Paper_Removal
 from results_handling import *
 from visualization_tools import *
 
@@ -124,14 +123,13 @@ class Global_Visualizer:
         config_string = []
         config_string.append(f"Embedding Folder: '{self.config['embedding_folder'].split('/')[-1]}'.")
         config_string.append(f"Embedding Info: {'Sparse' if self.config['embedding_is_sparse'] else 'Dense'} with {self.config['embedding_n_dimensions']} Dimensions.")
-        config_string.append(f"Database: '{self.config['db_name']}' (Backup Date: {self.config['db_backup_date']}).")
         if "time_elapsed" in self.config:
             config_string.append(f"Time Elapsed: {(self.config['time_elapsed'] / 60):.2f} Minutes.")
 
         if type(self.config["algorithm"]) == str:
             self.config["algorithm"] = Algorithm[self.config["algorithm"]]
         if self.config["algorithm"] == Algorithm.LOGREG:
-            config_string.append(f"Alogrithm: Logistic Regression.")
+            config_string.append(f"Algorithm: Logistic Regression.")
             config_string.append(f"Logistic Regression Solver: {self.config['logreg_solver'].capitalize()}.")
         elif self.config["algorithm"] == Algorithm.SVM:
             config_string.append(f"Algorithm: Support Vector Machine.")
@@ -147,7 +145,8 @@ class Global_Visualizer:
             config_string.append(f"Evaluation Method: Train-Test Split.")
             config_string.append(f"Test Size: {self.config['test_size']}.")
         config_string.append(f"Were the Training Sets stratified? {'Yes' if self.config['stratified'] else 'No'}.")
-        config_string.append(f"Random State: {self.config['random_state']}.")
+        urs, mrs, crs, rrs = self.config["users_random_state"], self.config["model_random_state"], self.config["cache_random_state"], self.config["ranking_random_state"]
+        config_string.append(f"Random States:  Users: {urs}  |  Model: {mrs}  |  Cache: {crs}  |  Ranking: {rrs}.")
         config_string.append("\n")
 
         config_string.append(f"Weights: {self.config['weights'].upper()}.")
@@ -155,7 +154,7 @@ class Global_Visualizer:
         include_cache = self.config["include_cache"]
         config_string.append(f"Training Data includes Cache: {'Yes' if include_cache else 'No'}.")
         if include_cache:
-            config_string.append(get_cache_type_str(self.config["cache_type"], self.config["max_cache"], self.config["draw_cache_from_users_ratings"]))
+            config_string.append(get_cache_type_str(self.config["cache_type"], self.config["max_cache"], self.config["n_cache_attached"]))
         config_string.append(f"Number of Negative Samples per User: {self.config['n_negative_samples']}.")
         config_string.append("\n")
 
@@ -164,14 +163,6 @@ class Global_Visualizer:
         config_string.append(f"Number of selected Users: {self.n_users}.")
         config_string.append(get_users_selection_str(self.config["users_selection"], self.users_ids))
 
-        if type(self.config["rated_paper_removal"]) == str:
-            self.config["rated_paper_removal"] = Paper_Removal[self.config["rated_paper_removal"]]
-        if type(self.config["base_paper_removal"]) == str:
-            self.config["base_paper_removal"] = Paper_Removal[self.config["base_paper_removal"]]
-        if self.config["rated_paper_removal"] != Paper_Removal.NONE or self.config["base_paper_removal"] != Paper_Removal.NONE:
-            config_string.append("\n")
-            config_string.append(f"Rated Papers Removal: {str(self.config['rated_paper_removal']).capitalize()} (remaining percentage {self.config['remaining_percentage']}).")
-            config_string.append(f"Base Papers Removal: {str(self.config['base_paper_removal']).capitalize()} (remaining percentage {self.config['remaining_percentage']}).")
         return "\n\n".join(config_string)
 
     def generate_first_page(self, pdf : PdfPages) -> None:

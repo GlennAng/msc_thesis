@@ -12,7 +12,13 @@ def get_paths() -> dict:
         "outputs_path": paths["logreg_path"] / "outputs",
         "src_path": paths["logreg_path"] / "src",
         "embeddings_path": paths["data_path"] / "embeddings",
-        "data_processing_path": paths["logreg_path"] / "src" / "data_processing",
+        "data_processing_path": paths["logreg_path"] / "src" / "data_processing"
+        })
+    paths.update({
+        "users_ratings_path": paths["data_path"] / "users_ratings.parquet",
+        "papers_categories_path": paths["data_path"] / "papers_categories.parquet",
+        "papers_path": paths["data_path"] / "papers.parquet",
+        "users_mapping_path": paths["data_path"] / "users_mapping.pkl"
         })
     return paths
 

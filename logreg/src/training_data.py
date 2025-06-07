@@ -33,21 +33,16 @@ def load_zerorated_for_user(embedding : Embedding, user_id : int, paper_removal 
     y_zerorated = np.zeros(zerorated_n, dtype = LABEL_DTYPE)
     return zerorated_ids, zerorated_idxs, zerorated_n, y_zerorated
 
-def load_global_cache(embedding : Embedding, max_cache : int = None, random_state : int = None, draw_cache_from_users_ratings : bool = False) -> tuple:
-    global_cache_ids = get_global_cache_papers_ids(max_cache, random_state, draw_cache_from_users_ratings)
+def load_global_cache(embedding : Embedding, max_cache : int = None, random_state : int = None) -> tuple:
+    global_cache_ids = get_global_cache_papers_ids(max_cache, random_state)
     global_cache_idxs = embedding.get_idxs(global_cache_ids)
     global_cache_n = len(global_cache_idxs)
     y_global_cache = np.zeros(global_cache_n, dtype = LABEL_DTYPE)
     return global_cache_ids, global_cache_idxs, global_cache_n, y_global_cache
 
 def load_filtered_cache_for_user(embedding : Embedding, cache_type : Cache_Type, user_id : int, max_cache : int, random_state : int, 
-                                 pos_n : int, negrated_n : int, target_ratio : float = None, draw_cache_from_users_ratings : bool = False) -> tuple:
-    if cache_type == Cache_Type.USER_FILTERED_FILLUP:
-        max_cache = max(0, max_cache - negrated_n)
-    elif cache_type == Cache_Type.USER_FILTERED_BALANCE:
-        pos_neg_ratio = pos_n / (pos_n + negrated_n)
-        max_cache = max(0, round(pos_n / target_ratio) - pos_n - negrated_n)
-    user_filtered_cache_ids = get_cache_papers_ids_for_user(user_id, max_cache, random_state, draw_cache_from_users_ratings)
+                                 pos_n : int, negrated_n : int) -> tuple:
+    user_filtered_cache_ids = get_cache_papers_ids_for_user(user_id, max_cache, random_state)
     user_filtered_cache_idxs = embedding.get_idxs(user_filtered_cache_ids)
     user_filtered_cache_n = len(user_filtered_cache_idxs)
     y_user_filtered_cache = np.zeros(user_filtered_cache_n, dtype = LABEL_DTYPE)

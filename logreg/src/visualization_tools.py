@@ -2,7 +2,6 @@ from algorithm import Score, SCORES_DICT
 from compute_tfidf import train_vectorizer_for_user, get_mean_embedding
 from data_handling import sql_execute
 from results_handling import average_over_users
-from training_data import Cache_Type
 
 from enum import Enum
 from matplotlib.colors import LinearSegmentedColormap
@@ -89,19 +88,15 @@ def clean_users_info(user_info: pd.DataFrame, include_base : bool, include_cache
         user_info["n_cache"] = np.float64('nan')
     return user_info
 
-def get_cache_type_str(cache_type : str, max_cache : int, draw_cache_from_users_ratings : bool = False) -> str:
-    if type(cache_type) == str:
-        cache_type = Cache_Type[cache_type]
+def get_cache_type_str(cache_type : str, max_cache : int, n_cache_attached : int) -> str:
     s = "Cache Type: "
-    s_extension = str(max_cache // 1000) + 'K' if max_cache % 1000 == 0 else str(max_cache)
-    if cache_type == Cache_Type.GLOBAL:
-        s += f"Global with a maximum number of {s_extension} papers (potential overlap with user papers)."
-    elif cache_type == Cache_Type.USER_FILTERED:
-        s += f"User-filtered with a maximum number of {s_extension} papers."
-    elif cache_type == Cache_Type.USER_FILTERED_FILLUP:
-        s += f"User-filtered adaptively filling up to a maximum number of {s_extension} papers."
-    if draw_cache_from_users_ratings:
-        s += " Drawn from the User Ratings."
+    s_cache = str(max_cache // 1000) + 'K' if max_cache % 1000 == 0 else str(max_cache)
+    s_cache_attached = str(n_cache_attached // 1000) + 'K' if n_cache_attached % 1000 == 0 else str(n_cache_attached)
+    if cache_type == "global":
+        s += "Global"
+    elif cache_type == "user_filtered":
+        s += "User-filtered"
+    s += f" ({s_cache} Papers, {s_cache_attached} Attached). "
     return s
 
 def get_users_selection_str(users_selection : str, users_ids : list) -> str:
