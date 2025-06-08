@@ -94,13 +94,14 @@ def get_all_papers_ids() -> list:
     assert len(papers_ids) == len(set(papers_ids)), "Duplicate paper ids found in the database."
     return sorted(papers_ids)
 
-def get_users_ids_with_sufficient_votes(min_n_posrated : int, min_n_negrated : int, sort_ids : bool = False) -> pd.DataFrame:
+def get_users_ids_with_sufficient_votes(min_n_posrated : int, min_n_negrated : int, sort_ids : bool = False, remove_null_dates : bool = True) -> pd.DataFrame:
     query = f"""
     WITH users_ratings_n AS (
         SELECT  user_id,
                 SUM(CASE WHEN rating = 1 THEN 1 ELSE 0 END) AS n_posrated,
                 SUM(CASE WHEN rating = -1 THEN 1 ELSE 0 END) AS n_negrated
             FROM users_ratings
+            {"WHERE time IS NOT NULL" if remove_null_dates else ""}
             GROUP BY user_id)
     SELECT user_id, n_posrated, n_negrated, n_posrated + n_negrated AS n_rated
     FROM users_ratings_n
@@ -177,7 +178,7 @@ def get_voting_weight_for_user(user_id : int) -> float:
 
 def get_global_cache_papers_ids(max_cache : int = None, random_state : int = None, draw_cache_from_users_ratings : bool = False) -> list:
     if draw_cache_from_users_ratings:
-        query = '''SELECT paper_id FROM users_ratings WHERE rating IN (-1, 1);'''
+        query = '''SELECT paper_id FROM users_ratings WHERE rating IN (-1, 1) AND time IS NOT NULL;'''
     else:
         query = '''SELECT paper_id FROM cache_papers;'''
     cache = [t[0] for t in sql_execute(query)]

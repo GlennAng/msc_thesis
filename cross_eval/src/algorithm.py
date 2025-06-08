@@ -255,6 +255,8 @@ def get_model(algorithm : Algorithm, max_iter : int, clf_C: float, random_state 
 class Evaluation(Enum):
     CROSS_VALIDATION = auto()
     TRAIN_TEST_SPLIT = auto()
+    TIME_SPLIT = auto()
+    SESSIONS_SPLIT = auto()
 
 def get_evaluation_from_arg(evaluation_arg : str) -> Evaluation:
     valid_evaluation_args = [evaluation.name.lower() for evaluation in Evaluation]

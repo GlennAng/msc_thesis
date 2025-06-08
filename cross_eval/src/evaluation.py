@@ -53,6 +53,7 @@ class Evaluator:
         if self.include_global_cache:
             self.global_cache_ids, self.global_cache_idxs, self.global_cache_n, self.y_global_cache = load_global_cache(self.embedding, 
                                                            self.config["max_cache"], self.config["cache_random_state"], self.draw_cache_from_users_ratings)
+            print(self.global_cache_ids[500:600])
         self.negative_samples_ids, self.negative_samples_embeddings = load_negative_samples_embeddings(self.embedding, self.config["n_negative_samples"], self.config["ranking_random_state"])
         self.cache_attached_ids = load_negative_samples_embeddings(self.embedding, self.config["n_cache_attached"], self.config["cache_random_state"], self.negative_samples_ids)[0]
         self.cache_attached_idxs = self.embedding.get_idxs(self.cache_attached_ids)

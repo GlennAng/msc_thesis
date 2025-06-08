@@ -75,8 +75,9 @@ def create_outputs_folder(config : dict, continue_from_previous : bool) -> None:
     os.makedirs(experiment_dir / "users_predictions", exist_ok = True)
 
 def get_users_ids(users_selection : str, max_users : int = None, min_n_posrated : int = 20, min_n_negrated : int = 20, take_complement : bool = False, 
-                  random_state : int = None, survey : bool = False) -> pd.DataFrame:
-    users_ids_with_sufficient_votes = get_users_ids_with_sufficient_votes(min_n_posrated = min_n_posrated, min_n_negrated = min_n_negrated, sort_ids = False)
+                  random_state : int = None, survey : bool = False, remove_null_dates : bool = True) -> pd.DataFrame:
+    users_ids_with_sufficient_votes = get_users_ids_with_sufficient_votes(min_n_posrated = min_n_posrated, min_n_negrated = min_n_negrated, sort_ids = False, 
+                                                                          remove_null_dates = remove_null_dates)
     if users_selection not in ["random", "largest_n", "smallest_n"]:
         users_ids_with_sufficient_votes = users_ids_with_sufficient_votes[users_ids_with_sufficient_votes["user_id"].isin(list(users_selection))]
     if survey:
@@ -213,7 +214,8 @@ if __name__ == "__main__":
         continue_from_previous = False
     create_outputs_folder(config, continue_from_previous)
     users_ids = get_users_ids(users_selection = config["users_selection"], max_users = config["max_users"], min_n_posrated = config["min_n_posrated"], min_n_negrated = config["min_n_negrated"], 
-                              take_complement = config["take_complement_of_users"], random_state = config["users_random_state"], survey = config["survey"])
+                              take_complement = config["take_complement_of_users"], random_state = config["users_random_state"], survey = config["survey"],
+                              remove_null_dates = config.get("remove_null_dates", True))
     users_ids = users_ids["user_id"].tolist()
     remaining_users_ids = get_users_not_yet_evaluated(config, users_ids, continue_from_previous)
 
