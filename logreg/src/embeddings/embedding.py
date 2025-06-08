@@ -1,17 +1,25 @@
-from data_handling import get_base_papers_ids_for_user, get_global_cache_papers_ids, get_cache_papers_ids_for_user, get_rated_papers_ids_for_user
-from data_handling import get_negative_samples_ids_for_user, sql_execute
+import sys
+from pathlib import Path
+try:
+    from project_paths import ProjectPaths
+except ImportError:
+    sys.path.append(str(Path(__file__).parents[3]))
+    from project_paths import ProjectPaths
+ProjectPaths.add_logreg_src_paths_to_sys()
+
+import json, os, pickle
+import numpy as np, pandas as pd
 from scipy import sparse
 from scipy.sparse import load_npz
-import json
-import numpy as np
-import os
-import pandas as pd
-import pickle
+
+from data_handling import *
 
 class Embedding:
-    def __init__(self, embedding_folder : str, embedding_float_precision : int = None) -> None:
-        self.embedding_folder = embedding_folder if embedding_folder[-1] != '/' else embedding_folder[:-1]
-        self.name = embedding_folder.split('/')[-1]
+    def __init__(self, embedding_folder : Path, embedding_float_precision : int = None) -> None:
+        if not isinstance(embedding_folder, Path):
+            embedding_folder = Path(embedding_folder).resolve()
+        self.embedding_folder = embedding_folder
+        self.name = embedding_folder.stem
         self.papers_ids_to_idxs = self.load_papers_ids_to_idxs_dict(embedding_folder)
         self.papers_idxs_to_ids = np.zeros(len(self.papers_ids_to_idxs), dtype = np.int64)
         for paper_id, idx in self.papers_ids_to_idxs.items():
@@ -19,8 +27,8 @@ class Embedding:
         self.papers_idxs_dtype = self.get_papers_idxs_dtype()
         self.matrix = self.load_embedding_matrix(embedding_folder, embedding_float_precision)
 
-    def load_papers_ids_to_idxs_dict(self, embedding_folder : str) -> dict:
-        file_path = embedding_folder + "/abs_paper_ids_to_idx.pkl"
+    def load_papers_ids_to_idxs_dict(self, embedding_folder : Path) -> dict:
+        file_path = embedding_folder / "abs_paper_ids_to_idx.pkl"
         with open(file_path, 'rb') as file:
             papers_ids_to_idxs = pickle.load(file)
         if type(papers_ids_to_idxs) == dict:
@@ -39,14 +47,12 @@ class Embedding:
         else:
             return np.uint64
     
-    def load_embedding_matrix(self, embedding_folder : str, embedding_float_precision : int = None) -> np.ndarray:
-        file_path = embedding_folder + "/abs_X"
-        if os.path.exists(file_path + ".npz"):
-            file_path += ".npz"
-            embedding_matrix = load_npz(file_path)
-        elif os.path.exists(file_path + ".npy"):
-            file_path += ".npy"
-            embedding_matrix = np.load(file_path)
+    def load_embedding_matrix(self, embedding_folder : Path, embedding_float_precision : int = None) -> np.ndarray:
+        file_name = "abs_X"
+        if os.path.exists(embedding_folder / f"{file_name}.npz"):
+            embedding_matrix = load_npz(embedding_folder / f"{file_name}.npz")
+        elif os.path.exists(embedding_folder / f"{file_name}.npy"):
+            embedding_matrix = np.load(embedding_folder / f"{file_name}.npy")
         if embedding_matrix.shape[0] != len(self.papers_ids_to_idxs):
             raise ValueError(f"Number of Embeddings ({embedding_matrix.shape[0]}) does not match Number of Paper_IDs ({len(self.papers_ids_to_idxs)}) in '{file_path}'.")
         if embedding_float_precision is not None:
@@ -85,7 +91,7 @@ class Embedding:
         return self.papers_idxs_to_ids[idxs].tolist()
 
     def test_tfidf(self, paper_id : int) -> None:
-        vectorizer_path = f"{self.embedding_folder}/vectorizer.pkl"
+        vectorizer_path = self.embedding_folder / "vectorizer.pkl"
         v = pickle.load(open(vectorizer_path, "rb"))
         abstract = " ".join(sql_execute("select title || '. ' || abstract from papers where paper_id = :id", id = paper_id)[0])
         print(f"Paper ID: {paper_id}, Abstract: {abstract}")
@@ -99,11 +105,13 @@ class Embedding:
         for index, value in zip(non_zero_indices, non_zero_values):
             print(f"{feature_names[index]}: {value}")
 
-def compute_cosine_similarities(embedding_folder : str, users_ids : list, predictions_folder : str) -> None:
+def compute_cosine_similarities(embedding_folder : Path, users_ids : list, predictions_folder : Path) -> None:
+    if not isinstance(predictions_folder, Path):
+        predictions_folder = Path(predictions_folder).resolve()
     embedding = Embedding(embedding_folder)
     for user_id in users_ids:
         posrated_ids, negrated_ids = get_rated_papers_ids_for_user(user_id, 1), get_rated_papers_ids_for_user(user_id, -1)
-        user_predictions = json.load(open(f"{predictions_folder}/user_{user_id}/user_predictions.json", "r"))
+        user_predictions = json.load(open(predictions_folder / f"user_{user_id}" / "user_predictions.json", "r"))
         negative_samples_ids = user_predictions["negative_samples_ids"]
         rated_ids = posrated_ids + negrated_ids
         rated_matrix = embedding.matrix[embedding.get_idxs(rated_ids)]
@@ -116,14 +124,14 @@ def compute_cosine_similarities(embedding_folder : str, users_ids : list, predic
         negative_samples_matrix = negative_samples_matrix / np.linalg.norm(negative_samples_matrix, axis = 1, keepdims = True)
         rated_cosine_similarities = np.dot(rated_matrix, rated_matrix.T)
         negative_samples_cosine_similarities = np.dot(negative_samples_matrix, rated_matrix.T)
-        user_folder = f"{embedding_folder}/cosine_similarities/user_{user_id}"
+        user_folder = embedding_folder / "cosine_similarities" / f"user_{user_id}"
         if not os.path.exists(user_folder):
             os.makedirs(user_folder, exist_ok = True)
-        np.save(f"{user_folder}/rated_cosine_similarities", rated_cosine_similarities)
-        np.save(f"{user_folder}/negative_samples_cosine_similarities", negative_samples_cosine_similarities)
-        with open(f"{user_folder}/posrated_ids.pkl", "wb") as f:
+        np.save(user_folder / "rated_cosine_similarities.npy", rated_cosine_similarities)
+        np.save(user_folder / "negative_samples_cosine_similarities.npy", negative_samples_cosine_similarities)
+        with open(user_folder / "posrated_ids.pkl", "wb") as f:
             pickle.dump(posrated_ids, f)
-        with open(f"{user_folder}/negrated_ids.pkl", "wb") as f:
+        with open(user_folder / "negrated_ids.pkl", "wb") as f:
             pickle.dump(negrated_ids, f)
-        with open(f"{user_folder}/negative_samples_ids.pkl", "wb") as f:
+        with open(user_folder / "negative_samples_ids.pkl", "wb") as f:
             pickle.dump(negative_samples_ids, f)

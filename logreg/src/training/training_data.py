@@ -1,33 +1,28 @@
-from data_handling import get_base_papers_ids_for_user, get_rated_papers_ids_for_user
-from data_handling import get_global_cache_papers_ids, get_cache_papers_ids_for_user, get_negative_samples_ids
-from embedding import Embedding
-from enum import Enum, auto
-import numpy as np
-import random
+import sys
+from pathlib import Path
+try:
+    from project_paths import ProjectPaths
+except ImportError:
+    sys.path.append(str(Path(__file__).parents[3]))
+    from project_paths import ProjectPaths
+ProjectPaths.add_logreg_src_paths_to_sys()
 
+import numpy as np, random
+from enum import Enum, auto
+
+from data_handling import *
+from embedding import Embedding
 LABEL_DTYPE = np.int32
 
-class Cache_Type(Enum):
-    GLOBAL = auto()
-    USER_FILTERED = auto()
-    USER_FILTERED_FILLUP = auto()
-    USER_FILTERED_BALANCE = auto()
-
-def get_cache_type_from_arg(cache_type_arg : str) -> Cache_Type:
-    valid_cache_type_args = [cache_type.name.lower() for cache_type in Cache_Type]
-    if cache_type_arg.lower() not in valid_cache_type_args:
-        raise ValueError(f"Invalid argument {cache_type_arg} 'cache_type'. Possible values: {valid_cache_type_args}.")
-    return Cache_Type[cache_type_arg.upper()]
-
-def load_base_for_user(embedding : Embedding, user_id : int, paper_removal = None, remaining_percentage : float = None, random_state : int = None) -> tuple:
-    base_ids = get_base_papers_ids_for_user(user_id, paper_removal, remaining_percentage, random_state)
+def load_base_for_user(embedding : Embedding, user_id : int) -> tuple:
+    base_ids = get_base_papers_ids_for_user(user_id)
     base_idxs = embedding.get_idxs(base_ids)
     base_n = len(base_idxs)
     y_base = np.ones(base_n, dtype = LABEL_DTYPE)
     return base_ids, base_idxs, base_n, y_base
 
-def load_zerorated_for_user(embedding : Embedding, user_id : int, paper_removal = None, remaining_percentage : float = None, random_state : int = None) -> tuple:
-    zerorated_ids = get_rated_papers_ids_for_user(user_id, 0, paper_removal, remaining_percentage, random_state)
+def load_zerorated_for_user(embedding : Embedding, user_id : int) -> tuple:
+    zerorated_ids = get_rated_papers_ids_for_user(user_id, 0)
     zerorated_idxs = embedding.get_idxs(zerorated_ids)
     zerorated_n = len(zerorated_idxs)
     y_zerorated = np.zeros(zerorated_n, dtype = LABEL_DTYPE)
@@ -40,8 +35,7 @@ def load_global_cache(embedding : Embedding, max_cache : int = None, random_stat
     y_global_cache = np.zeros(global_cache_n, dtype = LABEL_DTYPE)
     return global_cache_ids, global_cache_idxs, global_cache_n, y_global_cache
 
-def load_filtered_cache_for_user(embedding : Embedding, cache_type : Cache_Type, user_id : int, max_cache : int, random_state : int, 
-                                 pos_n : int, negrated_n : int) -> tuple:
+def load_filtered_cache_for_user(embedding : Embedding, user_id : int, max_cache : int, random_state : int, pos_n : int, negrated_n : int) -> tuple:
     user_filtered_cache_ids = get_cache_papers_ids_for_user(user_id, max_cache, random_state)
     user_filtered_cache_idxs = embedding.get_idxs(user_filtered_cache_ids)
     user_filtered_cache_n = len(user_filtered_cache_idxs)

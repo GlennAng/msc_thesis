@@ -1,15 +1,21 @@
-from data_handling import *
+import numpy as np, pickle, sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parents[3]))
+from project_paths import ProjectPaths
+sys.path.append(str(ProjectPaths.logreg_data_embeddings_path()))
+sys.path.append(str(ProjectPaths.logreg_src_embeddings_path()))
+sys.path.append(str(ProjectPaths.logreg_src_processing_path()))
+
 from embedding import *
 from papers_categories_dicts import *
-import numpy as np
-import pickle
-embedding_path = "../data/embeddings/after_pca/gte_large_2025-02-23_256"
+
+embedding_path = ProjectPaths.logreg_data_embeddings_path() / "after_pca" / "gte_large_2025-02-23_256"
 
 def load_glove_embeddings(dim : int) -> dict:
     from tqdm import tqdm
-    glove_path = f"../data/embeddings/glove/glove.6B.{dim}d.txt"
+    glove_path = ProjectPaths.logreg_data_embeddings_path() / "glove" / f"glove.6B.{dim}d.txt"
     embeddings = {}
-    with open(glove_path, 'r', encoding='utf-8') as f:
+    with open(glove_path, 'r', encoding = 'utf-8') as f:
         for line in tqdm(f, desc = "Loading GloVe embeddings"):
             parts = line.split()
             word = parts[0]
@@ -67,4 +73,4 @@ def attach_papers_categories(embeddings : np.ndarray, papers_ids_to_idxs : dict,
   
 if __name__ == "__main__":
     embedding = Embedding(embedding_path)
-    attach_papers_categories(embedding.matrix, embedding.papers_ids_to_idxs, save_matrix = True)
+    #attach_papers_categories(embedding.matrix, embedding.papers_ids_to_idxs, save_matrix = True)

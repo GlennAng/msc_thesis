@@ -1,5 +1,5 @@
-from enum import Enum, auto
 import numpy as np
+from enum import Enum, auto
 
 def load_hyperparameter_range(hyperparameter_range_raw : object) -> list:
     if hyperparameter_range_raw is None:

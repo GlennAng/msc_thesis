@@ -1,23 +1,32 @@
-import argparse
-import json
+import sys
+from pathlib import Path
+try:
+    from project_paths import ProjectPaths
+except ImportError:
+    sys.path.append(str(Path(__file__).parents[3]))
+    from project_paths import ProjectPaths
+ProjectPaths.add_logreg_src_paths_to_sys()
+
+import argparse, json, os, pickle
 import numpy as np
-import os
-import pickle
+from matplotlib.backends.backend_pdf import PdfPages
+
 from embedding import compute_cosine_similarities
 from results_handling import average_over_folds_with_std
 from visualize_globally import Global_Visualizer
 from visualization_tools import *
-from matplotlib.backends.backend_pdf import PdfPages
 
 def parse_args() -> dict:
     parser = argparse.ArgumentParser()
-    parser.add_argument('--outputs_folder', type = str)
+    parser.add_argument('--outputs_folder', type = Path)
     parser.add_argument('--users', type = str, nargs = '+', default = "all")
     parser.add_argument('--hyperparameters_combination', type = int, default = -1)
     parser.add_argument('--folds', type = str, default = '0')
     parser.add_argument('--visualize_papers', action = 'store_true', default = True)
-    args = parser.parse_args()
-    return vars(args)
+    args = vars(parser.parse_args())
+    if not isinstance(args["outputs_folder"], Path):
+        args["outputs_folder"] = Path(args["outputs_folder"]).resolve()
+    return args
 
 def preprocess_args(args : dict, gv : Global_Visualizer) -> None:
     args["folds_idxs"] = list(range(gv.n_folds)) if args["folds"].lower() == "all" else [int(args["folds"])]
@@ -113,7 +122,7 @@ class User_Visualizer:
 
 if __name__ == "__main__":
     args = parse_args()
-    config, users_info, hyperparameters_combinations, results_before_averaging_over_folds = load_outputs_files(args["outputs_folder"].rstrip("/"))
+    config, users_info, hyperparameters_combinations, results_before_averaging_over_folds = load_outputs_files(args["outputs_folder"])
     gv = Global_Visualizer(config, users_info, hyperparameters_combinations, results_before_averaging_over_folds, args["outputs_folder"])
     preprocess_args(args, gv)
     if args["visualize_papers"]:

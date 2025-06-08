@@ -1,19 +1,23 @@
-from algorithm import Algorithm, Evaluation, Score, get_score, derive_score, SCORES_DICT, get_ranking_scores
-from algorithm import get_cross_val, get_model
-from compute_tfidf import load_vectorizer
-from data_handling import get_rated_papers_ids_for_user, get_voting_weight_for_user
-from embedding import Embedding
-from training_data import load_base_for_user, load_zerorated_for_user, load_global_cache, load_filtered_cache_for_user, load_negative_samples_embeddings
-from training_data import load_negrated_ranking_ids_for_user, load_training_data_for_user, Cache_Type, LABEL_DTYPE
-from weights_handler import Weights_Handler
+import sys
+from pathlib import Path
+try:
+    from project_paths import ProjectPaths
+except ImportError:
+    sys.path.append(str(Path(__file__).parents[3]))
+    from project_paths import ProjectPaths
+ProjectPaths.add_logreg_src_paths_to_sys()
 
+import json, os, pickle
+import numpy as np
 from joblib import Parallel, delayed
 from sklearn.model_selection import train_test_split
 
-import json
-import numpy as np
-import os
-import pickle
+from algorithm import Algorithm, Evaluation, Score, get_cross_val, get_model, get_score, get_ranking_scores, derive_score, SCORES_DICT
+from compute_tfidf import load_vectorizer
+from data_handling import get_rated_papers_ids_for_user, get_voting_weight_for_user
+from embedding import Embedding
+from training_data import *
+from weights_handler import Weights_Handler
 
 class Evaluator:
     def __init__(self, config : dict, users_ids : list, hyperparameters_combinations : list, wh : Weights_Handler) -> None:
@@ -35,8 +39,9 @@ class Evaluator:
         if self.config["save_tfidf_coefs"]:
             vectorizer = load_vectorizer(self.config["embedding_folder"])
             feature_names = vectorizer.get_feature_names_out()
-            with open(f"{self.config['outputs_dir']}/feature_names.pkl", "wb") as f:
+            with open(f"{self.config['outputs_dir']}" / "feature_names.pkl", "wb") as f:
                 pickle.dump(feature_names, f)
+
         if "save_users_coefs" in self.config and self.config["save_users_coefs"]:
             if self.config["evaluation"] != Evaluation.TRAIN_TEST_SPLIT:
                 raise ValueError("Users coefficient saving is only supported with train-test split evaluation.")
@@ -46,13 +51,13 @@ class Evaluator:
                 raise ValueError("Users coefficient loading is only supported with train-test split evaluation.")
             if len(self.hyperparameters_combinations) > 1:
                 raise ValueError("Users coefficient loading is not supported with multiple hyperparameter combinations.")
-            self.users_coefs = np.load(self.config["users_coefs_path"].rstrip("/") + "/users_coefs.npy")
-            with open(self.config["users_coefs_path"].rstrip("/") + "/users_coefs_ids_to_idxs.pkl", "rb") as f:
+            users_coefs_path = Path(self.config["users_coefs_path"]).resolve()
+            self.users_coefs = np.load(users_coefs_path / "users_coefs.npy")
+            with open(users_coefs_path / "users_coefs_ids_to_idxs.pkl", "rb") as f:
                 self.users_coefs_ids_to_idxs = pickle.load(f)
         if self.include_global_cache:
             self.global_cache_ids, self.global_cache_idxs, self.global_cache_n, self.y_global_cache = load_global_cache(self.embedding, 
                                                            self.config["max_cache"], self.config["cache_random_state"])
-            print(self.global_cache_ids[500:600])
         self.negative_samples_ids, self.negative_samples_embeddings = load_negative_samples_embeddings(self.embedding, self.config["n_negative_samples"], self.config["ranking_random_state"])
         self.cache_attached_ids = load_negative_samples_embeddings(self.embedding, self.config["n_cache_attached"], self.config["cache_random_state"], self.negative_samples_ids)[0]
         self.cache_attached_idxs = self.embedding.get_idxs(self.cache_attached_ids)
@@ -131,8 +136,8 @@ class Evaluator:
             if self.config["include_cache"]:
                 target_ratio = self.config["target_ratio"] if "target_ratio" in self.config else None
                 assert target_ratio is None or (target_ratio > 0 and target_ratio < 1)
-                cache_ids, cache_idxs, cache_n, y_cache = load_filtered_cache_for_user(self.embedding, self.config["cache_type"], user_id, self.config["max_cache"], 
-                                                            self.config["cache_random_state"], pos_n, negrated_n)
+                cache_ids, cache_idxs, cache_n, y_cache = load_filtered_cache_for_user(self.embedding, user_id, self.config["max_cache"], 
+                                                                                       self.config["cache_random_state"], pos_n, negrated_n)
             else:
                 cache_ids, cache_idxs, cache_n, y_cache = [], [], 0, []
         if self.include_global_cache or self.config["include_cache"]:
@@ -235,29 +240,29 @@ class Evaluator:
                 "val_ids" : self.embedding.get_papers_ids(val_rated_idxs), "val_labels" : y_val.tolist(), "negrated_ranking_ids" : negrated_ranking_ids}
     
     def save_user_info(self, user_id : int, user_info : dict) -> None:
-        folder = f"{self.config['outputs_dir']}/tmp/user_{user_id}"
+        folder = self.config["outputs_dir"] / "tmp" / f"user_{user_id}"
         if not os.path.exists(folder):
             os.makedirs(folder)
-        json.dump(user_info, open(folder + "/user_info.json", 'w'), indent = 1)
+        json.dump(user_info, open(folder / "user_info.json", 'w'), indent = 1)
 
     def save_user_results(self, user_id : int, user_results_dict : dict) -> None:
-        folder = f"{self.config['outputs_dir']}/tmp/user_{user_id}"
+        folder = self.config["outputs_dir"] / "tmp" / f"user_{user_id}"
         if not os.path.exists(folder):
             os.makedirs(folder)
         try:
-            json.dump(user_results_dict, open(folder + "/user_results.json", 'w'), indent = 1)
+            json.dump(user_results_dict, open(folder / "user_results.json", 'w'), indent = 1)
         except:
             print(f"Error saving user {user_id} results.")
             raise
 
     def save_users_predictions(self, user_id : int, user_predictions_dict : dict) -> None:
-        folder = f"{self.config['outputs_dir']}/users_predictions/user_{user_id}"
+        folder = self.config["outputs_dir"] / "users_predictions" / f"user_{user_id}"
         if not os.path.exists(folder):
             os.makedirs(folder)
-        json.dump(user_predictions_dict, open(folder + "/user_predictions.json", 'w'), indent = 1)
+        json.dump(user_predictions_dict, open(folder / "user_predictions.json", 'w'), indent = 1)
 
     def save_users_coefs(self, user_id : int, user_coefs : np.ndarray) -> None:
-        folder = f"{self.config['outputs_dir']}/tmp/user_{user_id}"
+        folder = self.config["outputs_dir"] / "tmp" / f"user_{user_id}"
         if not os.path.exists(folder):
             os.makedirs(folder)
-        np.save(folder + "/user_coefs.npy", user_coefs)
+        np.save(folder / "user_coefs.npy", user_coefs)

@@ -1,12 +1,10 @@
+import numpy as np, random
 from enum import Enum, auto
 from scipy.special import softmax
-from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, log_loss, roc_auc_score, ndcg_score
+from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.svm import SVC
-import numpy as np
-import random
-
 CONFIDENCE_THRESHOLD = 0.05
 
 class Score(Enum):

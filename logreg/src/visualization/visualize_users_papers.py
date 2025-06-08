@@ -1,13 +1,20 @@
+import sys
+from pathlib import Path
+try:
+    from project_paths import ProjectPaths
+except ImportError:
+    sys.path.append(str(Path(__file__).parents[3]))
+    from project_paths import ProjectPaths
+ProjectPaths.add_logreg_src_paths_to_sys()
+
+import argparse, os, pickle
+from enum import Enum
+from matplotlib.backends.backend_pdf import PdfPages
+
 from compute_cosine import compute_cosine_similarities
 from results_handling import average_over_folds, average_over_folds_with_std
 from visualize_globally import Global_Visualizer
 from visualization_tools import *
-
-from enum import Enum
-from matplotlib.backends.backend_pdf import PdfPages
-import argparse
-import os
-import pickle
 
 class Users_Selection_Criterion(Enum):
     PERFORMANCE_ON_BEST_GLOBAL = 1
@@ -16,7 +23,7 @@ class Users_Selection_Criterion(Enum):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='User Visualization Parameters')
-    parser.add_argument('--outputs_folder', type = str)
+    parser.add_argument('--outputs_folder', type = Path)
     parser.add_argument('--n_print_interesting_users', type = str, default = '10')
     parser.add_argument('--visualize_worst_users', action = 'store_true', default = False)
     parser.add_argument('--visualize_best_users', action = 'store_true', default = False)

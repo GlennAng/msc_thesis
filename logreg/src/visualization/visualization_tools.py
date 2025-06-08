@@ -1,20 +1,24 @@
-from algorithm import Score, SCORES_DICT
-from compute_tfidf import train_vectorizer_for_user, get_mean_embedding
-from data_handling import sql_execute
-from results_handling import average_over_users
+import sys
+from pathlib import Path
+try:
+    from project_paths import ProjectPaths
+except ImportError:
+    sys.path.append(str(Path(__file__).parents[3]))
+    from project_paths import ProjectPaths
+ProjectPaths.add_logreg_src_paths_to_sys()
 
+import json, pickle, re
+import matplotlib.colors as colors, matplotlib.pyplot as plt
+import numpy as np, pandas as pd
 from enum import Enum
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.font_manager import FontProperties
 from matplotlib.backends.backend_pdf import PdfPages
 from wordcloud import WordCloud
-import json
-import matplotlib.colors as colors
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import pickle
-import re
+from algorithm import Score, SCORES_DICT
+from compute_tfidf import train_vectorizer_for_user, get_mean_embedding
+from data_handling import sql_execute
+from results_handling import average_over_users
 
 HYPERPARAMETERS_ABBREVIATIONS = {"clf_C": "C", "weights_cache_v": "v", "weights_negrated_importance": "v", "weights_cache_v1_v2": "v1_v2", "weights_neg_scale": "S", "cache_scale": "CS"}
 
@@ -55,12 +59,13 @@ def format_number(value : float, max_decimals : int = 4) -> str:
         return stripped + '0'
     return stripped
 
-def load_outputs_files(folder : str) -> tuple:
-    folder = folder[-1] if folder[-1] == "/" else folder
-    config = json.load(open(folder + "/config.json", 'r'))
-    users_info = pd.read_csv(folder + "/users_info.csv")
-    hyperparameters_combinations = pd.read_csv(folder + "/hyperparameters_combinations.csv")
-    results_before_averaging_over_folds = pd.read_csv(folder + "/users_results.csv")
+def load_outputs_files(path : Path) -> tuple:
+    if not isinstance(path, Path):
+        path = Path(path).resolve()
+    config = json.load(open(path / "config.json", 'r'))
+    users_info = pd.read_csv(path / "users_info.csv")
+    hyperparameters_combinations = pd.read_csv(path / "hyperparameters_combinations.csv")
+    results_before_averaging_over_folds = pd.read_csv(path / "users_results.csv")
     return config, users_info, hyperparameters_combinations, results_before_averaging_over_folds
 
 def get_hyperparameters_ranges(hyperparameters_combinations : pd.DataFrame) -> dict:

@@ -1,35 +1,42 @@
+import sys
+from pathlib import Path
+try:
+    from project_paths import ProjectPaths
+except ImportError:
+    sys.path.append(str(Path(__file__).parents[3]))
+    from project_paths import ProjectPaths
+ProjectPaths.add_logreg_src_paths_to_sys()
+
+import argparse, pickle, os, sys
+from matplotlib.backends.backend_pdf import PdfPages
 from algorithm import Algorithm, Evaluation, Score, get_score_from_arg, SCORES_DICT
 from results_handling import *
 from visualization_tools import *
-
-from matplotlib.backends.backend_pdf import PdfPages
-import argparse
-import pickle
-import sys
 
 OPTIMIZATION_CONSTANTS = {"N_TAIL_USERS": 15, "N_PRINT_BEST_HYPERPARAMETERS_COMBINATIONS": 25, "PERCENTAGE_HI/LO_VOTES": 0.1, 
                           "PERCENTAGE_HI/LO_RATIO": 0.1}
 
 def parse_args() -> dict:
     parser = argparse.ArgumentParser(description = "Global Visualization Parameters")
-    parser.add_argument("--outputs_folder", type = str)
+    parser.add_argument("--outputs_folder", type = Path)
     parser.add_argument("--score", type = str, default = "balanced_accuracy")
     parser.add_argument("--optimize_tail", action = "store_true", default = False)
     parser.add_argument("--no-optimize_tail", action = "store_false", dest = "optimize_tail")
     parser.add_argument("--save_scores_tables", action = "store_true", default = False)
     args_dict = vars(parser.parse_args())
-    args_dict["outputs_folder"] = args_dict["outputs_folder"].rstrip("/")
+    if not isinstance(args_dict["outputs_folder"], Path):
+        args_dict["outputs_folder"] = Path(args_dict["outputs_folder"])
     args_dict["score"] = get_score_from_arg(args_dict["score"])
     return args_dict
 
 class Global_Visualizer:
     def __init__(self, config : dict, users_info : pd.DataFrame, hyperparameters_combinations : pd.DataFrame, results_before_averaging_over_folds : pd.DataFrame, 
-                 folder : str, score : Score = Score.BALANCED_ACCURACY, tail : bool = False) -> None:
+                 folder : Path, score : Score = Score.BALANCED_ACCURACY, tail : bool = False) -> None:
         self.config = config
         self.users_info = clean_users_info(users_info, config["include_base"], config["include_cache"])
         self.hyperparameters_combinations = hyperparameters_combinations
         self.results_before_averaging_over_folds = results_before_averaging_over_folds
-        self.folder = folder.rstrip("/")
+        self.folder = folder
         self.score, self.tail = score, tail
         self.extract_users_data()
         self.extract_optimization_data()
@@ -229,8 +236,8 @@ class Global_Visualizer:
         plot_hyperparameter_for_all_combinations(pdf, self.hyperparameters, self.hyperparameters_combinations_with_explicit_X_hyperparameter, plot_df, plot_tail_df)
 
     def generate_pdf(self, save_scores_tables : bool = False) -> None:
-        file_name = f"{self.folder}/global_visu_{SCORES_DICT[self.score]['abbreviation'].lower()}.pdf"
-        scores_tables_save_path = f"{self.folder}/scores_table" if save_scores_tables else None
+        file_name = self.folder / f"global_visu_{SCORES_DICT[self.score]['abbreviation'].lower()}.pdf"
+        scores_tables_save_path = self.folder / "scores_table" if save_scores_tables else None
         with PdfPages(file_name) as pdf:
             self.generate_first_page(pdf)
             self.generate_second_page(pdf)
@@ -262,7 +269,7 @@ class Global_Visualizer:
             print(f"Correlation between {score.name} and Survey Ratings: {survey_ratings[f'val_{score.name.lower()}'].corr(survey_ratings['survey_rating'])}")
 
     def print_negative_samples(self):
-        outputs_folder_2 = "outputs/tfidf2"
+        outputs_folder_2 = ProjectPaths.logreg_outputs_path() / "tfidf2"
         config2, users_info2, hyperparameters_combinations2, results_before_averaging_over_folds2 = load_outputs_files(outputs_folder_2)
         global_visualizer2 = Global_Visualizer(config2, users_info2, hyperparameters_combinations2, results_before_averaging_over_folds2, outputs_folder_2,
                                                 self.score, self.tail)

@@ -1,6 +1,16 @@
-from algorithm import Score, SCORES_DICT
-from typing import Callable
+import sys
+from pathlib import Path
+try:
+    from project_paths import ProjectPaths
+except ImportError:
+    sys.path.append(str(Path(__file__).parents[3]))
+    from project_paths import ProjectPaths
+ProjectPaths.add_logreg_src_paths_to_sys()
+
 import pandas as pd
+from typing import Callable
+
+from algorithm import Score, SCORES_DICT
 
 def throw_if_missing(column_names: list, method_name: str) -> Callable:
     def decorator(func: Callable) -> Callable:

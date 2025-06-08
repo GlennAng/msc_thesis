@@ -1,10 +1,4 @@
-import functools
-import os
-import pandas as pd
-import pickle
-import random
-import sqlalchemy
-import tqdm
+import functools, os, pandas as pd, pickle, random, sqlalchemy, tqdm
 from enum import Enum, auto
 from sqlalchemy import create_engine, bindparam
 
@@ -236,14 +230,6 @@ def get_titles_and_abstracts(papers_ids : list = None, include_arxiv_categories 
         from arxiv import arxiv_categories
         papers = [(paper_id, title, abstract, arxiv_categories[category.lower() if category else category]) for paper_id, title, abstract, category in papers]
     return papers
-
-def get_users_survey_ratings() -> pd.DataFrame:
-    query = """SELECT user_id, rating 
-                FROM survey_answers 
-                WHERE rating IS NOT NULL
-                ORDER BY user_id;"""
-    tuple_list = sql_execute(query)
-    return pd.DataFrame(tuple_list, columns = ["user_id", "survey_rating"])
 
 def get_db_name() -> str:
     return DB_NAME

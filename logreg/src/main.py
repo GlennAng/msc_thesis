@@ -1,13 +1,21 @@
+import sys
+from pathlib import Path
+try:
+    from project_paths import ProjectPaths
+except ImportError:
+    sys.path.append(str(Path(__file__).parents[2]))
+    from project_paths import ProjectPaths
+ProjectPaths.add_logreg_src_paths_to_sys()
+
+import itertools, json, os, pickle, time
+import numpy as np, pandas as pd
+
 from algorithm import get_algorithm_from_arg, get_evaluation_from_arg, Score
-from data_handling import get_users_ids_with_sufficient_votes
-from data_handling import get_users_survey_ratings
 from create_example_config import check_config
+from data_handling import get_users_ids_with_sufficient_votes
 from embedding import Embedding
 from evaluation import Evaluator
-from data_processing.paths import PATHS
-from pathlib import Path, PosixPath
 from weights_handler import load_hyperparameter_range, Weights_Handler
-import itertools, json, numpy as np, os, pandas as pd, pickle, sys, time
 
 def config_assertions(config : dict) -> None:
     assert config["save_tfidf_coefs"] == False, "Config: save_tfidf_coefs must be False."
@@ -20,12 +28,12 @@ def config_assertions(config : dict) -> None:
     assert config["logreg_solver"] == "lbfgs", "Config: logreg_solver must be 'lbfgs'."
     assert config["max_iter"] == 10000, "Config: max_iter must be 10000."
 
-def load_config(config_path : PosixPath) -> dict:
+def load_config(config_path : Path) -> dict:
     try:
         with open(config_path) as file:
             config = json.load(file)
     except FileNotFoundError:
-        sys.exit(f"Config File '{config_file}' not found.")
+        sys.exit(f"Config File '{config_path}' not found.")
     config_assertions(config)
     if check_config(config):
         print("Config File is valid.")
@@ -37,7 +45,7 @@ def convert_enums(config : dict) -> None:
     config["evaluation"] = get_evaluation_from_arg(config["evaluation"])
 
 def create_outputs_folder(config : dict) -> None:
-    outputs_dir = PATHS["outputs_path"]
+    outputs_dir = ProjectPaths.logreg_outputs_path()
     os.makedirs(outputs_dir, exist_ok = True)
     experiment_dir = outputs_dir / config["experiment_name"]
     os.makedirs(experiment_dir, exist_ok = True)
@@ -167,11 +175,11 @@ if __name__ == "__main__":
     start_time = time.time()
     if len(sys.argv) < 2:
         sys.exit("Usage: python main.py <config_file>")
-    config = load_config(Path(sys.argv[1]))
+    config = load_config(Path(sys.argv[1]).resolve())
     convert_enums(config)
     create_outputs_folder(config)
 
-    users_ids = get_users_ids(users_selection = config["users_selection"], max_users = config["max_users"], min_n_posrated = config["min_n_posrated"], min_n_negrated = config["min_n_negrated"], 
+    users_ids = get_users_ids(users_selection = config["users_selection"], max_users = config["max_users"],
                               take_complement = config["take_complement_of_users"], random_state = config["users_random_state"], remove_null_dates = config.get("remove_null_dates", True))
     users_ids = users_ids["user_id"].tolist()
 
