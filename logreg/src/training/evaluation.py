@@ -20,16 +20,18 @@ from training_data import *
 from weights_handler import Weights_Handler
 
 class Evaluator:
-    def __init__(self, config : dict, users_ids : list, hyperparameters_combinations : list, wh : Weights_Handler) -> None:
+    def __init__(self, config : dict, users_ratings : pd.DataFrame, hyperparameters_combinations : list, wh : Weights_Handler) -> None:
         self.config = config
-        self.users_ids = users_ids
+        self.users_ratings = users_ratings
+        self.users_ids = self.users_ratings["user_id"].unique().tolist()
+        assert self.users_ids == sorted(self.users_ids)
         self.hyperparameters, self.hyperparameters_combinations = config["hyperparameters"], hyperparameters_combinations
         self.wh = wh
         self.scores, self.scores_n = config["scores"], len(config["scores"])
         self.non_derivable_scores, self.derivable_scores = [], []
         for score in Score:
             self.derivable_scores.append(score) if SCORES_DICT[score]["derivable"] else self.non_derivable_scores.append(score)
-        self.users_voting_weights = {user_id : get_voting_weight_for_user(user_id) for user_id in users_ids} if wh.need_voting_weight else None
+        self.users_voting_weights = {user_id : get_voting_weight_for_user(user_id) for user_id in self.users_ids} if wh.need_voting_weight else None
         self.include_global_cache = self.config["include_cache"] and self.config["cache_type"] == "global"
         if self.config["evaluation"] == Evaluation.CROSS_VALIDATION:
             self.cross_val = get_cross_val(config["stratified"], config["k_folds"], self.config["model_random_state"])
@@ -70,25 +72,22 @@ class Evaluator:
 
     def evaluate_user(self, user_id : int) -> None:
         user_results_dict, user_predictions_dict = {}, {}
-        posrated_ids = get_rated_papers_ids_for_user(user_id, rating = 1)
-        negrated_ids = get_rated_papers_ids_for_user(user_id, rating = -1)
+        user_ratings = self.users_ratings[self.users_ratings["user_id"] == user_id].reset_index(drop = True)
+        assert user_ratings["time"].is_monotonic_increasing
+        posrated_ids = user_ratings[user_ratings["rating"] == 1]["paper_id"].tolist()
+        negrated_ids = user_ratings[user_ratings["rating"] == 0]["paper_id"].tolist()
         rated_ids = posrated_ids + negrated_ids
         posrated_n, negrated_n = len(posrated_ids), len(negrated_ids)
         rated_labels = np.concatenate((np.ones(posrated_n, dtype = LABEL_DTYPE), np.zeros(negrated_n, dtype = LABEL_DTYPE)))
-        base_ids, base_idxs, base_n, y_base = [], [], 0, []
-        if self.config["include_base"]:
-            base_ids, base_idxs, base_n, y_base = load_base_for_user(self.embedding, user_id)
-        user_predictions_dict["base_ids"] = base_ids
-        zerorated_ids, zerorated_idxs, zerorated_n, y_zerorated = [], [], 0, []
-        if self.config["include_zerorated"]:
-            zerorated_ids, zerorated_idxs, zerorated_n, y_zerorated = load_zerorated_for_user(self.embedding, user_id)
-        user_predictions_dict["zerorated_ids"] = zerorated_ids
+        base_ids, base_idxs, base_n, y_base, user_predictions_dict["base_ids"] = [], [], 0, [], []
+        zerorated_ids, zerorated_idxs, zerorated_n, y_zerorated, user_predictions_dict["zerorated_ids"] = [], [], 0, [], []
         cache_ids, cache_idxs, cache_n, y_cache = self.set_cache_for_user(user_id, posrated_n, negrated_n, base_n)
         user_info = self.store_user_info(user_id, posrated_n, negrated_n, base_n, zerorated_n, cache_n)
         user_predictions_dict["negative_samples_ids"] = self.negative_samples_ids
-        if self.config["evaluation"] == Evaluation.TRAIN_TEST_SPLIT:
-            train_rated_ids, val_rated_ids, y_train_rated, y_val = train_test_split(rated_ids, rated_labels, test_size = self.config["test_size"], random_state = self.config["model_random_state"],
-                                                                                    stratify = rated_labels if self.config["stratified"] else None)
+        if self.config["evaluation"] in [Evaluation.TRAIN_TEST_SPLIT, Evaluation.SESSION_BASED]:
+            train_mask, val_mask = user_ratings["split"] == "train", user_ratings["split"] == "val"
+            train_rated_ids, val_rated_ids = user_ratings.loc[train_mask, "paper_id"].values.tolist(), user_ratings.loc[val_mask, "paper_id"].values.tolist()
+            y_train_rated, y_val = user_ratings.loc[train_mask, "rating"].values, user_ratings.loc[val_mask, "rating"].values
             val_rated_negative_ids = [id for id in val_rated_ids if id in negrated_ids]
             negrated_ranking_ids = load_negrated_ranking_ids_for_user(val_rated_negative_ids, self.config["ranking_random_state"])
             train_rated_idxs, val_rated_idxs = self.embedding.get_idxs(train_rated_ids), self.embedding.get_idxs(val_rated_ids)

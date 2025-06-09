@@ -12,7 +12,7 @@ import numpy as np, pandas as pd
 
 from algorithm import get_algorithm_from_arg, get_evaluation_from_arg, Score
 from create_example_config import check_config
-from data_handling import get_users_ids_with_sufficient_votes
+from get_users_ratings import get_users_ratings
 from embedding import Embedding
 from evaluation import Evaluator
 from weights_handler import load_hyperparameter_range, Weights_Handler
@@ -58,32 +58,6 @@ def create_outputs_folder(config : dict) -> None:
             os.system(f"rm -r {path}")
     os.makedirs(experiment_dir / "tmp", exist_ok = True)
     os.makedirs(experiment_dir / "users_predictions", exist_ok = True)
-
-def get_users_ids(users_selection : str, max_users : int = None, min_n_posrated : int = 20, min_n_negrated : int = 20, take_complement : bool = False, 
-                  random_state : int = None, remove_null_dates : bool = True) -> pd.DataFrame:
-    users_ids_with_sufficient_votes = get_users_ids_with_sufficient_votes(min_n_posrated = min_n_posrated, min_n_negrated = min_n_negrated, sort_ids = False, 
-                                                                          remove_null_dates = remove_null_dates)
-    if users_selection not in ["random", "largest_n", "smallest_n"]:
-        users_ids_with_sufficient_votes = users_ids_with_sufficient_votes[users_ids_with_sufficient_votes["user_id"].isin(list(users_selection))]
-    n_users_with_sufficient_votes = len(users_ids_with_sufficient_votes)
-    print(n_users_with_sufficient_votes, "users with sufficient votes.")
-    max_users = n_users_with_sufficient_votes if max_users is None else min(max_users, n_users_with_sufficient_votes)
-    if max_users >= n_users_with_sufficient_votes:
-        assert not take_complement, "Users Selection: take_complement must be False when all users are selected."
-    else:
-        if take_complement:
-            users_ids_with_sufficient_votes_complement = users_ids_with_sufficient_votes.copy()
-        if users_selection == "random":
-            users_ids_with_sufficient_votes = users_ids_with_sufficient_votes.sort_values(by = "user_id")
-            users_ids_with_sufficient_votes = users_ids_with_sufficient_votes.sample(n = max_users, random_state = random_state)
-        elif users_selection in ["largest_n", "smallest_n"]:
-            smallest_n_bool = (users_selection == "smallest_n")
-            users_ids_with_sufficient_votes = users_ids_with_sufficient_votes.sort_values(["n_rated", "n_posrated", "user_id"], 
-                                                                              ascending = [smallest_n_bool, smallest_n_bool, False]).head(max_users)
-        if take_complement:
-            users_ids_with_sufficient_votes = users_ids_with_sufficient_votes_complement[~users_ids_with_sufficient_votes_complement["user_id"].isin(users_ids_with_sufficient_votes["user_id"])]
-    print(len(users_ids_with_sufficient_votes), "users selected.")
-    return users_ids_with_sufficient_votes.sort_values(by = "user_id")
 
 def load_hyperparameters(config : dict, wh : Weights_Handler) -> list:
     weights_hyperparameters_ranges = wh.load_weights_hyperparameters(config)
@@ -179,10 +153,11 @@ if __name__ == "__main__":
     convert_enums(config)
     create_outputs_folder(config)
 
-    users_ids = get_users_ids(users_selection = config["users_selection"], max_users = config["max_users"],
-                              take_complement = config["take_complement_of_users"], random_state = config["users_random_state"], remove_null_dates = config.get("remove_null_dates", True))
-    users_ids = users_ids["user_id"].tolist()
-
+    users_ratings, users_ids = get_users_ratings(users_selection = config["users_selection"], evaluation = config["evaluation"], test_size = config["test_size"],
+                                                max_users = config["max_users"], users_random_state = config["users_random_state"],
+                                                min_n_posrated = config["min_n_posrated"], min_n_negrated = config["min_n_negrated"],
+                                                stratify = config["stratified"], take_complement = config["take_complement_of_users"],
+                                                users_mapped = config["users_mapped"], model_random_state = config["model_random_state"])
     init_scores(config)
     wh = Weights_Handler(config)
     hyperparameters_combinations = load_hyperparameters(config, wh)
@@ -191,7 +166,7 @@ if __name__ == "__main__":
     config_copy = config.copy()
     save_hyperparameters_combinations(config, hyperparameters_combinations)
     
-    evaluator = Evaluator(config, users_ids, hyperparameters_combinations, wh)
+    evaluator = Evaluator(config, users_ratings, hyperparameters_combinations, wh)
     evaluator.evaluate_embedding(embedding)
     merge_users_infos(config, users_ids)
     merge_users_results(config, users_ids)

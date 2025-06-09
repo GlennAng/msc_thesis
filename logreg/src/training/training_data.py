@@ -12,7 +12,7 @@ from enum import Enum, auto
 
 from data_handling import *
 from embedding import Embedding
-LABEL_DTYPE = np.int32
+LABEL_DTYPE = np.int64
 
 def load_base_for_user(embedding : Embedding, user_id : int) -> tuple:
     base_ids = get_base_papers_ids_for_user(user_id)

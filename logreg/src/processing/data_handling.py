@@ -115,9 +115,11 @@ def get_rated_papers_ids_for_user(user_id : int, rating : int) -> list:
     query = f"""
     SELECT paper_id FROM users_ratings 
     WHERE user_id = {user_id} 
-    AND rating = {rating};
+    AND rating = {rating}
+    AND time IS NOT NULL
+    ORDER BY time;
     """
-    return sorted([t[0] for t in sql_execute(query)])
+    return [t[0] for t in sql_execute(query)]
 
 def get_base_papers_ids_for_user(user_id : int) -> list:
     query = f"""
