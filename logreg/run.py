@@ -12,8 +12,7 @@ import argparse, os, time
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument('--config_path', type = str, required = True)
-    parser.add_argument('--visualize_users_infos', action = 'store_true', default = False)
-    parser.add_argument('--visualize_users_papers', action = 'store_true', default = False)
+    parser.add_argument('--visualize_users', action = 'store_true', default = False)
     parser.add_argument('--fold_idx', type = str, default = '0')
     parser.add_argument('--save_scores_tables', action = 'store_true', default = False)
     return parser.parse_args()

@@ -38,7 +38,7 @@ throw_if_user_id_missing = lambda method_name: throw_if_missing(["user_id"], met
 throw_if_user_id_present = lambda method_name: throw_if_present(["user_id"], method_name)
 throw_if_any_score_missing = lambda method_name: throw_if_missing(list(Score), method_name)
 
-def average_over_folds(results_before_avging_over_folds : pd.DataFrame) -> pd.DataFrame:
+def average_over_folds(results_before_avging_over_folds: pd.DataFrame) -> pd.DataFrame:
     """
     output columns: ['user_id', 'combination_idx'] + ['train_{score}', 'val_{score}'] for each score in the DF
     """
@@ -47,7 +47,7 @@ def average_over_folds(results_before_avging_over_folds : pd.DataFrame) -> pd.Da
     results_after_avging_over_folds = results_after_avging_over_folds.drop(columns = ["fold_idx"])
     return results_after_avging_over_folds
 
-def average_over_folds_with_std(results_before_avging_over_folds : pd.DataFrame) -> pd.DataFrame:
+def average_over_folds_with_std(results_before_avging_over_folds: pd.DataFrame) -> pd.DataFrame:
     """
     output columns: ['user_id', 'combination_idx'] + ['train_{score}_mean', 'val_{score}_mean', 'train_{score}_std', 'val_{score}_std'] for each score in the DF
     """
@@ -62,7 +62,7 @@ def average_over_folds_with_std(results_before_avging_over_folds : pd.DataFrame)
     return results_after_avging_over_folds
 
 @throw_if_fold_idx_present("average_over_users")
-def average_over_users(results_after_avging_over_folds : pd.DataFrame) -> pd.DataFrame:
+def average_over_users(results_after_avging_over_folds: pd.DataFrame) -> pd.DataFrame:
     """
     output columns: ['combination_idx] + ['train_{score}_mean', 'val_{score}_mean', 'train_{score}_std', 'val_{score}_std'] for each score in the DF
     """
@@ -78,7 +78,7 @@ def average_over_users(results_after_avging_over_folds : pd.DataFrame) -> pd.Dat
     return results_after_avging_over_users
 
 @throw_if_fold_idx_present("get_val_upper_bounds")
-def get_val_upper_bounds(results_after_avging_over_folds : pd.DataFrame, n_tail_users : int) -> dict:
+def get_val_upper_bounds(results_after_avging_over_folds: pd.DataFrame, n_tail_users: int) -> dict:
     """
     output dict mapping to single floats with keys: 'val_{score}', 'val_{score}_tail' for each score
     """
@@ -99,7 +99,7 @@ def get_val_upper_bounds(results_after_avging_over_folds : pd.DataFrame, n_tail_
     return val_upper_bounds
 
 @throw_if_fold_idx_present("keep_only_n_most_extreme_hyperparameters_combinations_score")
-def keep_only_n_most_extreme_hyperparameters_combinations_for_all_users_score(results_after_avging_over_folds : pd.DataFrame, score : Score, n_extreme_combinations : int, use_smallest : bool) -> pd.DataFrame:
+def keep_only_n_most_extreme_hyperparameters_combinations_for_all_users_score(results_after_avging_over_folds: pd.DataFrame, score: Score, n_extreme_combinations: int, use_smallest: bool) -> pd.DataFrame:
     """
     output columns: just like the input DF
     """
@@ -108,7 +108,7 @@ def keep_only_n_most_extreme_hyperparameters_combinations_for_all_users_score(re
     return results_after_avging_over_folds.groupby(["user_id"]).apply(lambda x: extreme_func(x, n_extreme_combinations, f"val_{score.name.lower()}")).reset_index(drop = True)
 
 @throw_if_fold_idx_present("keep_only_n_most_extreme_users_for_all_hyperparameters_combinations_score")
-def keep_only_n_most_extreme_users_for_all_hyperparameters_combinations_score(results_after_avging_over_folds : pd.DataFrame, score : Score, n_extreme_users : int, use_smallest : bool) -> tuple:
+def keep_only_n_most_extreme_users_for_all_hyperparameters_combinations_score(results_after_avging_over_folds: pd.DataFrame, score: Score, n_extreme_users: int, use_smallest: bool) -> tuple:
     """
     output columns 'n_most_extreme_users_train': ['user_id', 'combination_idx'] + ['train_{score}'] for the sole argument score
     output columns: 'n_most_extreme_users_val': ['user_id', 'combination_idx] + ['val_{score}'] for the sole argument score
@@ -122,7 +122,7 @@ def keep_only_n_most_extreme_users_for_all_hyperparameters_combinations_score(re
     return n_most_extreme_users_train, n_most_extreme_users_val
 
 @throw_if_fold_idx_present("average_over_n_most_extreme_users_for_all_hyperparameters_combinations_score")
-def average_over_n_most_extreme_users_for_all_hyperparameters_combinations_score(results_after_avging_over_folds : pd.DataFrame, score : Score, n_extreme_users : int, use_smallest : bool) -> pd.DataFrame:
+def average_over_n_most_extreme_users_for_all_hyperparameters_combinations_score(results_after_avging_over_folds: pd.DataFrame, score: Score, n_extreme_users: int, use_smallest: bool) -> pd.DataFrame:
     """
     output columns: ['combination_idx'] + ['train_{score}_mean', 'train_{score}_std', 'val_{score}_mean', 'val_{score}_std'] for the sole argument score
     """
@@ -132,7 +132,7 @@ def average_over_n_most_extreme_users_for_all_hyperparameters_combinations_score
     return pd.merge(results_after_avging_over_n_most_extreme_users_train, results_after_avging_over_n_most_extreme_users_val, on = ['combination_idx'], how = "inner")
 
 @throw_if_fold_idx_present("average_over_n_most_extreme_users_for_all_hyperparameters_combinations")
-def average_over_n_most_extreme_users_for_all_hyperparameters_combinations(results_after_avging_over_folds : pd.DataFrame, n_extreme_users : int, use_smallest : bool) -> pd.DataFrame:
+def average_over_n_most_extreme_users_for_all_hyperparameters_combinations(results_after_avging_over_folds: pd.DataFrame, n_extreme_users: int, use_smallest: bool) -> pd.DataFrame:
     """
     output columns: ['combination_ix] + ['train_{score}_mean', 'train_{score}_std', 'val_{score}_mean', 'val_{scores}_std'] for each score
     """
@@ -145,7 +145,7 @@ def average_over_n_most_extreme_users_for_all_hyperparameters_combinations(resul
 
 @throw_if_fold_idx_present("get_n_best_hyperparameters_combinations_score")
 @throw_if_user_id_present("get_n_best_hyperparameters_combinations_score")
-def get_n_best_hyperparameters_combinations_score(results_after_avging_over_users: pd.DataFrame, score : Score, n_best_combinations : int) -> list:
+def get_n_best_hyperparameters_combinations_score(results_after_avging_over_users: pd.DataFrame, score: Score, n_best_combinations: int) -> list:
     score_name = score.name.lower()
     column = f"val_{score_name}_mean"
     if SCORES_DICT[score]["increase_better"]:
