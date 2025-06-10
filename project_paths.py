@@ -1,9 +1,16 @@
+import json
 from pathlib import Path
 
 class ProjectPaths:
+    _db_backup_date = None
+
     @staticmethod
-    def _base_path():
-        return Path(__file__).resolve().parent
+    def get_db_backup_date():
+        if ProjectPaths._db_backup_date is None:
+            db_backup_date_json = ProjectPaths.data_path() / "db_backup_date.json"
+            with open(db_backup_date_json, "r") as f:
+                ProjectPaths._db_backup_date = json.load(f)["db_backup_date"]
+        return ProjectPaths._db_backup_date
 
     @staticmethod
     def add_all_paths_to_sys(paths_list : list) -> None:
@@ -12,6 +19,18 @@ class ProjectPaths:
             path_str = str(path.resolve())
             if path_str not in sys.path:
                 sys.path.append(path_str)
+
+    @staticmethod
+    def _base_path():
+        return Path(__file__).resolve().parent
+
+    @staticmethod
+    def data_path():
+        return ProjectPaths._base_path() / "data"
+
+    @staticmethod
+    def data_db_backup_date_path():
+        return ProjectPaths.data_path() / ProjectPaths.get_db_backup_date()
 
     @staticmethod
     def finetuning_path():
@@ -29,12 +48,8 @@ class ProjectPaths:
         return ProjectPaths._base_path() / "logreg"
 
     @staticmethod
-    def logreg_data_path():
-        return ProjectPaths.logreg_path() / "data"
-
-    @staticmethod
-    def logreg_data_embeddings_path():
-        return ProjectPaths.logreg_data_path() / "embeddings"
+    def logreg_embeddings_path():
+        return ProjectPaths.logreg_path() / "embeddings"
 
     @staticmethod
     def logreg_experiments_path():

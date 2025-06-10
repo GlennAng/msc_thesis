@@ -21,8 +21,6 @@ def config_assertions(config : dict) -> None:
     assert config["save_tfidf_coefs"] == False, "Config: save_tfidf_coefs must be False."
     assert config["include_cache"] == True, "Config: include_cache must be True."
     assert config["cache_type"] in ["global", "user_filtered"]
-    if config["evaluation"] in ["train_test_split", "cross_validation"]:
-        assert config["stratified"] == True, "Config: stratified must be True for Cross-Validation."
     assert config["k_folds"] == 5, "Config: k_folds must be 5."
     assert config["algorithm"] == "logreg", "Config: algorithm must be 'logreg'."
     assert config["logreg_solver"] == "lbfgs", "Config: logreg_solver must be 'lbfgs'."
@@ -154,10 +152,12 @@ if __name__ == "__main__":
     create_outputs_folder(config)
 
     users_ratings, users_ids = get_users_ratings(users_selection = config["users_selection"], evaluation = config["evaluation"], test_size = config["test_size"],
-                                                max_users = config["max_users"], users_random_state = config["users_random_state"],
-                                                min_n_posrated = config["min_n_posrated"], min_n_negrated = config["min_n_negrated"],
-                                                stratify = config["stratified"], take_complement = config["take_complement_of_users"],
-                                                users_mapped = config["users_mapped"], model_random_state = config["model_random_state"])
+                    max_users = config["max_users"], users_random_state = config["users_random_state"], model_random_state = config["model_random_state"],
+                    stratify = config["stratified"], min_n_posrated = config["min_n_posrated"], min_n_negrated = config["min_n_negrated"],
+                    take_complement = config["take_complement_of_users"], users_mapped = config["users_mapped"],
+                    min_n_posrated_train = config["min_n_posrated_train"], min_n_negrated_train = config["min_n_negrated_train"],
+                    min_n_posrated_val = config["min_n_posrated_val"], min_n_negrated_val = config["min_n_negrated_val"])
+                    
     init_scores(config)
     wh = Weights_Handler(config)
     hyperparameters_combinations = load_hyperparameters(config, wh)

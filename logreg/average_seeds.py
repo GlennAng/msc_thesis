@@ -12,8 +12,9 @@ import json, os
 from visualize_globally import Global_Visualizer
 from visualization_tools import *
 
-seeds = [1, 2, 25, 26, 75, 76, 100, 101, 150, 151]
-example_config = ProjectPaths.logreg_experiments_path() / "example_config.json"
+#seeds = [1, 2, 25, 26, 75, 76, 100, 101, 150, 151]
+seeds = [1, 2, 25]
+example_config = ProjectPaths.logreg_experiments_path() / "example_config_temporal.json"
 config = json.load(open(example_config))
 config_stem = example_config.stem
 folder_name = ProjectPaths.logreg_experiments_path() / f"{config_stem}_seeds"

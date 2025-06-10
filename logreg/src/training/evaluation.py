@@ -45,11 +45,11 @@ class Evaluator:
                 pickle.dump(feature_names, f)
 
         if "save_users_coefs" in self.config and self.config["save_users_coefs"]:
-            if self.config["evaluation"] != Evaluation.TRAIN_TEST_SPLIT:
+            if self.config["evaluation"] not in [Evaluation.TRAIN_TEST_SPLIT, Evaluation.SESSION_BASED]:
                 raise ValueError("Users coefficient saving is only supported with train-test split evaluation.")
         self.load_users_coefs = ("load_users_coefs" in self.config and self.config["load_users_coefs"])
         if self.load_users_coefs:
-            if self.config["evaluation"] != Evaluation.TRAIN_TEST_SPLIT:
+            if self.config["evaluation"] not in [Evaluation.TRAIN_TEST_SPLIT, Evaluation.SESSION_BASED]:
                 raise ValueError("Users coefficient loading is only supported with train-test split evaluation.")
             if len(self.hyperparameters_combinations) > 1:
                 raise ValueError("Users coefficient loading is not supported with multiple hyperparameter combinations.")
@@ -133,8 +133,6 @@ class Evaluator:
             cache_ids, cache_idxs, cache_n, y_cache = self.global_cache_ids, self.global_cache_idxs, self.global_cache_n, self.y_global_cache
         else:
             if self.config["include_cache"]:
-                target_ratio = self.config["target_ratio"] if "target_ratio" in self.config else None
-                assert target_ratio is None or (target_ratio > 0 and target_ratio < 1)
                 cache_ids, cache_idxs, cache_n, y_cache = load_filtered_cache_for_user(self.embedding, user_id, self.config["max_cache"], 
                                                                                        self.config["cache_random_state"], pos_n, negrated_n)
             else:
