@@ -173,7 +173,7 @@ def get_categories_distribution_cache_attached(papers: pd.DataFrame, level: str 
 
 if __name__ == "__main__":
     from load_files import load_papers
-    papers = load_papers(ProjectPaths.data_db_backup_date_path() / "papers.parquet")
+    papers = load_papers(ProjectPaths.data_db_backup_date_papers_path())
     get_categories_distribution_dataset(papers, level = "l1", print_results = True)
     get_categories_distribution_ratings(papers, level = "l1", print_results = True)
     get_categories_distribution_cache(papers, level = "l1", print_results = True)

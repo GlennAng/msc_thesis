@@ -188,7 +188,7 @@ class Global_Visualizer:
                                                                                         self.results_after_averaging_over_users, self.hyperparameters_combinations)
         print_fourth_page(pdf, hyperparameters_combinations_table_val, self.score, self.hyperparameters)
 
-    def generate_fifth_page(self, pdf: PdfPages, scores_tables_save_path: str = None) -> None:
+    def generate_fifth_page(self, pdf: PdfPages, scores_tables_save_path: Path = None) -> None:
         title = f"Scores of the Best Global Combi {self.best_global_hyperparameters_combination_idx}"
         best_global_hyperparameters_combination = self.hyperparameters_combinations[self.hyperparameters_combinations["combination_idx"] == self.best_global_hyperparameters_combination_idx]
         for i, hyperparameter in enumerate(self.hyperparameters):
@@ -200,8 +200,8 @@ class Global_Visualizer:
         legend_text += f"All: All {self.n_users} Users | HiVote/LoVote: The {len(self.high_votes_users)} Users with the highest/lowest number of positively + negatively rated Papers\n"
         legend_text += f"HiPosi/LoPosi: The {len(self.high_ratio_users)} Users with the highest/lowest ratio of positively to negatively rated Papers | "
         legend_text += f"Tail: The {self.n_tail_users} Users with the worst Validation Performance on the Score in the grey Row."
-        scores_tables = get_best_global_hyperparameters_combination_table(self.best_global_hyperparameters_combination_df, self.tail_users,
-                                                                          self.high_votes_users, self.low_votes_users, self.high_ratio_users, self.low_ratio_users)
+        scores_tables = get_best_global_hyperparameters_combination_tables(self.best_global_hyperparameters_combination_df, self.tail_users,
+                                                                           self.high_votes_users, self.low_votes_users, self.high_ratio_users, self.low_ratio_users)
         score_index = list(Score).index(self.score)
         optimizer_page, optimizer_row = score_index // (n_scores_halved), score_index % (n_scores_halved)
         for s in range(len(scores_tables)):

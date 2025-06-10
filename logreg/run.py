@@ -37,10 +37,8 @@ if __name__ == "__main__":
         outputs_folder = ProjectPaths.logreg_outputs_path() / config_file_name.replace(".json", "")
         visualization_path = ProjectPaths.logreg_src_visualization_path()
         os.system(f"python {visualization_path / 'visualize_globally.py'}" + f" --outputs_folder {outputs_folder} --score balanced_accuracy {'--save_scores_tables' if args.save_scores_tables else ''}")
-        if args.visualize_users_infos:
+        if args.visualize_users:
             os.system(f"python {visualization_path / 'visualize_users.py'} {outputs_folder}")
-        if args.visualize_users_papers:
-            os.system(f"python {visualization_path / 'visualize_users_papers.py'} --outputs_folder {outputs_folder} --fold_idx {args.fold_idx} --n_print_interesting_users all")
         minutes_elapsed = (time.time() - start_time) / 60
         print(f"Finished '{config_file_name}' in {minutes_elapsed:.2f} minutes.")
         print("------------------------")

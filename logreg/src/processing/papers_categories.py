@@ -1,19 +1,21 @@
-import numpy as np, pickle, sys
+import sys
 from pathlib import Path
-sys.path.append(str(Path(__file__).parents[3]))
-from project_paths import ProjectPaths
-sys.path.append(str(ProjectPaths.logreg_data_embeddings_path()))
-sys.path.append(str(ProjectPaths.logreg_src_embeddings_path()))
-sys.path.append(str(ProjectPaths.logreg_src_processing_path()))
+try:
+    from project_paths import ProjectPaths
+except ImportError:
+    sys.path.append(str(Path(__file__).parents[3]))
+    from project_paths import ProjectPaths
+ProjectPaths.add_logreg_src_paths_to_sys()
+
+import pickle
+import numpy as np
 
 from embedding import *
 from papers_categories_dicts import *
 
-embedding_path = ProjectPaths.logreg_data_embeddings_path() / "after_pca" / "gte_large_2025-02-23_256"
-
-def load_glove_embeddings(dim : int) -> dict:
+def load_glove_embeddings(dim: int) -> dict:
     from tqdm import tqdm
-    glove_path = ProjectPaths.logreg_data_embeddings_path() / "glove" / f"glove.6B.{dim}d.txt"
+    glove_path = ProjectPaths.logreg_embeddings_path() / "glove" / f"glove.6B.{dim}d.txt"
     embeddings = {}
     with open(glove_path, 'r', encoding = 'utf-8') as f:
         for line in tqdm(f, desc = "Loading GloVe embeddings"):
@@ -23,7 +25,7 @@ def load_glove_embeddings(dim : int) -> dict:
             embeddings[word] = vector
     return embeddings
 
-def normalize_embedding(glove_embedding : np.ndarray, normalization : str = "l2_unit") -> np.ndarray:
+def normalize_embedding(glove_embedding: np.ndarray, normalization: str = "l2_unit") -> np.ndarray:
     if normalization == "none":
         return glove_embedding
     elif normalization == "l2_unit":
@@ -34,7 +36,7 @@ def normalize_embedding(glove_embedding : np.ndarray, normalization : str = "l2_
     elif normalization == "l2_05":
         return glove_embedding / np.linalg.norm(glove_embedding) * 0.5
 
-def get_glove_categories_embeddings(categories_to_glove : dict, dim : int = 100, normalization : str = "l2_unit") -> dict:
+def get_glove_categories_embeddings(categories_to_glove: dict, dim: int = 100, normalization: str = "l2_unit") -> dict:
     glove_embeddings = load_glove_embeddings(dim)
     glove_categories_embeddings = {None : np.zeros(dim, dtype = np.float32)}
     for category, words in categories_to_glove.items():
@@ -44,15 +46,15 @@ def get_glove_categories_embeddings(categories_to_glove : dict, dim : int = 100,
         glove_categories_embeddings[category] = normalize_embedding(glove_category_embedding, normalization)
     return glove_categories_embeddings
 
-def get_papers_ids_to_categories(papers_ids_to_categories_original : dict, original_categories_to_categories : dict) -> dict:
+def get_papers_ids_to_categories(papers_ids_to_categories_original: dict, original_categories_to_categories: dict) -> dict:
     papers_ids_to_categories = {}
     for paper_id, paper_category_original in papers_ids_to_categories_original.items():
         paper_category = original_categories_to_categories[paper_category_original]
         papers_ids_to_categories[paper_id] = paper_category
     return papers_ids_to_categories
 
-def attach_papers_categories(embeddings : np.ndarray, papers_ids_to_idxs : dict, papers_categories : PapersCategories = None, 
-                             dim : int = 100, normalization : str = "l2_unit", save_matrix : bool = False) -> np.ndarray:
+def attach_papers_categories(embeddings: np.ndarray, papers_ids_to_idxs: dict, papers_categories: PapersCategories = None, 
+                             dim: int = 100, normalization: str = "l2_unit", save_matrix: bool = False) -> np.ndarray:
     n_papers = embeddings.shape[0]
     if papers_categories is None:
         papers_categories = PAPERS_CATEGORIES
@@ -72,5 +74,6 @@ def attach_papers_categories(embeddings : np.ndarray, papers_ids_to_idxs : dict,
     return glove_matrix
   
 if __name__ == "__main__":
+    embedding_path = ProjectPaths.logreg_embeddings_path() / "after_pca" / "gte_large_2025-02-23_256"
     embedding = Embedding(embedding_path)
     #attach_papers_categories(embedding.matrix, embedding.papers_ids_to_idxs, save_matrix = True)

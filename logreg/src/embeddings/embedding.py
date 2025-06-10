@@ -12,10 +12,8 @@ import numpy as np, pandas as pd
 from scipy import sparse
 from scipy.sparse import load_npz
 
-from data_handling import *
-
 class Embedding:
-    def __init__(self, embedding_folder : Path, embedding_float_precision : int = None) -> None:
+    def __init__(self, embedding_folder: Path, embedding_float_precision: int = None) -> None:
         if not isinstance(embedding_folder, Path):
             embedding_folder = Path(embedding_folder).resolve()
         self.embedding_folder = embedding_folder
@@ -27,7 +25,7 @@ class Embedding:
         self.papers_idxs_dtype = self.get_papers_idxs_dtype()
         self.matrix = self.load_embedding_matrix(embedding_folder, embedding_float_precision)
 
-    def load_papers_ids_to_idxs_dict(self, embedding_folder : Path) -> dict:
+    def load_papers_ids_to_idxs_dict(self, embedding_folder: Path) -> dict:
         file_path = embedding_folder / "abs_paper_ids_to_idx.pkl"
         with open(file_path, 'rb') as file:
             papers_ids_to_idxs = pickle.load(file)
@@ -47,7 +45,7 @@ class Embedding:
         else:
             return np.uint64
     
-    def load_embedding_matrix(self, embedding_folder : Path, embedding_float_precision : int = None) -> np.ndarray:
+    def load_embedding_matrix(self, embedding_folder: Path, embedding_float_precision: int = None) -> np.ndarray:
         file_name = "abs_X"
         if os.path.exists(embedding_folder / f"{file_name}.npz"):
             embedding_matrix = load_npz(embedding_folder / f"{file_name}.npz")
@@ -66,51 +64,27 @@ class Embedding:
         self.n_dimensions = embedding_matrix.shape[1]
         return embedding_matrix
 
-    def get_idxs(self, papers_ids : list) -> np.ndarray:
+    def get_idxs(self, papers_ids: list) -> np.ndarray:
         idxs = np.array([self.papers_ids_to_idxs[pid] for pid in papers_ids if pid in self.papers_ids_to_idxs], dtype = self.papers_idxs_dtype)
         if len(idxs) != len(papers_ids):
             print(f"Warning: {len(papers_ids)} Papers_IDs turned into {len(idxs)} Papers_IDxs during get_idxs.")
         return idxs
     
-    def get_posrated_idxs_for_user(self, user_id : int, paper_removal = None, remaining_percentage : bool = None, random_state : int = None) -> np.ndarray:
-        return self.get_idxs(get_rated_papers_ids_for_user(user_id, True, paper_removal, remaining_percentage, random_state))
-    
-    def get_negrated_idxs_for_user(self, user_id : int, paper_removal = None, remaining_percentage : bool = None, random_state : int = None) -> np.ndarray:
-        return self.get_idxs(get_rated_papers_ids_for_user(user_id, False, paper_removal, remaining_percentage, random_state))
-    
-    def get_base_idxs_for_user(self, user_id : int, paper_removal = None, remaining_percentage : bool = None, random_state : int = None) -> np.ndarray:
-        return self.get_idxs(get_base_papers_ids_for_user(user_id, paper_removal, remaining_percentage, random_state))
-    
-    def get_global_cache_idxs(self, cache_size : int = None, random_state : int = None, draw_cache_from_users_ratings : bool = False) -> np.ndarray:
-        return self.get_idxs(get_global_cache_papers_ids(cache_size, random_state, draw_cache_from_users_ratings))
-    
-    def get_cache_idxs_for_user(self, user_id : int, cache_size : int = None, random_state : int = None, draw_cache_from_users_ratings : bool = False) -> np.ndarray:
-        return self.get_idxs(get_cache_papers_ids_for_user(user_id, cache_size, random_state, draw_cache_from_users_ratings))
-    
     def get_papers_ids(self, idxs : np.ndarray) -> list:
         return self.papers_idxs_to_ids[idxs].tolist()
 
-    def test_tfidf(self, paper_id : int) -> None:
-        vectorizer_path = self.embedding_folder / "vectorizer.pkl"
-        v = pickle.load(open(vectorizer_path, "rb"))
-        abstract = " ".join(sql_execute("select title || '. ' || abstract from papers where paper_id = :id", id = paper_id)[0])
-        print(f"Paper ID: {paper_id}, Abstract: {abstract}")
-        embedding_newly_computed = v.transform([abstract]).toarray()[0]
-        embedding_previously_computed = self.matrix[self.papers_ids_to_idxs[paper_id]].toarray()[0]
-        are_equivalent = np.allclose(embedding_newly_computed, embedding_previously_computed)
-        print(f"Newly computed and previously computed Embeddings are equivalent: {are_equivalent}.")
-        non_zero_indices = np.nonzero(embedding_previously_computed)[0]
-        non_zero_values = embedding_previously_computed[non_zero_indices]
-        feature_names = v.get_feature_names_out()
-        for index, value in zip(non_zero_indices, non_zero_values):
-            print(f"{feature_names[index]}: {value}")
-
-def compute_cosine_similarities(embedding_folder : Path, users_ids : list, predictions_folder : Path) -> None:
+def compute_cosine_similarities(embedding_folder: Path, users_ids: list, predictions_folder: Path) -> None:
+    from load_files import load_users_ratings
+    if not isinstance(embedding_folder, Path):
+        embedding_folder = Path(embedding_folder).resolve()
     if not isinstance(predictions_folder, Path):
         predictions_folder = Path(predictions_folder).resolve()
+    users_ratings = load_users_ratings(ProjectPaths.data_db_backup_date_users_ratings_path())
     embedding = Embedding(embedding_folder)
     for user_id in users_ids:
-        posrated_ids, negrated_ids = get_rated_papers_ids_for_user(user_id, 1), get_rated_papers_ids_for_user(user_id, -1)
+        user_ratings = users_ratings[users_ratings["user_id"] == user_id].reset_index(drop = True)
+        posrated_ids = user_ratings[user_ratings["rating"] == 1]["paper_id"].tolist()
+        negrated_ids = user_ratings[user_ratings["rating"] == 0]["paper_id"].tolist()
         user_predictions = json.load(open(predictions_folder / f"user_{user_id}" / "user_predictions.json", "r"))
         negative_samples_ids = user_predictions["negative_samples_ids"]
         rated_ids = posrated_ids + negrated_ids

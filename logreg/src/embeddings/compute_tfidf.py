@@ -1,16 +1,26 @@
-from data_handling import get_db_backup_date, sql_execute
+import sys
+from pathlib import Path
+try:
+    from project_paths import ProjectPaths
+except ImportError:
+    sys.path.append(str(Path(__file__).parents[3]))
+    from project_paths import ProjectPaths
+ProjectPaths.add_logreg_src_paths_to_sys()
+
+import os, pickle
+import numpy as np, pandas as pd
 from random import shuffle
 from scipy.sparse import save_npz
 from sklearn.feature_extraction import text
 from sklearn.feature_extraction.text import TfidfVectorizer
 from tqdm import tqdm
-import numpy as np
-import os
-import pickle
-import sys
 
-def load_vectorizer(embedding_folder : str) -> TfidfVectorizer:
-    vectorizer_path = f"{embedding_folder}/vectorizer.pkl"
+from load_files import load_papers_texts
+
+def load_vectorizer(embedding_folder: Path) -> TfidfVectorizer:
+    if not isinstance(embedding_folder, Path):
+        embedding_folder = Path(embedding_folder).resolve()
+    vectorizer_path = embedding_folder / "vectorizer.pkl"
     with open(vectorizer_path, "rb") as f:
         vectorizer = pickle.load(f)
     return vectorizer
@@ -35,29 +45,33 @@ def train_vectorizer(train_corpus, max_features = 10000, max_df = 1.0, min_df = 
     # I took this parameterisation from Mr. Karpathy's Arxiv Sanity Preserver code at: https://github.com/karpathy/arxiv-sanity-preserver/blob/master/analyze.py
     stop_words = list(text.ENGLISH_STOP_WORDS.union(['et al', 'et', 'al']))
     v = TfidfVectorizer(input='content',
-                        encoding='utf-8', decode_error='replace', strip_accents='unicode',
-                        lowercase=True, analyzer='word', stop_words=stop_words,
-                        token_pattern=r'(?u)\b[a-zA-Z_][a-zA-Z0-9_]+\b',
-                        ngram_range=(1, 2), max_features=max_features,
-                        norm='l2', use_idf=True, smooth_idf=True, sublinear_tf=True,
-                        max_df=max_df, min_df=min_df)
+                        encoding = 'utf-8', decode_error = 'replace', strip_accents = 'unicode',
+                        lowercase = True, analyzer = 'word', stop_words = stop_words,
+                        token_pattern = r'(?u)\b[a-zA-Z_][a-zA-Z0-9_]+\b',
+                        ngram_range = (1, 2), max_features = max_features,
+                        norm = 'l2', use_idf = True, smooth_idf = True, sublinear_tf = True,
+                        max_df = max_df, min_df = min_df)
     v.fit(tqdm(train_corpus))
     return v
 
-def _generate_corpus(ids, max_items = 10000):
+def _generate_corpus(ids, max_items = 10000, require_abstract: bool = False) -> str:
     """
     Generator to read one text file at a time.
     :param paths:
     :return:
     """
+    papers_texts = load_papers_texts(ProjectPaths.data_db_backup_date_papers_texts_path(), relevant_columns = ["paper_id", "title", "abstract"])
+    if require_abstract:
+        papers_texts = papers_texts[papers_texts["abstract"].notnull()]
+    papers_texts = papers_texts.set_index("paper_id")
     c = 0
     for id in ids:
         if c >= max_items:
             return
-        query = "select title || '. ' || abstract from papers where paper_id = :id"
-        txt = sql_execute(query, id=id)[0][0]
+        row = papers_texts.loc[id]
+        combined_text = row["title"] + ". " + row["abstract"]
         c += 1
-        yield txt
+        yield combined_text
 
 def load_cache_paper_ids_to_idx():
     paper_ids_idx = sql_execute("select paper_id, idx from cache_papers order by idx")
@@ -66,30 +80,30 @@ def load_cache_paper_ids_to_idx():
         unrated_ids_to_idx[paper_id] = i
     return unrated_ids_to_idx
 
-def retrain_vectorizer_celery(max_features : int = 5000) -> TfidfVectorizer:
+def retrain_vectorizer_celery(max_features: int = 5000) -> TfidfVectorizer:
     """
     Retrains the TFIDF vectorizer and replaces the TFIDF embeddings.
     """
     cache_paper_ids_to_idx = load_cache_paper_ids_to_idx()
     paper_ids = list(cache_paper_ids_to_idx.keys())
     shuffle(paper_ids)
-    train_corpus = _generate_corpus(paper_ids, max_items=len(paper_ids))
+    train_corpus = _generate_corpus(paper_ids, max_items = len(paper_ids))
     v = train_vectorizer(train_corpus=train_corpus, max_features = max_features, max_df = 1.0, min_df = 1)
     return v
 
-def train_vectorizer_for_user(paper_ids : list, max_features : int = 10000) -> TfidfVectorizer:
+def train_vectorizer_for_user(paper_ids: list, max_features: int = 10000) -> TfidfVectorizer:
     train_corpus = _generate_corpus(paper_ids, max_items = len(paper_ids))
     v = train_vectorizer(train_corpus = train_corpus, max_features = max_features, max_df = 1.0, min_df = 1)
     return v
 
-def get_mean_embedding(v : TfidfVectorizer, paper_ids : list) -> np.array:
+def get_mean_embedding(v: TfidfVectorizer, paper_ids: list) -> np.array:
     X = v.transform(_generate_corpus(paper_ids, max_items = len(paper_ids)))
     return np.mean(X, axis = 0)
 
-def embedding_to_word_scores(embedding : np.ndarray, feature_names) -> dict:
+def embedding_to_word_scores(embedding: np.ndarray, feature_names) -> dict:
     return {word: score for word, score in zip(feature_names, embedding.A1)}
 
-def recompute_embeddings_celery(v : TfidfVectorizer):
+def recompute_embeddings_celery(v: TfidfVectorizer):
     query = "select paper_id from papers where abstract is not NULL;"
     paper_ids = [id[0] for id in sql_execute(query)]
     corpus = _generate_corpus(paper_ids, max_items=len(paper_ids))
@@ -108,13 +122,13 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
         sys.exit("Usage: python main.py <max_features_in_k> <embedding_folder>")
     max_features_in_k = int(sys.argv[1])
-    embedding_folder = sys.argv[2]
-    embedding_folder = embedding_folder if embedding_folder[-1] != "/" else embedding_folder[:-1]
-    db_backup_date = get_db_backup_date()
-    folder = f"{embedding_folder}/tfidf_{max_features_in_k}k_{db_backup_date}"
+    embedding_folder = Path(sys.argv[2]).resolve()
+    db_backup_date = ProjectPaths.data_db_backup_date_path().stem
+    folder = embedding_folder / f"tfidf_{max_features_in_k}k_{db_backup_date}"
     if not os.path.exists(folder):
         os.makedirs(folder)
     else:
         sys.exit(f"Folder {folder} already exists. Exiting.")
+    papers_texts = load_papers_texts(ProjectPaths.data_db_backup_date_papers_texts_path())
     v = retrain_vectorizer_celery(max_features = max_features_in_k * 1000)
     recompute_embeddings_celery(v)

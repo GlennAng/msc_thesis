@@ -53,7 +53,7 @@ class Evaluator:
             with open(users_coefs_path / "users_coefs_ids_to_idxs.pkl", "rb") as f:
                 self.users_coefs_ids_to_idxs = pickle.load(f)
 
-        papers = load_papers(ProjectPaths.data_db_backup_date_path() / "papers.parquet", relevant_columns = ["paper_id", "in_ratings", "in_cache", "l1", "l2"])
+        papers = load_papers(ProjectPaths.data_db_backup_date_papers_path(), relevant_columns = ["paper_id", "in_ratings", "in_cache", "l1", "l2"])
         if self.include_global_cache:
             self.global_cache_ids, self.global_cache_idxs, self.global_cache_n, self.y_global_cache = load_global_cache(
                         self.embedding, papers, self.config["max_cache"], self.config["cache_random_state"])
