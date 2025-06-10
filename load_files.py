@@ -10,7 +10,7 @@ ProjectPaths.add_logreg_src_paths_to_sys()
 import pickle, os, random
 import numpy as np, pandas as pd
 
-def load_users_mapping(path : Path) -> dict:
+def load_users_mapping(path: Path) -> dict:
     with open(path, "rb") as f:
         users_mapping = pickle.load(f)
     keys = list(users_mapping.keys())
@@ -19,7 +19,7 @@ def load_users_mapping(path : Path) -> dict:
     assert sorted(values) == list(range(len(users_mapping)))
     return users_mapping
 
-def load_users_ratings(path : Path, relevant_users_ids : list = None, relevant_columns : list = None) -> pd.DataFrame:
+def load_users_ratings(path: Path, relevant_users_ids: list = None, relevant_columns: list = None) -> pd.DataFrame:
     users_ratings = pd.read_parquet(path, engine = "pyarrow")
     assert users_ratings["user_id"].is_monotonic_increasing
     if relevant_users_ids is not None:
@@ -32,7 +32,7 @@ def load_users_ratings(path : Path, relevant_users_ids : list = None, relevant_c
         users_ratings = users_ratings[relevant_columns]
     return users_ratings
 
-def load_papers_texts(path: Path, relevant_papers_ids : list = None, relevant_columns : list = None) -> pd.DataFrame:
+def load_papers_texts(path: Path, relevant_papers_ids: list = None, relevant_columns: list = None) -> pd.DataFrame:
     papers_texts = pd.read_parquet(path, engine = "pyarrow")
     assert papers_texts["paper_id"].is_monotonic_increasing
     if relevant_papers_ids is not None:
@@ -42,7 +42,7 @@ def load_papers_texts(path: Path, relevant_papers_ids : list = None, relevant_co
         papers_texts = papers_texts[relevant_columns]
     return papers_texts
 
-def load_papers(path: Path, relevant_papers_ids : list = None, relevant_columns : list = None) -> pd.DataFrame:
+def load_papers(path: Path, relevant_papers_ids: list = None, relevant_columns: list = None) -> pd.DataFrame:
     papers = pd.read_parquet(path, engine = "pyarrow")
     assert papers["paper_id"].is_monotonic_increasing
     if relevant_papers_ids is not None:

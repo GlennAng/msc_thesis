@@ -116,7 +116,7 @@ def get_db_backup_date() -> str:
     backup_date = str(sql_execute(query)[0][0])
     return backup_date.split(" ")[0]
 
-def save_users_mapping(path : Path, random_state : int = 42) -> dict:
+def save_users_mapping(path: Path, random_state: int = 42) -> dict:
     users_ids_query = "SELECT DISTINCT user_id FROM users_ratings WHERE rating IN (-1, 1) AND time IS NOT NULL ORDER BY user_id"
     users_ids = [row[0] for row in sql_execute(users_ids_query)]
     random.seed(random_state)
@@ -128,14 +128,14 @@ def save_users_mapping(path : Path, random_state : int = 42) -> dict:
         pickle.dump(users_mapping, f)
     return users_mapping
 
-def create_session_column(users_ratings : pd.DataFrame, session_threshold_min : int = 420) -> pd.Series:
+def create_session_column(users_ratings: pd.DataFrame, session_threshold_min: int = 420) -> pd.Series:
     session_threshold = pd.Timedelta(minutes = session_threshold_min)
     users_ratings = users_ratings.sort_values(by = ["user_id", "time"]).copy()
     users_ratings["time_diff"] = users_ratings.groupby("user_id")["time"].diff()
     users_ratings["session_break"] = (users_ratings["time_diff"] > session_threshold) | users_ratings["time_diff"].isna()
     return users_ratings.groupby("user_id")["session_break"].cumsum() - 1
 
-def save_users_ratings(path : Path, users_mapping : dict = None) -> pd.DataFrame:
+def save_users_ratings(path: Path, users_mapping: dict = None) -> pd.DataFrame:
     users_ratings_query = """SELECT user_id, paper_id, rating, time FROM users_ratings WHERE rating IN (-1, 1) AND time IS NOT NULL"""
     users_ratings = sql_execute(users_ratings_query)
     users_ratings = pd.DataFrame(users_ratings, columns = ["user_id", "paper_id", "rating", "time"])
@@ -173,7 +173,7 @@ def get_papers_categories(papers_categories_old: pd.DataFrame, papers_ids: pd.Se
     papers_categories = papers_categories.sort_values(by = "paper_id").reset_index(drop = True)
     return papers_categories
 
-def save_papers(path : Path, papers_categories_old: pd.DataFrame = None) -> pd.DataFrame:
+def save_papers(path: Path, papers_categories_old: pd.DataFrame = None) -> pd.DataFrame:
     papers_query = """SELECT paper_id FROM papers ORDER BY paper_id"""
     papers = sql_execute(papers_query)
     papers = pd.DataFrame(papers, columns = ["paper_id"], dtype = "int64")
