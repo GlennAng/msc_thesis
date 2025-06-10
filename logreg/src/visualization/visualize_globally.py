@@ -30,7 +30,7 @@ def parse_args() -> dict:
     return args_dict
 
 class Global_Visualizer:
-    def __init__(self, config : dict, users_info : pd.DataFrame, hyperparameters_combinations : pd.DataFrame, results_before_averaging_over_folds : pd.DataFrame, 
+    def __init__(self, config: dict, users_info: pd.DataFrame, hyperparameters_combinations: pd.DataFrame, results_before_averaging_over_folds: pd.DataFrame, 
                  folder : Path, score : Score = Score.BALANCED_ACCURACY, tail : bool = False) -> None:
         self.config = config
         self.users_info = clean_users_info(users_info, config["include_base"], config["include_cache"])
@@ -150,46 +150,45 @@ class Global_Visualizer:
             config_string.append(f"Number of Cross-Validation Folds: {self.config['k_folds']}.")
         elif self.config["evaluation"] == Evaluation.TRAIN_TEST_SPLIT:
             config_string.append(f"Evaluation Method: Train-Test Split.")
-            config_string.append(f"Test Size: {self.config['test_size']}.")
+        elif self.config["evaluation"] == Evaluation.SESSION_BASED:
+            config_string.append(f"Evaluation Method: Session-Based.")
+        config_string.append(f"Desired Test Size: {self.config['test_size']}.")
         config_string.append(f"Were the Training Sets stratified? {'Yes' if self.config['stratified'] else 'No'}.")
         urs, mrs, crs, rrs = self.config["users_random_state"], self.config["model_random_state"], self.config["cache_random_state"], self.config["ranking_random_state"]
         config_string.append(f"Random States:  Users: {urs}  |  Model: {mrs}  |  Cache: {crs}  |  Ranking: {rrs}.")
         config_string.append("\n")
 
-        config_string.append(f"Weights: {self.config['weights'].upper()}.")
-        config_string.append(f"Training Data includes Base: {'Yes' if self.config['include_base'] else 'No'}.")
-        include_cache = self.config["include_cache"]
-        config_string.append(f"Training Data includes Cache: {'Yes' if include_cache else 'No'}.")
-        if include_cache:
-            config_string.append(get_cache_type_str(self.config["cache_type"], self.config["max_cache"], self.config["n_cache_attached"]))
+        config_string.append(get_cache_type_str(self.config["cache_type"], self.config["max_cache"], self.config["n_cache_attached"]))
         config_string.append(f"Number of Negative Samples per User: {self.config['n_negative_samples']}.")
         config_string.append("\n")
-
-        config_string.append(f"Minimum Number of required negative Votes per User: {self.config['min_n_negrated']}.")
-        config_string.append(f"Minimum Number of required positive Votes per User: {self.config['min_n_posrated']}.")
+        if self.config["evaluation"] in [Evaluation.CROSS_VALIDATION, Evaluation.TRAIN_TEST_SPLIT]:
+            config_string.append(f"Minimum Number of required negative / positive Votes per User: {self.config['min_n_negrated']} / {self.config['min_n_posrated']}.")
+        elif self.config["evaluation"] == Evaluation.SESSION_BASED:
+            config_string.append(f"Minimum Number of required negative / positive Training Votes per User: {self.config['min_n_negrated_train']} / {self.config['min_n_posrated_train']}.")
+            config_string.append(f"Minimum Number of required negative / positive Validation Votes per User: {self.config['min_n_negrated_val']} / {self.config['min_n_posrated_val']}.")
         config_string.append(f"Number of selected Users: {self.n_users}.")
         config_string.append(get_users_selection_str(self.config["users_selection"], self.users_ids))
 
         return "\n\n".join(config_string)
 
-    def generate_first_page(self, pdf : PdfPages) -> None:
+    def generate_first_page(self, pdf: PdfPages) -> None:
         config_str = self.get_config_str()
         print_first_page(pdf, config_str)
 
-    def generate_second_page(self, pdf : PdfPages) -> None:
+    def generate_second_page(self, pdf: PdfPages) -> None:
         hyperparameters_ranges_str = get_hyperparameters_ranges_str(self.hyperparameters_ranges)
         print_second_page(pdf, hyperparameters_ranges_str)
 
-    def generate_third_page(self, pdf : PdfPages) -> None:
+    def generate_third_page(self, pdf: PdfPages) -> None:
         users_info_table = get_users_info_table(self.users_info)
         print_third_page(pdf, self.n_users, users_info_table, self.config["users_selection"], self.users_ids)
 
-    def generate_fourth_page(self, pdf : PdfPages) -> None:
+    def generate_fourth_page(self, pdf: PdfPages) -> None:
         hyperparameters_combinations_table_val = get_hyperparameters_combinations_table(self.val_upper_bounds, self.score, self.best_global_hyperparameters_combinations_idxs, 
                                                                                         self.results_after_averaging_over_users, self.hyperparameters_combinations)
         print_fourth_page(pdf, hyperparameters_combinations_table_val, self.score, self.hyperparameters)
 
-    def generate_fifth_page(self, pdf : PdfPages, scores_tables_save_path : str = None) -> None:
+    def generate_fifth_page(self, pdf: PdfPages, scores_tables_save_path: str = None) -> None:
         title = f"Scores of the Best Global Combi {self.best_global_hyperparameters_combination_idx}"
         best_global_hyperparameters_combination = self.hyperparameters_combinations[self.hyperparameters_combinations["combination_idx"] == self.best_global_hyperparameters_combination_idx]
         for i, hyperparameter in enumerate(self.hyperparameters):
@@ -211,7 +210,7 @@ class Global_Visualizer:
             scores_table_save_path = f"{scores_tables_save_path}_{s + 1}.pkl" if scores_tables_save_path else None
             print_fifth_page(pdf, s_title, legend_text, scores_tables[s], grey_row, scores_table_save_path)
 
-    def generate_sixth_page(self, pdf : PdfPages) -> None:
+    def generate_sixth_page(self, pdf: PdfPages) -> None:
         title = "Worst"
         interesting_users_best_global_hyperparameters_combination_df = self.worst_users_best_global_hyperparameters_combination_df
         best_global_merged_with_users_info = interesting_users_best_global_hyperparameters_combination_df.merge(self.users_info, on = "user_id")
@@ -219,7 +218,7 @@ class Global_Visualizer:
         best_individual_merged_with_users_info = interesting_users_best_individual_hyperparameters_combination_df.merge(self.users_info, on = "user_id")
         print_interesting_users(pdf, self.score, title, best_global_merged_with_users_info, best_individual_merged_with_users_info)
 
-    def generate_seventh_page(self, pdf : PdfPages) -> None:
+    def generate_seventh_page(self, pdf: PdfPages) -> None:
         title = "Best"
         interesting_users_best_global_hyperparameters_combination_df = self.best_users_best_global_hyperparameters_combination_df
         best_global_merged_with_users_info = interesting_users_best_global_hyperparameters_combination_df.merge(self.users_info, on = "user_id")
@@ -227,15 +226,15 @@ class Global_Visualizer:
         best_individual_merged_with_users_info = interesting_users_best_individual_hyperparameters_combination_df.merge(self.users_info, on = "user_id")
         print_interesting_users(pdf, self.score, title, best_global_merged_with_users_info, best_individual_merged_with_users_info)
 
-    def generate_eighth_page(self, pdf : PdfPages) -> None:
+    def generate_eighth_page(self, pdf: PdfPages) -> None:
         print_largest_performance_gain(pdf, self.largest_performance_gain_df, self.score, self.best_global_hyperparameters_combination_idx)
 
-    def generate_plots(self, pdf : PdfPages) -> None:
+    def generate_plots(self, pdf: PdfPages) -> None:
         plot_df = get_plot_df(self.results_after_averaging_over_users, self.hyperparameters_combinations_with_explicit_X_hyperparameter)
         plot_tail_df = get_plot_df(self.results_after_averaging_over_tails, self.hyperparameters_combinations_with_explicit_X_hyperparameter)
         plot_hyperparameter_for_all_combinations(pdf, self.hyperparameters, self.hyperparameters_combinations_with_explicit_X_hyperparameter, plot_df, plot_tail_df)
 
-    def generate_pdf(self, save_scores_tables : bool = False) -> None:
+    def generate_pdf(self, save_scores_tables: bool = False) -> None:
         file_name = self.folder / f"global_visu_{SCORES_DICT[self.score]['abbreviation'].lower()}.pdf"
         scores_tables_save_path = self.folder / "scores_table" if save_scores_tables else None
         with PdfPages(file_name) as pdf:

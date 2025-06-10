@@ -11,22 +11,25 @@ import itertools, json, os, pickle, time
 import numpy as np, pandas as pd
 
 from algorithm import get_algorithm_from_arg, get_evaluation_from_arg, Score
-from create_example_config import check_config
+from create_example_configs import check_config
 from get_users_ratings import get_users_ratings
 from embedding import Embedding
 from evaluation import Evaluator
 from weights_handler import load_hyperparameter_range, Weights_Handler
 
-def config_assertions(config : dict) -> None:
+def config_assertions(config: dict) -> None:
     assert config["save_tfidf_coefs"] == False, "Config: save_tfidf_coefs must be False."
+    assert config["include_base"] == False, "Config: include_base must be False."
+    assert config["include_zerorated"] == False, "Config: include_zerorated must be False."
     assert config["include_cache"] == True, "Config: include_cache must be True."
     assert config["cache_type"] in ["global", "user_filtered"]
     assert config["k_folds"] == 5, "Config: k_folds must be 5."
     assert config["algorithm"] == "logreg", "Config: algorithm must be 'logreg'."
     assert config["logreg_solver"] == "lbfgs", "Config: logreg_solver must be 'lbfgs'."
     assert config["max_iter"] == 10000, "Config: max_iter must be 10000."
+    assert config["weights"] == "global:cache_v", "Config: weights must be 'global:cache_v'."
 
-def load_config(config_path : Path) -> dict:
+def load_config(config_path: Path) -> dict:
     try:
         with open(config_path) as file:
             config = json.load(file)
@@ -38,11 +41,11 @@ def load_config(config_path : Path) -> dict:
     config["experiment_name"] = config_path.stem
     return config
 
-def convert_enums(config : dict) -> None:
+def convert_enums(config: dict) -> None:
     config["algorithm"] = get_algorithm_from_arg(config["algorithm"])
     config["evaluation"] = get_evaluation_from_arg(config["evaluation"])
 
-def create_outputs_folder(config : dict) -> None:
+def create_outputs_folder(config: dict) -> None:
     outputs_dir = ProjectPaths.logreg_outputs_path()
     os.makedirs(outputs_dir, exist_ok = True)
     experiment_dir = outputs_dir / config["experiment_name"]
@@ -57,7 +60,7 @@ def create_outputs_folder(config : dict) -> None:
     os.makedirs(experiment_dir / "tmp", exist_ok = True)
     os.makedirs(experiment_dir / "users_predictions", exist_ok = True)
 
-def load_hyperparameters(config : dict, wh : Weights_Handler) -> list:
+def load_hyperparameters(config: dict, wh: Weights_Handler) -> list:
     weights_hyperparameters_ranges = wh.load_weights_hyperparameters(config)
     config["weights_hyperparameters"] = list(weights_hyperparameters_ranges.keys())
     non_weights_hyperparameters_ranges = {"clf_C": load_hyperparameter_range(config["clf_C"])}
@@ -67,13 +70,13 @@ def load_hyperparameters(config : dict, wh : Weights_Handler) -> list:
     config["hyperparameters"] = hyperparameters
     return hyperparameters_combinations
 
-def init_scores(config : dict) -> None:
+def init_scores(config: dict) -> None:
     scores = {}
     for index, score in enumerate(Score):
         scores["train_" + score.name.lower()], scores["val_" + score.name.lower()] = 2 * index, 2 * index + 1
     config["scores"] = scores
 
-def make_config_serializable(config : dict) -> dict:
+def make_config_serializable(config: dict) -> dict:
     serializable_config = config.copy()
     for key in serializable_config:
         try:
@@ -82,23 +85,23 @@ def make_config_serializable(config : dict) -> dict:
             serializable_config[key] = serializable_config[key].name
     return serializable_config
 
-def save_config_file(config : dict) -> None:
+def save_config_file(config: dict) -> None:
     outputs_dir = config["outputs_dir"]
     with open(outputs_dir / "config.json", 'w') as file:
         json.dump(make_config_serializable(config), file, indent = 4)
 
-def hyperparameters_combinations_to_dataframe(hyperparameters : dict, hyperparameters_combinations : list) -> pd.DataFrame:
+def hyperparameters_combinations_to_dataframe(hyperparameters: dict, hyperparameters_combinations: list) -> pd.DataFrame:
     columns = sorted(hyperparameters.keys(), key = hyperparameters.get)
     df = pd.DataFrame(hyperparameters_combinations, columns = columns)
     df.insert(0, 'combination_idx', range(len(df)))
     return df
 
-def save_hyperparameters_combinations(config : dict, hyperparameters_combinations : list) -> None:
+def save_hyperparameters_combinations(config: dict, hyperparameters_combinations: list) -> None:
     outputs_dir = config["outputs_dir"]
     hyperparameters_combinations_df = hyperparameters_combinations_to_dataframe(config["hyperparameters"], hyperparameters_combinations)
     hyperparameters_combinations_df.to_csv(outputs_dir / "hyperparameters_combinations.csv", index = False)
 
-def merge_users_infos(config : dict, users_ids : list) -> None:
+def merge_users_infos(config: dict, users_ids: list) -> None:
     users_infos = []
     columns = []
     outputs_dir = config["outputs_dir"]
@@ -111,7 +114,7 @@ def merge_users_infos(config : dict, users_ids : list) -> None:
     users_infos_df = pd.DataFrame(users_infos, columns = columns)
     users_infos_df.to_csv(outputs_dir / "users_info.csv", index = False)
 
-def merge_users_results(config : dict, users_ids : list) -> None:
+def merge_users_results(config: dict, users_ids: list) -> None:
     users_results = []
     outputs_dir = config["outputs_dir"]
     scores_columns = sorted(config["scores"].keys(), key = config["scores"].get)
@@ -127,7 +130,7 @@ def merge_users_results(config : dict, users_ids : list) -> None:
     users_results_df = pd.DataFrame(users_results, columns = columns)
     users_results_df.to_csv(outputs_dir / "users_results.csv", index = False)
 
-def merge_users_coefs(config : dict, users_ids : list) -> None:
+def merge_users_coefs(config: dict, users_ids: list) -> None:
     if "save_users_coefs" in config and config["save_users_coefs"]:
         users_ids = sorted(users_ids)
         outputs_dir = config["outputs_dir"]
@@ -166,8 +169,8 @@ if __name__ == "__main__":
     config_copy = config.copy()
     save_hyperparameters_combinations(config, hyperparameters_combinations)
     
-    evaluator = Evaluator(config, users_ratings, hyperparameters_combinations, wh)
-    evaluator.evaluate_embedding(embedding)
+    evaluator = Evaluator(config, hyperparameters_combinations, wh)
+    evaluator.evaluate_embedding(embedding, users_ratings)
     merge_users_infos(config, users_ids)
     merge_users_results(config, users_ids)
     merge_users_coefs(config, users_ids)

@@ -1,4 +1,5 @@
-import numpy as np, random
+import random
+import numpy as np
 from enum import Enum, auto
 from scipy.special import softmax
 from sklearn.linear_model import LogisticRegression
@@ -46,46 +47,46 @@ class Score(Enum):
     HIT_RATE_AT_1_ALL = auto()
     INFO_NCE_SAMPLES = auto()
     INFO_NCE_ALL = auto()
-SCORES_DICT = { Score.POSITIVE_GT_RATIO : {"name": "Positive Ground Truth Ratio", "abbreviation": "PGTRo", "increase_better": True, "derivable": False, "ranking": False},
-                Score.POSITIVE_PRED_RATIO : {"name": "Positive Prediction Ratio", "abbreviation": "PPRRo", "increase_better": True, "derivable": False, "ranking": False},
-                Score.TRUE_POSITIVE_RATIO : {"name": "True Positive Ratio", "abbreviation": "TPRo", "increase_better": True, "derivable": False, "ranking": False},
-                Score.FALSE_POSITIVE_RATIO : {"name": "False Positive Ratio", "abbreviation": "FPRo", "increase_better": False, "derivable": False, "ranking": False},
-                Score.TRUE_NEGATIVE_RATIO : {"name": "True Negative Ratio", "abbreviation": "TNRo", "increase_better": True, "derivable": False, "ranking": False},
-                Score.FALSE_NEGATIVE_RATIO : {"name": "False Negative Ratio", "abbreviation": "FNRo", "increase_better": False, "derivable": False, "ranking": False},
-                Score.ACCURACY : {"name": "Accuracy", "abbreviation": "ACC", "increase_better": True, "derivable": False, "ranking": False},
-                Score.RECALL : {"name": "Recall", "abbreviation": "REC", "increase_better": True, "derivable": False, "ranking": False},
-                Score.SPECIFICITY : {"name": "Specificity", "abbreviation": "SPE", "increase_better": True, "derivable": False, "ranking": False},
-                Score.BALANCED_ACCURACY : {"name": "Balanced Accuracy", "abbreviation": "BAL", "increase_better": True, "derivable": True, "ranking": False},
-                Score.PRECISION : {"name": "Precision", "abbreviation": "PRE", "increase_better": True, "derivable": False, "ranking": False},
-                Score.CEL : {"name": "Cross-Entropy Loss", "abbreviation": "CEL", "increase_better": False, "derivable": False, "ranking": False},
-                Score.CEL_POS : {"name": "CEL positive GT", "abbreviation": "CELP", "increase_better": False, "derivable": False, "ranking": False},
-                Score.CEL_NEG : {"name": "CEL negative GT", "abbreviation": "CELN", "increase_better": False, "derivable": False, "ranking": False},
-                Score.AUROC_CLASSIFICATION : {"name": "Area under Roc Curve Classification", "abbreviation": "AUC_C", "increase_better": True, "derivable": False, "ranking": False},
-                Score.NDCG : {"name": "Normalized Discounted Cumulative Gain", "abbreviation": "NDCG", "increase_better": True, "derivable": False, "ranking": True},
-                Score.MRR : {"name": "Mean Reciprocal Rank", "abbreviation": "MRR", "increase_better": True, "derivable": False, "ranking": True},
-                Score.HIT_RATE_AT_1 : {"name": "Hit Rate @ 1", "abbreviation": "HR@1", "increase_better": True, "derivable": False, "ranking": True},
-                Score.INFO_NCE : {"name": "InfoNCE", "abbreviation": "INCE", "increase_better": False, "derivable": False, "ranking": True},
-                Score.CONFIDENCE_ALL : {"name": "Confidence All", "abbreviation": "C_ALL", "increase_better": True, "derivable": False, "ranking": False},
-                Score.CONFIDENCE_TP : {"name": "Confidence True Positives", "abbreviation": "C_TP", "increase_better": True, "derivable": False, "ranking": False},
-                Score.CONFIDENCE_FP : {"name": "Confidence False Positives", "abbreviation": "C_FP", "increase_better": False, "derivable": False, "ranking": False},
-                Score.CONFIDENCE_TN : {"name": "Confidence True Negatives", "abbreviation": "C_TN", "increase_better": True, "derivable": False, "ranking": False},
-                Score.CONFIDENCE_FN : {"name": "Confidence False Negatives", "abbreviation": "C_FN", "increase_better": False, "derivable": False, "ranking": False},
-                Score.POSITIVE_GT_ABOVE_THRESHOLD : {"name": f"Positive Ground Truth above {CONFIDENCE_THRESHOLD}", "abbreviation": f"PGTAT\n{CONFIDENCE_THRESHOLD}", 
+SCORES_DICT = { Score.POSITIVE_GT_RATIO: {"name": "Positive Ground Truth Ratio", "abbreviation": "PGTRo", "increase_better": True, "derivable": False, "ranking": False},
+                Score.POSITIVE_PRED_RATIO: {"name": "Positive Prediction Ratio", "abbreviation": "PPRRo", "increase_better": True, "derivable": False, "ranking": False},
+                Score.TRUE_POSITIVE_RATIO: {"name": "True Positive Ratio", "abbreviation": "TPRo", "increase_better": True, "derivable": False, "ranking": False},
+                Score.FALSE_POSITIVE_RATIO: {"name": "False Positive Ratio", "abbreviation": "FPRo", "increase_better": False, "derivable": False, "ranking": False},
+                Score.TRUE_NEGATIVE_RATIO: {"name": "True Negative Ratio", "abbreviation": "TNRo", "increase_better": True, "derivable": False, "ranking": False},
+                Score.FALSE_NEGATIVE_RATIO: {"name": "False Negative Ratio", "abbreviation": "FNRo", "increase_better": False, "derivable": False, "ranking": False},
+                Score.ACCURACY: {"name": "Accuracy", "abbreviation": "ACC", "increase_better": True, "derivable": False, "ranking": False},
+                Score.RECALL: {"name": "Recall", "abbreviation": "REC", "increase_better": True, "derivable": False, "ranking": False},
+                Score.SPECIFICITY: {"name": "Specificity", "abbreviation": "SPE", "increase_better": True, "derivable": False, "ranking": False},
+                Score.BALANCED_ACCURACY: {"name": "Balanced Accuracy", "abbreviation": "BAL", "increase_better": True, "derivable": True, "ranking": False},
+                Score.PRECISION: {"name": "Precision", "abbreviation": "PRE", "increase_better": True, "derivable": False, "ranking": False},
+                Score.CEL: {"name": "Cross-Entropy Loss", "abbreviation": "CEL", "increase_better": False, "derivable": False, "ranking": False},
+                Score.CEL_POS: {"name": "CEL positive GT", "abbreviation": "CELP", "increase_better": False, "derivable": False, "ranking": False},
+                Score.CEL_NEG: {"name": "CEL negative GT", "abbreviation": "CELN", "increase_better": False, "derivable": False, "ranking": False},
+                Score.AUROC_CLASSIFICATION: {"name": "Area under Roc Curve Classification", "abbreviation": "AUC_C", "increase_better": True, "derivable": False, "ranking": False},
+                Score.NDCG: {"name": "Normalized Discounted Cumulative Gain", "abbreviation": "NDCG", "increase_better": True, "derivable": False, "ranking": True},
+                Score.MRR: {"name": "Mean Reciprocal Rank", "abbreviation": "MRR", "increase_better": True, "derivable": False, "ranking": True},
+                Score.HIT_RATE_AT_1: {"name": "Hit Rate @ 1", "abbreviation": "HR@1", "increase_better": True, "derivable": False, "ranking": True},
+                Score.INFO_NCE: {"name": "InfoNCE", "abbreviation": "INCE", "increase_better": False, "derivable": False, "ranking": True},
+                Score.CONFIDENCE_ALL: {"name": "Confidence All", "abbreviation": "C_ALL", "increase_better": True, "derivable": False, "ranking": False},
+                Score.CONFIDENCE_TP: {"name": "Confidence True Positives", "abbreviation": "C_TP", "increase_better": True, "derivable": False, "ranking": False},
+                Score.CONFIDENCE_FP: {"name": "Confidence False Positives", "abbreviation": "C_FP", "increase_better": False, "derivable": False, "ranking": False},
+                Score.CONFIDENCE_TN: {"name": "Confidence True Negatives", "abbreviation": "C_TN", "increase_better": True, "derivable": False, "ranking": False},
+                Score.CONFIDENCE_FN: {"name": "Confidence False Negatives", "abbreviation": "C_FN", "increase_better": False, "derivable": False, "ranking": False},
+                Score.POSITIVE_GT_ABOVE_THRESHOLD: {"name": f"Positive Ground Truth above {CONFIDENCE_THRESHOLD}", "abbreviation": f"PGTAT\n{CONFIDENCE_THRESHOLD}", 
                                                         "increase_better": True, "derivable": False, "ranking": False},
-                Score.SAMPLES_ABOVE_THRESHOLD : {"name": f"Samples above {CONFIDENCE_THRESHOLD}", "abbreviation": f"SAT\n{CONFIDENCE_THRESHOLD}", 
+                Score.SAMPLES_ABOVE_THRESHOLD: {"name": f"Samples above {CONFIDENCE_THRESHOLD}", "abbreviation": f"SAT\n{CONFIDENCE_THRESHOLD}", 
                                                     "increase_better": True, "derivable": False, "ranking": False},
-                Score.SPECIFICITY_SAMPLES : {"name": "Specificity Samples", "abbreviation": "SPE\nSmpl", "increase_better": True, "derivable": False, "ranking": False},   
-                Score.PRECISION_SAMPLES : {"name": "Precision Samples", "abbreviation": "PRE\nSmpl", "increase_better": True, "derivable": False, "ranking": False},
-                Score.CONFIDENCE_ALL_SAMPLES : {"name": "Confidence All Samples", "abbreviation": "C_ALL\nSmpl", "increase_better": False, "derivable": False, "ranking": False},
-                Score.CONFIDENCE_TOP_1_SAMPLES : {"name": "Confidence Top 1 Samples", "abbreviation": "C_T1\nSmpl", "increase_better": False, "derivable": False, "ranking": False},
-                Score.NDCG_SAMPLES : {"name": "Normalized Discounted Cumulative Gain Samples", "abbreviation": "NDCG\nSmpl", "increase_better": True, "derivable": False, "ranking": True},
-                Score.NDCG_ALL : {"name": "Normalized Discounted Cumulative Gain All", "abbreviation": "NDCG\nAll", "increase_better": True, "derivable": False, "ranking": True},
-                Score.MRR_SAMPLES : {"name": "Mean Reciprocal Rank Samples", "abbreviation": "MRR\nSmpl", "increase_better": True, "derivable": False, "ranking": True},
-                Score.MRR_ALL : {"name": "Mean Reciprocal Rank All", "abbreviation": "MRR\nAll", "increase_better": True, "derivable": False, "ranking": True},
-                Score.HIT_RATE_AT_1_SAMPLES : {"name": "Hit Rate @ 1 Samples", "abbreviation": "HR@1\nSmpl", "increase_better": True, "derivable": False, "ranking": True},
-                Score.HIT_RATE_AT_1_ALL : {"name": "Hit Rate @ 1 All", "abbreviation": "HR@1\nAll", "increase_better": True, "derivable": False, "ranking": True},
-                Score.INFO_NCE_SAMPLES : {"name": "InfoNCE Samples", "abbreviation": "INCE\nSmpl", "increase_better": False, "derivable": False, "ranking": True},
-                Score.INFO_NCE_ALL : {"name": "InfoNCE All", "abbreviation": "INCE\nAll", "increase_better": False, "derivable": False, "ranking": True}
+                Score.SPECIFICITY_SAMPLES: {"name": "Specificity Samples", "abbreviation": "SPE\nSmpl", "increase_better": True, "derivable": False, "ranking": False},   
+                Score.PRECISION_SAMPLES: {"name": "Precision Samples", "abbreviation": "PRE\nSmpl", "increase_better": True, "derivable": False, "ranking": False},
+                Score.CONFIDENCE_ALL_SAMPLES: {"name": "Confidence All Samples", "abbreviation": "C_ALL\nSmpl", "increase_better": False, "derivable": False, "ranking": False},
+                Score.CONFIDENCE_TOP_1_SAMPLES: {"name": "Confidence Top 1 Samples", "abbreviation": "C_T1\nSmpl", "increase_better": False, "derivable": False, "ranking": False},
+                Score.NDCG_SAMPLES: {"name": "Normalized Discounted Cumulative Gain Samples", "abbreviation": "NDCG\nSmpl", "increase_better": True, "derivable": False, "ranking": True},
+                Score.NDCG_ALL: {"name": "Normalized Discounted Cumulative Gain All", "abbreviation": "NDCG\nAll", "increase_better": True, "derivable": False, "ranking": True},
+                Score.MRR_SAMPLES: {"name": "Mean Reciprocal Rank Samples", "abbreviation": "MRR\nSmpl", "increase_better": True, "derivable": False, "ranking": True},
+                Score.MRR_ALL: {"name": "Mean Reciprocal Rank All", "abbreviation": "MRR\nAll", "increase_better": True, "derivable": False, "ranking": True},
+                Score.HIT_RATE_AT_1_SAMPLES: {"name": "Hit Rate @ 1 Samples", "abbreviation": "HR@1\nSmpl", "increase_better": True, "derivable": False, "ranking": True},
+                Score.HIT_RATE_AT_1_ALL: {"name": "Hit Rate @ 1 All", "abbreviation": "HR@1\nAll", "increase_better": True, "derivable": False, "ranking": True},
+                Score.INFO_NCE_SAMPLES: {"name": "InfoNCE Samples", "abbreviation": "INCE\nSmpl", "increase_better": False, "derivable": False, "ranking": True},
+                Score.INFO_NCE_ALL: {"name": "InfoNCE All", "abbreviation": "INCE\nAll", "increase_better": False, "derivable": False, "ranking": True}
                 }
 RANKING_SCORES = [score for score in Score if SCORES_DICT[score]["ranking"]]
 
@@ -95,17 +96,17 @@ def get_score_from_arg(score_arg : str) -> Score:
         raise ValueError(f"Invalid argument {score_arg} 'algorithm'. Possible values: {valid_score_args}.")
     return Score[score_arg.upper()]
 
-def specificity_score(y_true : np.ndarray, y_pred : np.ndarray) -> float:
+def specificity_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     tn, fp, _, _ = confusion_matrix(y_true, y_pred).ravel()
     return tn / (tn + fp) if tn + fp != 0 else 0
 
-def cel_score(y_proba : np.ndarray, positive : bool) -> float:
+def cel_score(y_proba: np.ndarray, positive: bool) -> float:
     eps = np.finfo(y_proba.dtype).eps
     y_proba = np.clip(y_proba, eps, 1 - eps)
     return -np.mean(np.log(y_proba)) if positive else -np.mean(np.log(1 - y_proba))
 
-def get_score(score : Score, y_true : np.ndarray, y_pred : np.ndarray, y_proba : np.ndarray, 
-              y_negative_samples_pred : np.ndarray, y_negative_samples_proba : np.ndarray) -> float:
+def get_score(score: Score, y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray, 
+              y_negative_samples_pred: np.ndarray, y_negative_samples_proba: np.ndarray) -> float:
     if score == Score.POSITIVE_GT_RATIO:
         return np.mean(y_true)
     elif score == Score.POSITIVE_PRED_RATIO:
@@ -166,7 +167,7 @@ def get_score(score : Score, y_true : np.ndarray, y_pred : np.ndarray, y_proba :
     elif score == Score.CONFIDENCE_TOP_1_SAMPLES:
         return np.max(y_negative_samples_proba)
 
-def derive_score(score : Score, user_scores : list, scores_indices_dict : dict, validation : bool) -> float:
+def derive_score(score: Score, user_scores: list, scores_indices_dict: dict, validation: bool) -> float:
     if score == Score.BALANCED_ACCURACY:
         recall = user_scores[scores_indices_dict[f"{'val' if validation else 'train'}_{Score.RECALL.name.lower()}"]]
         specificity = user_scores[scores_indices_dict[f"{'val' if validation else 'train'}_{Score.SPECIFICITY.name.lower()}"]]
@@ -185,7 +186,7 @@ def derive_score(score : Score, user_scores : list, scores_indices_dict : dict, 
         return 2 * (precision_samples * recall_samples) / (precision_samples + recall_samples)
 
 def get_ranking_scores(y_train_rated: np.ndarray, y_train_rated_logits: np.ndarray, y_val: np.ndarray, y_val_logits: np.ndarray, 
-                       y_negrated_ranking_logits : np.ndarray, y_negative_samples_logits: np.ndarray, info_nce_temperature : float) -> dict:
+                       y_negrated_ranking_logits : np.ndarray, y_negative_samples_logits: np.ndarray, info_nce_temperature: float) -> dict:
     ranking_scores = {}
     y_train_pos_logits, y_val_pos_logits = y_train_rated_logits[y_train_rated == 1], y_val_logits[y_val == 1]
     y_train_pos_logits_n, y_val_pos_logits_n = len(y_train_pos_logits), len(y_val_pos_logits)
@@ -210,7 +211,7 @@ def get_ranking_scores(y_train_rated: np.ndarray, y_train_rated_logits: np.ndarr
         ranking_scores[f"val_{ranking_score.name.lower()}"] = np.mean(ranking_scores[f"val_{ranking_score.name.lower()}"])
     return ranking_scores
 
-def get_ranking_score(ranking_score : Score, pos_rank : int, pos_rank_samples : int, pos_rank_all : int) -> float:
+def get_ranking_score(ranking_score: Score, pos_rank: int, pos_rank_samples: int, pos_rank_all: int) -> float:
     ranking_score_split = ranking_score.name.lower().split("_")
     if ranking_score_split[-1] == "samples":
         pos_rank = pos_rank_samples
@@ -223,8 +224,8 @@ def get_ranking_score(ranking_score : Score, pos_rank : int, pos_rank_samples : 
     elif ranking_score in [Score.HIT_RATE_AT_1, Score.HIT_RATE_AT_1_SAMPLES, Score.HIT_RATE_AT_1_ALL]:
         return float(pos_rank == 1)
 
-def get_info_nce_score(ranking_score : Score, y_pos_logit : float, y_negrated_ranking_logits : np.ndarray, y_negative_samples_logits : np.ndarray, y_negative_all_logits : np.ndarray,
-                       info_nce_temperature : float) -> float:
+def get_info_nce_score(ranking_score: Score, y_pos_logit: float, y_negrated_ranking_logits: np.ndarray, y_negative_samples_logits: np.ndarray, y_negative_all_logits: np.ndarray,
+                       info_nce_temperature: float) -> float:
     if ranking_score == Score.INFO_NCE:
         info_nce_array = np.concatenate((np.array([y_pos_logit]), y_negrated_ranking_logits))
     elif ranking_score == Score.INFO_NCE_SAMPLES:
@@ -238,13 +239,13 @@ class Algorithm(Enum):
     LOGREG = auto()
     SVM = auto()
 
-def get_algorithm_from_arg(algorithm_arg : str) -> Algorithm:
+def get_algorithm_from_arg(algorithm_arg: str) -> Algorithm:
     valid_algorithm_args = [algorithm.name.lower() for algorithm in Algorithm]
     if algorithm_arg.lower() not in valid_algorithm_args:
         raise ValueError(f"Invalid argument {algorithm_arg} 'algorithm'. Possible values: {valid_algorithm_args}.")
     return Algorithm[algorithm_arg.upper()]
 
-def get_model(algorithm : Algorithm, max_iter : int, clf_C: float, random_state : int, logreg_solver : str = None, svm_kernel : str = None) -> object:
+def get_model(algorithm: Algorithm, max_iter: int, clf_C: float, random_state: int, logreg_solver: str = None, svm_kernel: str = None) -> object:
     if algorithm == Algorithm.LOGREG:
         return LogisticRegression(max_iter = max_iter, C = clf_C, random_state = random_state, solver = logreg_solver)
     elif algorithm == Algorithm.SVM:
@@ -255,13 +256,13 @@ class Evaluation(Enum):
     TRAIN_TEST_SPLIT = auto()
     SESSION_BASED = auto()
 
-def get_evaluation_from_arg(evaluation_arg : str) -> Evaluation:
+def get_evaluation_from_arg(evaluation_arg: str) -> Evaluation:
     valid_evaluation_args = [evaluation.name.lower() for evaluation in Evaluation]
     if evaluation_arg.lower() not in valid_evaluation_args:
         raise ValueError(f"Invalid argument {evaluation_arg} 'evaluation'. Possible values: {valid_evaluation_args}.")
     return Evaluation[evaluation_arg.upper()]
 
-def get_cross_val(stratified : bool, k_folds : int, random_state : int) -> object:
+def get_cross_val(stratified: bool, k_folds: int, random_state: int) -> object:
     if stratified:
         return StratifiedKFold(n_splits = k_folds, shuffle = True, random_state = random_state)
     else:

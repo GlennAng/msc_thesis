@@ -1,7 +1,7 @@
 import numpy as np
 from enum import Enum, auto
 
-def load_hyperparameter_range(hyperparameter_range_raw : object) -> list:
+def load_hyperparameter_range(hyperparameter_range_raw: object) -> list:
     if hyperparameter_range_raw is None:
         raise ValueError("Hyperparameter Range is None.")
     if isinstance(hyperparameter_range_raw, list):
@@ -23,7 +23,7 @@ class Weights_Group(Enum):
     NEG = auto()
     POSNEG = auto()
 
-def get_weights_group_from_arg(weights_group_arg : str) -> Weights_Group:
+def get_weights_group_from_arg(weights_group_arg: str) -> Weights_Group:
     valid_weights_group_args = [weights_group.name.lower() for weights_group in Weights_Group]
     if weights_group_arg not in valid_weights_group_args:
         raise ValueError(f"Invalid Weights Group {weights_group_arg} in 'weights'. Possible values: {valid_weights_group_args}.")
@@ -60,19 +60,19 @@ TRANSFORMATION_WEIGHTS_HYP = {Weights_Scheme.BOTH_CONSTANT_HYP, Weights_Scheme.B
                               Weights_Scheme.RATED_CONSTANT_HYP, Weights_Scheme.RATED_CUBE_ROOT_HYP, Weights_Scheme.RATED_LOGARITHM_HYP, Weights_Scheme.RATED_SQUARE_ROOT_HYP,
                               Weights_Scheme.RATED_LINEAR_HYP, Weights_Scheme.RATED_SQUARE_HYP, Weights_Scheme.RATED_EXPONENTIAL_HYP}
 
-def get_weights_scheme_from_arg(weights_scheme_arg : str) -> Weights_Scheme:
+def get_weights_scheme_from_arg(weights_scheme_arg: str) -> Weights_Scheme:
     valid_weights_scheme_args = [weights_scheme.name.lower() for weights_scheme in Weights_Scheme]
     if weights_scheme_arg not in valid_weights_scheme_args:
         raise ValueError(f"Invalid Weights Scheme {weights_scheme_arg} in 'weights'. Possible values: {valid_weights_scheme_args}.")
     return Weights_Scheme[weights_scheme_arg.upper()]
 
 class Weights_Handler():
-    def __init__(self, config : dict) -> None:
+    def __init__(self, config: dict) -> None:
         weights_arg = config["weights"]
         self.need_voting_weight = False
         self.set_weights_schemes(weights_arg)
 
-    def set_weights_schemes(self, weights_arg : str) -> None:
+    def set_weights_schemes(self, weights_arg: str) -> None:
         weights_schemes = self.parse_weights_arg(weights_arg)
         self.verify_weights_schemes(weights_schemes, weights_arg)
         if weights_schemes[Weights_Group.POSNEG] is not None:
@@ -82,7 +82,7 @@ class Weights_Handler():
         self.pos_weights_scheme = weights_schemes[Weights_Group.POS]
         self.neg_weights_scheme = weights_schemes[Weights_Group.NEG]
 
-    def parse_weights_arg(self, weights_arg : str) -> dict:
+    def parse_weights_arg(self, weights_arg: str) -> dict:
         weights_schemes = {weights_group : None for weights_group in Weights_Group}
         weights_arg_split = weights_arg.split(',')
         for weights_arg_split_element in weights_arg_split:
@@ -93,7 +93,7 @@ class Weights_Handler():
             weights_schemes[weights_group] = weights_scheme
         return weights_schemes
 
-    def verify_weights_schemes(self, weights_schemes : dict, weights_arg : str) -> None:
+    def verify_weights_schemes(self, weights_schemes: dict, weights_arg: str) -> None:
         if all(weights_scheme is None for weights_scheme in weights_schemes.values()):
             raise ValueError(f"Invalid Weights Command '{weights_arg}' in 'weights'.")
         
@@ -111,7 +111,7 @@ class Weights_Handler():
                 elif weights_schemes[Weights_Group.POS] is None and weights_schemes[Weights_Group.NEG] is not None:
                     raise ValueError(f"Invalid Weights Command '{weights_arg}' in 'weights'. If 'neg' is set, 'pos' must be set.")
 
-    def load_weights_hyperparameters(self, config : dict) -> None:
+    def load_weights_hyperparameters(self, config: dict) -> None:
         weights_hyperparameters_ranges = {}
         if self.global_weights_scheme is not None:
             weights_hyperparameters_ranges.update(self.load_weights_hyperparameters_global(self.global_weights_scheme, config))
@@ -120,7 +120,7 @@ class Weights_Handler():
             weights_hyperparameters_ranges.update(self.load_weights_hyperparameters_label(self.neg_weights_scheme, is_positive = False, config = config))
         return weights_hyperparameters_ranges
         
-    def load_weights_hyperparameters_global(self, weights_scheme : Weights_Scheme, config : dict) -> dict:
+    def load_weights_hyperparameters_global(self, weights_scheme: Weights_Scheme, config: dict) -> dict:
         if weights_scheme == Weights_Scheme.CACHE_V:
             hyperparameters_global = {"weights_neg_scale": load_hyperparameter_range(config["weights_neg_scale"])}
             if config["include_zerorated"]:
@@ -131,7 +131,7 @@ class Weights_Handler():
             hyperparameters_global = {"cache_scale": load_hyperparameter_range(config["cache_scale"])}
             return hyperparameters_global
     
-    def load_weights_hyperparameters_label(self, weights_scheme : Weights_Scheme, is_positive : bool, config : dict) -> dict:
+    def load_weights_hyperparameters_label(self, weights_scheme: Weights_Scheme, is_positive: bool, config: dict) -> dict:
         if weights_scheme == Weights_Scheme.UNWEIGHTED:
             return {}
         elif weights_scheme in TRANSFORMATION_WEIGHTS_VW:
@@ -145,8 +145,8 @@ class Weights_Handler():
             return {transformation_weights_hyp_str : load_hyperparameter_range(config[transformation_weights_hyp_str])}
         
 
-    def load_weights_for_user(self, hyperparameters : dict, hyperparameters_combination : tuple, voting_weight : float, 
-                              train_posrated_n : int, train_negrated_n : int, base_n : int, zerorated_n : int, cache_n : int) -> tuple:
+    def load_weights_for_user(self, hyperparameters: dict, hyperparameters_combination: tuple, voting_weight: float, 
+                              train_posrated_n: int, train_negrated_n: int, base_n: int, zerorated_n: int, cache_n: int) -> tuple:
         if self.global_weights_scheme is not None:
             w_p, w_n, w_b, w_z, w_c = self.load_weights_for_user_global(hyperparameters, hyperparameters_combination, voting_weight, train_posrated_n, train_negrated_n, 
                                                                    base_n, zerorated_n, cache_n)
@@ -161,8 +161,8 @@ class Weights_Handler():
             w_z = w_z * hyperparameters_combination[hyperparameters["weights_neg_scale"]] if w_z is not None else None
         return w_p, w_n, w_b, w_z, w_c
 
-    def load_weights_for_user_global(self, hyperparameters : dict, hyperparameters_combination : tuple, voting_weight : float,
-                                     train_posrated_n : int, train_negrated_n : int, base_n : int, zerorated_n : int, cache_n : int) -> tuple:
+    def load_weights_for_user_global(self, hyperparameters: dict, hyperparameters_combination: tuple, voting_weight: float,
+                                     train_posrated_n: int, train_negrated_n: int, base_n: int, zerorated_n: int, cache_n: int) -> tuple:
         if self.global_weights_scheme == Weights_Scheme.CACHE_V:
             if train_posrated_n == 0 or train_negrated_n == 0 or cache_n == 0:
                 raise ValueError("Global Weights Scheme 'CACHE_V' requires non-zero values for train_posrated_n, train_negrated_n and cache_n.")
@@ -185,8 +185,8 @@ class Weights_Handler():
             w_c = hyperparameters_combination[hyperparameters["cache_scale"]] / cache_n if cache_n > 0 else 0.0
             return w_p, w_n, None, None, w_c
 
-    def load_weights_for_user_label(self, hyperparameters : dict, hyperparameters_combination : tuple, voting_weight : float,
-                                    train_posrated_n : int, train_negrated_n : int, base_n : int, cache_n : int, nonrated_n : int, is_positive : bool) -> tuple:
+    def load_weights_for_user_label(self, hyperparameters: dict, hyperparameters_combination: tuple, voting_weight: float,
+                                    train_posrated_n: int, train_negrated_n: int, base_n: int, cache_n: int, nonrated_n: int, is_positive: bool) -> tuple:
         weights_scheme = self.pos_weights_scheme if is_positive else self.neg_weights_scheme
         if weights_scheme == Weights_Scheme.UNWEIGHTED:
             return 1.0, 1.0
@@ -204,14 +204,14 @@ class Weights_Handler():
             correction = train_posrated_n + train_negrated_n + base_n + cache_n
             return subclass1_weight * correction, subclass2_weight * correction
     
-    def load_transformation_weights_for_user_label(self, weights_scheme : Weights_Scheme, scalar : float, subclass1_n : int, subclass2_n : int) -> tuple:
+    def load_transformation_weights_for_user_label(self, weights_scheme: Weights_Scheme, scalar: float, subclass1_n: int, subclass2_n: int) -> tuple:
         subclass1_transformation, subclass2_transformation = self.get_transformation_functions(weights_scheme)
         denominator = scalar * subclass1_transformation(subclass1_n) + (1.0 - scalar) * subclass2_transformation(subclass2_n)
         subclass1_weight = scalar * subclass1_transformation(subclass1_n) / (denominator * subclass1_n) if subclass1_n > 0 else 0
         subclass2_weight = (1.0 - scalar) * subclass2_transformation(subclass2_n) / (denominator * subclass2_n) if subclass2_n > 0 else 0
         return subclass1_weight, subclass2_weight
     
-    def get_transformation_functions(self, weights_scheme : Weights_Scheme) -> tuple:
+    def get_transformation_functions(self, weights_scheme: Weights_Scheme) -> tuple:
         if weights_scheme in {Weights_Scheme.BOTH_CONSTANT_VW, Weights_Scheme.BOTH_CONSTANT_HYP}:
             return (lambda x : 1.0, lambda x : 1.0)
         elif weights_scheme in {Weights_Scheme.BOTH_CUBE_ROOT_VW, Weights_Scheme.BOTH_CUBE_ROOT_HYP}:
@@ -244,8 +244,8 @@ class Weights_Handler():
                 func1 = lambda x : np.exp(x)
             return (func1, func2)
         
-    def print_weights(self, hyperparameters : dict, weights_hyperparameters : list, hyperparameters_combination : tuple, voting_weight : float, 
-                      n_posrated : int, n_negrated : int, n_base : int, n_cache : int, w_p : float, w_n : float, w_b : float, w_c : float) -> None:
+    def print_weights(self, hyperparameters: dict, weights_hyperparameters: list, hyperparameters_combination: tuple, voting_weight: float, 
+                      n_posrated: int, n_negrated: int, n_base: int, n_cache: int, w_p: float, w_n: float, w_b: float, w_c: float) -> None:
         s = "<<< "
         for weights_hyperparameter in weights_hyperparameters:
             s += f"{weights_hyperparameter} = {hyperparameters_combination[hyperparameters[weights_hyperparameter]]:.3f}, "

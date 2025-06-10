@@ -10,33 +10,28 @@ ProjectPaths.add_logreg_src_paths_to_sys()
 import json, os, pickle
 import numpy as np
 from joblib import Parallel, delayed
-from sklearn.model_selection import train_test_split
 
 from algorithm import Algorithm, Evaluation, Score, get_cross_val, get_model, get_score, get_ranking_scores, derive_score, SCORES_DICT
 from compute_tfidf import load_vectorizer
-from data_handling import get_rated_papers_ids_for_user, get_voting_weight_for_user
 from embedding import Embedding
+from load_files import load_papers
 from training_data import *
 from weights_handler import Weights_Handler
 
 class Evaluator:
-    def __init__(self, config : dict, users_ratings : pd.DataFrame, hyperparameters_combinations : list, wh : Weights_Handler) -> None:
+    def __init__(self, config: dict, hyperparameters_combinations: list, wh: Weights_Handler) -> None:
         self.config = config
-        self.users_ratings = users_ratings
-        self.users_ids = self.users_ratings["user_id"].unique().tolist()
-        assert self.users_ids == sorted(self.users_ids)
         self.hyperparameters, self.hyperparameters_combinations = config["hyperparameters"], hyperparameters_combinations
         self.wh = wh
         self.scores, self.scores_n = config["scores"], len(config["scores"])
         self.non_derivable_scores, self.derivable_scores = [], []
         for score in Score:
             self.derivable_scores.append(score) if SCORES_DICT[score]["derivable"] else self.non_derivable_scores.append(score)
-        self.users_voting_weights = {user_id : get_voting_weight_for_user(user_id) for user_id in self.users_ids} if wh.need_voting_weight else None
         self.include_global_cache = self.config["include_cache"] and self.config["cache_type"] == "global"
         if self.config["evaluation"] == Evaluation.CROSS_VALIDATION:
             self.cross_val = get_cross_val(config["stratified"], config["k_folds"], self.config["model_random_state"])
         
-    def evaluate_embedding(self, embedding : Embedding) -> None:
+    def evaluate_embedding(self, embedding : Embedding, users_ratings: pd.DataFrame) -> None:
         self.embedding = embedding
         if self.config["save_tfidf_coefs"]:
             vectorizer = load_vectorizer(self.config["embedding_folder"])
@@ -57,22 +52,34 @@ class Evaluator:
             self.users_coefs = np.load(users_coefs_path / "users_coefs.npy")
             with open(users_coefs_path / "users_coefs_ids_to_idxs.pkl", "rb") as f:
                 self.users_coefs_ids_to_idxs = pickle.load(f)
+
+        papers = load_papers(ProjectPaths.data_db_backup_date_path() / "papers.parquet", relevant_columns = ["paper_id", "in_ratings", "in_cache", "l1", "l2"])
         if self.include_global_cache:
-            self.global_cache_ids, self.global_cache_idxs, self.global_cache_n, self.y_global_cache = load_global_cache(self.embedding, 
-                                                           self.config["max_cache"], self.config["cache_random_state"])
-        self.negative_samples_ids, self.negative_samples_embeddings = load_negative_samples_embeddings(self.embedding, self.config["n_negative_samples"], self.config["ranking_random_state"])
-        self.cache_attached_ids = load_negative_samples_embeddings(self.embedding, self.config["n_cache_attached"], self.config["cache_random_state"], self.negative_samples_ids)[0]
+            self.global_cache_ids, self.global_cache_idxs, self.global_cache_n, self.y_global_cache = load_global_cache(
+                        self.embedding, papers, self.config["max_cache"], self.config["cache_random_state"])
+        else:
+            if self.config["include_cache"]:
+                self.cache_papers_ids = papers[papers["in_cache"]]["paper_id"].tolist()
+                assert self.cache_papers_ids == sorted(self.cache_papers_ids)
+        self.negative_samples_ids, self.negative_samples_embeddings = load_negative_samples_embeddings(
+            self.embedding, papers, self.config["n_negative_samples"], self.config["ranking_random_state"], exclude_in_ratings = True, exclude_in_cache = True)
+        self.cache_attached_ids = load_negative_samples_embeddings(
+            self.embedding, papers, self.config["n_cache_attached"], self.config["cache_random_state"], papers_to_exclude = self.negative_samples_ids)[0]
+
         self.cache_attached_idxs = self.embedding.get_idxs(self.cache_attached_ids)
         assert len(self.cache_attached_ids) == len(self.cache_attached_idxs) == self.config["n_cache_attached"]
+        users_ids = users_ratings["user_id"].unique().tolist()
+        users_ratings = users_ratings.merge(papers[["paper_id", "l1", "l2"]], on = "paper_id", how = "left")
         if self.config["n_jobs"] == 1:
-            for user_id in self.users_ids:
-                self.evaluate_user(user_id)
+            for user_id in users_ids:
+                user_ratings = users_ratings[users_ratings["user_id"] == user_id].reset_index(drop = True)
+                self.evaluate_user(user_id, user_ratings)
         else:
-            Parallel(n_jobs = self.config["n_jobs"])(delayed(self.evaluate_user)(user_id) for user_id in self.users_ids)
+            users_ratings_list = [(user_id, users_ratings[users_ratings["user_id"] == user_id].reset_index(drop = True)) for user_id in users_ids]
+            Parallel(n_jobs = self.config["n_jobs"])(delayed(self.evaluate_user)(user_id, user_ratings) for user_id, user_ratings in users_ratings_list)
 
-    def evaluate_user(self, user_id : int) -> None:
+    def evaluate_user(self, user_id: int, user_ratings: pd.DataFrame) -> None:
         user_results_dict, user_predictions_dict = {}, {}
-        user_ratings = self.users_ratings[self.users_ratings["user_id"] == user_id].reset_index(drop = True)
         assert user_ratings["time"].is_monotonic_increasing
         posrated_ids = user_ratings[user_ratings["rating"] == 1]["paper_id"].tolist()
         negrated_ids = user_ratings[user_ratings["rating"] == 0]["paper_id"].tolist()
@@ -81,7 +88,7 @@ class Evaluator:
         rated_labels = np.concatenate((np.ones(posrated_n, dtype = LABEL_DTYPE), np.zeros(negrated_n, dtype = LABEL_DTYPE)))
         base_ids, base_idxs, base_n, y_base, user_predictions_dict["base_ids"] = [], [], 0, [], []
         zerorated_ids, zerorated_idxs, zerorated_n, y_zerorated, user_predictions_dict["zerorated_ids"] = [], [], 0, [], []
-        cache_ids, cache_idxs, cache_n, y_cache = self.set_cache_for_user(user_id, posrated_n, negrated_n, base_n)
+        cache_ids, cache_idxs, cache_n, y_cache = self.set_cache_for_user(rated_ids)
         user_info = self.store_user_info(user_id, posrated_n, negrated_n, base_n, zerorated_n, cache_n)
         user_predictions_dict["negative_samples_ids"] = self.negative_samples_ids
         if self.config["evaluation"] in [Evaluation.TRAIN_TEST_SPLIT, Evaluation.SESSION_BASED]:
@@ -127,14 +134,13 @@ class Evaluator:
             self.save_users_coefs(user_id, user_coefs)
         print(f"User {user_id} done.")
     
-    def set_cache_for_user(self, user_id : int, posrated_n : int, negrated_n : int, base_n) -> tuple:
-        pos_n = posrated_n + base_n
+    def set_cache_for_user(self, rated_ids: list) -> tuple:
         if self.include_global_cache:
             cache_ids, cache_idxs, cache_n, y_cache = self.global_cache_ids, self.global_cache_idxs, self.global_cache_n, self.y_global_cache
         else:
             if self.config["include_cache"]:
-                cache_ids, cache_idxs, cache_n, y_cache = load_filtered_cache_for_user(self.embedding, user_id, self.config["max_cache"], 
-                                                                                       self.config["cache_random_state"], pos_n, negrated_n)
+                cache_ids, cache_idxs, cache_n, y_cache = load_filtered_cache_for_user(self.embedding, self.cache_papers_ids, rated_ids, self.config["max_cache"], 
+                                                                                       self.config["cache_random_state"])
             else:
                 cache_ids, cache_idxs, cache_n, y_cache = [], [], 0, []
         if self.include_global_cache or self.config["include_cache"]:
@@ -144,18 +150,17 @@ class Evaluator:
             y_cache = np.concatenate((y_cache, np.zeros(len(self.cache_attached_idxs), dtype = LABEL_DTYPE)))
         return cache_ids, cache_idxs, cache_n, y_cache
         
-    def store_user_info(self, user_id : int, posrated_n : int, negrated_n : int, base_n : int = 0, zerorated_n = 0, cache_n = 0) -> dict:
-        return {"voting_weight" : self.users_voting_weights[user_id] if self.wh.need_voting_weight else None,
-                "n_posrated" : posrated_n, "n_negrated" : negrated_n, "n_base" : base_n , "n_zerorated": zerorated_n, "n_cache" : cache_n}
+    def store_user_info(self, user_id: int, posrated_n: int, negrated_n: int, base_n: int = 0, zerorated_n: int = 0, cache_n: int = 0) -> dict:
+        return {"n_posrated" : posrated_n, "n_negrated" : negrated_n, "n_base" : base_n , "n_zerorated": zerorated_n, "n_cache" : cache_n}
     
-    def load_data_for_user(self, train_rated_idxs : np.ndarray, val_rated_idxs : np.ndarray, y_train_rated : np.ndarray, base_idxs : np.ndarray, y_base : np.ndarray, 
-                           zerorated_idxs : np.ndarray, y_zerorated : np.ndarray, cache_idxs : np.ndarray, y_cache : np.ndarray) -> tuple:
+    def load_data_for_user(self, train_rated_idxs: np.ndarray, val_rated_idxs: np.ndarray, y_train_rated: np.ndarray, base_idxs: np.ndarray, y_base: np.ndarray, 
+                           zerorated_idxs: np.ndarray, y_zerorated: np.ndarray, cache_idxs: np.ndarray, y_cache: np.ndarray) -> tuple:
         X_train_rated, X_val = self.embedding.matrix[train_rated_idxs], self.embedding.matrix[val_rated_idxs]
         X_train, y_train = load_training_data_for_user(self.embedding, self.config["include_base"], self.config["include_zerorated"], self.config["include_cache"],
                                                        train_rated_idxs, y_train_rated, base_idxs, y_base, zerorated_idxs, y_zerorated, cache_idxs, y_cache)
         return X_train_rated, X_val, X_train, y_train
     
-    def get_data_statistics_for_user(self, y_train_rated : np.ndarray, base_n : int = 0, zerorated_n : int = 0, cache_n : int = 0) -> dict:
+    def get_data_statistics_for_user(self, y_train_rated: np.ndarray, base_n: int = 0, zerorated_n: int = 0, cache_n: int = 0) -> dict:
         user_data_statistics = {"base_n" : base_n, "zerorated_n": zerorated_n, "cache_n" : cache_n}
         user_data_statistics["train_rated_n"] = len(y_train_rated)
         user_data_statistics["train_posrated_n"] = np.sum(y_train_rated)
@@ -165,8 +170,8 @@ class Evaluator:
         user_data_statistics["total_n"] = user_data_statistics["train_rated_base_zerorated_n"] + cache_n
         return user_data_statistics
     
-    def train_model_for_user(self, user_id : int, X_train : np.ndarray, y_train : np.ndarray, X_train_rated : np.ndarray, y_train_rated : np.ndarray, 
-                             X_val : np.ndarray, y_val : np.ndarray, user_data_statistics : dict, negrated_ranking_val_idxs : np.ndarray, voting_weight : float = None) -> tuple:
+    def train_model_for_user(self, user_id: int, X_train: np.ndarray, y_train: np.ndarray, X_train_rated: np.ndarray, y_train_rated: np.ndarray, 
+                             X_val: np.ndarray, y_val: np.ndarray, user_data_statistics: dict, negrated_ranking_val_idxs: np.ndarray, voting_weight: float = None) -> tuple:
         user_results, user_predictions, user_coefs = {}, {"train_predictions": {}, "val_predictions": {}, "negrated_ranking_predictions": {}, "negative_samples_predictions": {}, 
                                                           "tfidf_coefs": {}}, None
         sample_weights = np.empty(user_data_statistics["total_n"], dtype = np.float64)
@@ -207,15 +212,15 @@ class Evaluator:
                 user_coefs = np.hstack([model.coef_[0], model.intercept_[0]]) 
         return user_results, user_predictions, user_coefs
 
-    def get_model_for_user(self, hyperparameters_combination : tuple) -> object:
+    def get_model_for_user(self, hyperparameters_combination: tuple) -> object:
         clf_C = hyperparameters_combination[self.hyperparameters["clf_C"]]
         return get_model(self.config["algorithm"], self.config["max_iter"], clf_C, self.config["model_random_state"], 
                          logreg_solver = self.config["logreg_solver"] if self.config["algorithm"] == Algorithm.LOGREG else None,
                          svm_kernel = self.config["svm_kernel"] if self.config["algorithm"] == Algorithm.SVM else None)
     
-    def get_scores_for_user(self, y_train_rated : np.ndarray, y_train_rated_pred : np.ndarray, y_train_rated_proba : np.ndarray, y_train_rated_logits : np.ndarray,
-                            y_val : np.ndarray, y_val_pred : np.ndarray, y_val_proba : np.ndarray, y_val_logits : np.ndarray, y_negrated_ranking_proba : np.ndarray, 
-                            y_negrated_ranking_logits : np.ndarray, y_negative_samples_pred : np.ndarray, y_negative_samples_proba : np.ndarray, y_negative_samples_logits : np.ndarray) -> tuple:
+    def get_scores_for_user(self, y_train_rated: np.ndarray, y_train_rated_pred: np.ndarray, y_train_rated_proba: np.ndarray, y_train_rated_logits: np.ndarray,
+                            y_val: np.ndarray, y_val_pred: np.ndarray, y_val_proba: np.ndarray, y_val_logits: np.ndarray, y_negrated_ranking_proba: np.ndarray, 
+                            y_negrated_ranking_logits: np.ndarray, y_negative_samples_pred: np.ndarray, y_negative_samples_proba: np.ndarray, y_negative_samples_logits: np.ndarray) -> tuple:
         user_scores = [0] * self.scores_n
         for score in self.non_derivable_scores:
             if not SCORES_DICT[score]["ranking"]:
@@ -232,9 +237,9 @@ class Evaluator:
             user_scores[self.scores[f"val_{score.name.lower()}"]] = derive_score(score, user_scores_copy, self.scores, validation = True)
         return tuple(user_scores)
     
-    def get_papers_ids(self, train_rated_idxs : np.ndarray, y_train_rated : np.ndarray, val_rated_idxs : np.ndarray, y_val : np.ndarray, negrated_ranking_ids : list) -> dict:
-        return {"train_ids" : self.embedding.get_papers_ids(train_rated_idxs), "train_labels" : y_train_rated.tolist(), 
-                "val_ids" : self.embedding.get_papers_ids(val_rated_idxs), "val_labels" : y_val.tolist(), "negrated_ranking_ids" : negrated_ranking_ids}
+    def get_papers_ids(self, train_rated_idxs: np.ndarray, y_train_rated: np.ndarray, val_rated_idxs: np.ndarray, y_val: np.ndarray, negrated_ranking_ids: list) -> dict:
+        return {"train_ids": self.embedding.get_papers_ids(train_rated_idxs), "train_labels" : y_train_rated.tolist(), 
+                "val_ids": self.embedding.get_papers_ids(val_rated_idxs), "val_labels": y_val.tolist(), "negrated_ranking_ids": negrated_ranking_ids}
     
     def save_user_info(self, user_id : int, user_info : dict) -> None:
         folder = self.config["outputs_dir"] / "tmp" / f"user_{user_id}"
@@ -242,7 +247,7 @@ class Evaluator:
             os.makedirs(folder)
         json.dump(user_info, open(folder / "user_info.json", 'w'), indent = 1)
 
-    def save_user_results(self, user_id : int, user_results_dict : dict) -> None:
+    def save_user_results(self, user_id: int, user_results_dict: dict) -> None:
         folder = self.config["outputs_dir"] / "tmp" / f"user_{user_id}"
         if not os.path.exists(folder):
             os.makedirs(folder)
@@ -252,13 +257,13 @@ class Evaluator:
             print(f"Error saving user {user_id} results.")
             raise
 
-    def save_users_predictions(self, user_id : int, user_predictions_dict : dict) -> None:
+    def save_users_predictions(self, user_id: int, user_predictions_dict: dict) -> None:
         folder = self.config["outputs_dir"] / "users_predictions" / f"user_{user_id}"
         if not os.path.exists(folder):
             os.makedirs(folder)
         json.dump(user_predictions_dict, open(folder / "user_predictions.json", 'w'), indent = 1)
 
-    def save_users_coefs(self, user_id : int, user_coefs : np.ndarray) -> None:
+    def save_users_coefs(self, user_id: int, user_coefs: np.ndarray) -> None:
         folder = self.config["outputs_dir"] / "tmp" / f"user_{user_id}"
         if not os.path.exists(folder):
             os.makedirs(folder)

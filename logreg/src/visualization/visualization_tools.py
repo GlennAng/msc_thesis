@@ -135,7 +135,7 @@ def get_hyperparameters_ranges_str(hyperparameters_ranges : dict) -> str:
 
 def get_users_info_table(users_info : pd.DataFrame) -> list:
     data = []
-    rows = {"Voting Weight": users_info["voting_weight"], "Number of positively rated Papers": users_info["n_posrated"],
+    rows = {"Number of positively rated Papers": users_info["n_posrated"],
             "Number of negatively rated Papers": users_info["n_negrated"], "Number of base Papers": users_info["n_base"],
             "Percentage of positively rated among all rated": users_info["n_posrated"] / (users_info["n_posrated"] + users_info["n_negrated"])}
     n_base = users_info["n_base"].fillna(0)

@@ -7,7 +7,7 @@ except ImportError:
     from project_paths import ProjectPaths
 ProjectPaths.add_logreg_src_paths_to_sys()
 
-import json, os
+import json, os, shutil
 
 def create_example_config() -> dict:
     example_config = {}
@@ -47,7 +47,7 @@ def check_config(config: dict) -> bool:
     return True
 
 if __name__ == "__main__":
-    logreg_experiments_path = ProjectPaths.logreg_experiments_path()
+    logreg_experiments_path = ProjectPaths.logreg_experiments_path() / "example_configs"
     os.makedirs(logreg_experiments_path, exist_ok = True)
     example_config = create_example_config()
     with open(logreg_experiments_path / "example_config.json", "w") as f:

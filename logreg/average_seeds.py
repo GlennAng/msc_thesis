@@ -7,20 +7,30 @@ except ImportError:
     from project_paths import ProjectPaths
 ProjectPaths.add_logreg_src_paths_to_sys()
 
-import json, os
+import argparse, json, os, shutil
 
 from visualize_globally import Global_Visualizer
 from visualization_tools import *
 
-#seeds = [1, 2, 25, 26, 75, 76, 100, 101, 150, 151]
-seeds = [1, 2, 25]
-example_config = ProjectPaths.logreg_experiments_path() / "example_config_temporal.json"
-config = json.load(open(example_config))
-config_stem = example_config.stem
+DEFAULT_SEEDS = [1, 2, 25, 26, 75, 76, 100, 101, 150, 151]
+
+def parse_args() -> dict:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config_path", type = str, required = True)
+    parser.add_argument('--seeds', type = str, nargs = '+', default = DEFAULT_SEEDS)
+    args_dict = vars(parser.parse_args())
+    args_dict["config_path"] = Path(args_dict["config_path"]).resolve()
+    args_dict["seeds"] = [int(seed) for seed in args_dict["seeds"]]
+    return args_dict
+
+args_dict = parse_args()
+config = json.load(open(args_dict["config_path"], "r"))
+config_stem = args_dict["config_path"].stem
 folder_name = ProjectPaths.logreg_experiments_path() / f"{config_stem}_seeds"
+shutil.rmtree(folder_name, ignore_errors = True)
 os.makedirs(folder_name, exist_ok = True)
 
-for seed in seeds:
+for seed in args_dict["seeds"]:
     config["model_random_state"] = seed
     config["cache_random_state"] = seed
     config["ranking_random_state"] = seed
