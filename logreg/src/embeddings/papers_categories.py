@@ -11,7 +11,8 @@ import pickle
 import numpy as np
 
 from embedding import *
-from papers_categories_dicts import *
+from load_files import load_papers
+from papers_categories_dicts import PapersCategories
 
 def load_glove_embeddings(dim: int) -> dict:
     from tqdm import tqdm
@@ -53,27 +54,27 @@ def get_papers_ids_to_categories(papers_ids_to_categories_original: dict, origin
         papers_ids_to_categories[paper_id] = paper_category
     return papers_ids_to_categories
 
-def attach_papers_categories(embeddings: np.ndarray, papers_ids_to_idxs: dict, papers_categories: PapersCategories = None, 
-                             dim: int = 100, normalization: str = "l2_unit", save_matrix: bool = False) -> np.ndarray:
+def attach_papers_categories(embeddings: np.ndarray, papers_ids_to_idxs: dict, papers_categories: PapersCategories, 
+                             dim: int = 100, normalization: str = "l2_unit") -> np.ndarray:
     n_papers = embeddings.shape[0]
-    if papers_categories is None:
-        papers_categories = PAPERS_CATEGORIES
-    with open("../data/papers_ids_to_categories_original.pkl", "rb") as file:
-        papers_ids_to_categories_original = pickle.load(file)
-    papers_ids_to_categories_original = {paper_id : category for paper_id, category in papers_ids_to_categories_original.items() if paper_id in papers_ids_to_idxs}
+    papers = load_papers(ProjectPaths.data_db_backup_date_papers_path(), relevant_columns = ["paper_id", "l1"])
+    papers_ids_to_categories_original = papers.set_index("paper_id")["l1"].to_dict()
+    papers_ids_to_categories_original = {paper_id: category for paper_id, category in papers_ids_to_categories_original.items() if paper_id in papers_ids_to_idxs}
     papers_ids_to_categories = get_papers_ids_to_categories(papers_ids_to_categories_original, papers_categories.original_categories_to_categories)
     glove_categories_embeddings = get_glove_categories_embeddings(papers_categories.categories_to_glove, dim, normalization)
     glove_matrix = np.zeros((n_papers, dim), dtype = embeddings.dtype)
     for paper_id, paper_category in papers_ids_to_categories.items():
         glove_matrix[papers_ids_to_idxs[paper_id], :] = glove_categories_embeddings[paper_category]
-    glove_matrix = np.concatenate((embeddings, glove_matrix), axis = 1)
-    if save_matrix:
-        os.makedirs(embedding_path + f"_categories_{dim}_{normalization}", exist_ok = True)
-        os.system(f"cp {embedding_path}/abs_paper_ids_to_idx.pkl {embedding_path}_categories_{dim}_{normalization}/abs_paper_ids_to_idx.pkl")
-        np.save(f"{embedding_path}_categories_{dim}_{normalization}/abs_X.npy", glove_matrix)
-    return glove_matrix
+    return np.concatenate((embeddings, glove_matrix), axis = 1)
   
 if __name__ == "__main__":
     embedding_path = ProjectPaths.logreg_embeddings_path() / "after_pca" / "gte_large_2025-02-23_256"
+    dim, normalization = 100, "l2_unit"
     embedding = Embedding(embedding_path)
-    #attach_papers_categories(embedding.matrix, embedding.papers_ids_to_idxs, save_matrix = True)
+    from papers_categories_dicts import PAPERS_CATEGORIES
+    papers_categories = PAPERS_CATEGORIES
+    glove_matrix = attach_papers_categories(embedding.matrix, embedding.papers_ids_to_idxs, papers_categories, dim, normalization)
+    matrix_path = embedding_path.parent / f"{embedding_path.name}_categories_{normalization}_{dim}"
+    os.makedirs(matrix_path, exist_ok = True)
+    np.save(matrix_path / "abs_X.npy", glove_matrix)
+    os.system(f"cp {embedding_path / 'abs_paper_ids_to_idx.pkl'} {matrix_path / 'abs_paper_ids_to_idx.pkl'}")

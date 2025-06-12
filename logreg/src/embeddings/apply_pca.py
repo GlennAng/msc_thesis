@@ -1,33 +1,39 @@
+import sys
+from pathlib import Path
+try:
+    from project_paths import ProjectPaths
+except ImportError:
+    sys.path.append(str(Path(__file__).parents[3]))
+    from project_paths import ProjectPaths
+ProjectPaths.add_logreg_src_paths_to_sys()
+
+import os, time
+import numpy as np
 from embedding import Embedding
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
-import numpy as np
-import os
-import sys
-import time
 
-def check_row_norms(matrix : np.ndarray) -> bool:
+def check_row_norms(matrix: np.ndarray) -> bool:
     norms = np.linalg.norm(matrix, axis = 1)
     is_valid = np.isclose(norms, 1.0) | np.isclose(norms, 0.0)
     return np.all(is_valid)
 
-def l2_normalize_rows(matrix : np.ndarray) -> np.ndarray:
+def l2_normalize_rows(matrix: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(matrix, axis = 1)
     mask = norms > 0
     return np.divide(matrix, norms[:, np.newaxis], where = mask[:, np.newaxis])
 
 if __name__ == "__main__":
-    EMBEDDINGS_INPUT_FOLDER = "/home/scholar/glenn_rp/msc_thesis/data/embeddings/before_pca/gte_large_2025-02-23"
-    PCA_DIM = 2
+    EMBEDDINGS_INPUT_FOLDER = ProjectPaths.logreg_embeddings_path() / "before_pca" / "gte_large_x_2025-02-23"
+    PCA_DIM = 384
     APPLY_ZSCORE = True
-    APPLY_L2NORM = False
+    APPLY_L2NORM = True
 
-    embeddings_base_folder = EMBEDDINGS_INPUT_FOLDER.split("/embeddings")[0] + "/embeddings"
-    embeddings_name = EMBEDDINGS_INPUT_FOLDER.split("/")[-1]
     embeddings_matrix = Embedding(EMBEDDINGS_INPUT_FOLDER, 32).matrix
     apply_pca = (PCA_DIM < embeddings_matrix.shape[1])
-    embeddings_output_folder = embeddings_base_folder + f"/after_pca/{embeddings_name}_{PCA_DIM}"
+    embeddings_output_folder = ProjectPaths.logreg_embeddings_path() / "after_pca" / f"{EMBEDDINGS_INPUT_FOLDER.stem}_{PCA_DIM}"
     print(f"Loaded embeddings matrix of shape {embeddings_matrix.shape} for PCA down to {PCA_DIM} dimensions.")
+    print(f"Output folder for embeddings: {embeddings_output_folder}")
 
     if APPLY_ZSCORE:
         print("Performing Z-score normalization..")
@@ -62,9 +68,10 @@ if __name__ == "__main__":
 
     os.makedirs(embeddings_output_folder, exist_ok = True)
     if APPLY_ZSCORE:
-        np.save(f"{embeddings_output_folder}/scaler_params.npy", scaler_params)
+        np.save(embeddings_output_folder / "scaler_params.npy", scaler_params)
     if apply_pca:
-        np.save(f"{embeddings_output_folder}/pca_components.npy", pca_components)
-        np.save(f"{embeddings_output_folder}/pca_mean.npy", pca_mean)
+        np.save(embeddings_output_folder / "pca_components.npy", pca.components_)
+        np.save(embeddings_output_folder / "pca_mean.npy", pca.mean_)
+
     np.save(f"{embeddings_output_folder}/abs_X.npy", embeddings_matrix)
-    os.system(f"cp {EMBEDDINGS_INPUT_FOLDER + '/abs_paper_ids_to_idx.pkl'} {embeddings_output_folder + '/abs_paper_ids_to_idx.pkl'}")
+    os.system(f"cp {EMBEDDINGS_INPUT_FOLDER / 'abs_paper_ids_to_idx.pkl'} {embeddings_output_folder / 'abs_paper_ids_to_idx.pkl'}")

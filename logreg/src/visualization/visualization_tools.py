@@ -134,13 +134,11 @@ def get_hyperparameters_ranges_str(hyperparameters_ranges: dict) -> str:
 
 def get_users_info_table(users_info: pd.DataFrame) -> list:
     data = []
-    rows = {"Number of positively rated Papers": users_info["n_posrated"],
-            "Number of negatively rated Papers": users_info["n_negrated"], "Number of base Papers": users_info["n_base"],
-            "Percentage of positively rated among all rated": users_info["n_posrated"] / (users_info["n_posrated"] + users_info["n_negrated"])}
-    n_base = users_info["n_base"].fillna(0)
-    n_zerorated = users_info["n_zerorated"].fillna(0)
-    rows["Percentage of positively rated + base \n among all rated + base + zerorated"] = (
-        (users_info["n_posrated"] + n_base) / (users_info["n_posrated"] + users_info["n_negrated"] + n_base + n_zerorated))
+    rows = {"Number of positively rated Papers": users_info["n_posrated"], "Number of negatively rated Papers": users_info["n_negrated"],
+            "Percentage of positively rated among all rated": users_info["n_posrated"] / (users_info["n_posrated"] + users_info["n_negrated"]),
+            "Percentage of train among all rated": users_info["train_rated_ratio"]}
+    if "coefs_categories_ratio" in users_info.columns:
+        rows["Percentage of categories coefs among non-bias sum"] = users_info["coefs_categories_ratio"]
     for row_name, row in rows.items():
         if row.isnull().all():
             data.append([row_name] + [np.float64('nan')] * 5)
@@ -178,7 +176,7 @@ def print_third_page(pdf: PdfPages, n_users: int, users_info_table: list, users_
     fig, ax = plt.subplots(figsize = PLOT_CONSTANTS["FIG_SIZE"])
     ax.axis("off")
     ax.text(0.5, 1.1285, f"Users Info (N = {n_users}):\n", fontsize = 17, ha = 'center', va = 'top', fontweight = 'bold')
-    print_table(users_info_table, [-0.125, 0.765, 1.2, 0.325], ["", "Minimum", "Maximum", "Median", "Mean", "Standard Dev."], [0.5] + (5 * [0.175]))
+    print_table(users_info_table, [-0.125, 0.765, 1.2, 0.325], ["", "Minimum", "Maximum", "Median", "Mean", "Standard Dev."], [0.6] + (5 * [0.175]))
     ax.text(0.5, 0.745, f"{users_ids}", fontsize = 9, ha = 'center', va = 'top', wrap = True)
     pdf.savefig(fig)
     plt.close(fig)

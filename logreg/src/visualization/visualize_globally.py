@@ -157,7 +157,6 @@ class Global_Visualizer:
         urs, mrs, crs, rrs = self.config["users_random_state"], self.config["model_random_state"], self.config["cache_random_state"], self.config["ranking_random_state"]
         config_string.append(f"Random States:  Users: {urs}  |  Model: {mrs}  |  Cache: {crs}  |  Ranking: {rrs}.")
         config_string.append("\n")
-
         config_string.append(get_cache_type_str(self.config["cache_type"], self.config["max_cache"], self.config["n_cache_attached"]))
         config_string.append(f"Number of Negative Samples per User: {self.config['n_negative_samples']}.")
         config_string.append("\n")
@@ -166,6 +165,8 @@ class Global_Visualizer:
         elif self.config["evaluation"] == Evaluation.SESSION_BASED:
             config_string.append(f"Minimum Number of required negative / positive Training Votes per User: {self.config['min_n_negrated_train']} / {self.config['min_n_posrated_train']}.")
             config_string.append(f"Minimum Number of required negative / positive Validation Votes per User: {self.config['min_n_negrated_val']} / {self.config['min_n_posrated_val']}.")
+        if self.config["categories_dim"] is not None:
+            config_string.append(f"Categories Scale: {self.config['categories_scale']}.")
         config_string.append(f"Number of selected Users: {self.n_users}.")
         config_string.append(get_users_selection_str(self.config["users_selection"], self.users_ids))
 

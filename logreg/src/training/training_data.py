@@ -57,6 +57,13 @@ def get_global_cache_papers_ids(papers: pd.DataFrame, max_cache: int = None, ran
     return sorted(cache)
 
 def load_filtered_cache_for_user(embedding: Embedding, cache_papers_ids: list, rated_ids: list, max_cache: int = None, random_state: int = None) -> tuple:
+    user_filtered_cache_ids = get_filtered_cache_papers_ids_for_user(cache_papers_ids, rated_ids, max_cache, random_state)
+    user_filtered_cache_idxs = embedding.get_idxs(user_filtered_cache_ids)
+    user_filtered_cache_n = len(user_filtered_cache_idxs)
+    y_user_filtered_cache = np.zeros(user_filtered_cache_n, dtype = LABEL_DTYPE)
+    return user_filtered_cache_ids, user_filtered_cache_idxs, user_filtered_cache_n, y_user_filtered_cache
+
+def get_filtered_cache_papers_ids_for_user(cache_papers_ids: list, rated_ids: list, max_cache: int = None, random_state: int = None) -> list:
     user_filtered_cache_ids = [paper_id for paper_id in cache_papers_ids if paper_id not in rated_ids]
     n_user_filtered_cache = len(user_filtered_cache_ids)
     max_cache = n_user_filtered_cache if max_cache is None else min(max_cache, n_user_filtered_cache)
@@ -66,11 +73,7 @@ def load_filtered_cache_for_user(embedding: Embedding, cache_papers_ids: list, r
         user_filtered_cache_ids = sorted(user_filtered_cache_ids)
         rng = random.Random(random_state)
         user_filtered_cache_ids = rng.sample(user_filtered_cache_ids, max_cache)
-    user_filtered_cache_ids = sorted(user_filtered_cache_ids)
-    user_filtered_cache_idxs = embedding.get_idxs(user_filtered_cache_ids)
-    user_filtered_cache_n = len(user_filtered_cache_idxs)
-    y_user_filtered_cache = np.zeros(user_filtered_cache_n, dtype = LABEL_DTYPE)
-    return user_filtered_cache_ids, user_filtered_cache_idxs, user_filtered_cache_n, y_user_filtered_cache
+    return sorted(user_filtered_cache_ids)
 
 def load_negative_samples_embeddings(embedding: Embedding, papers: pd.DataFrame, n_negative_samples: int, random_state: int, papers_to_exclude: list = None,
                                      exclude_in_ratings: bool = False, exclude_in_cache: bool = False) -> tuple:

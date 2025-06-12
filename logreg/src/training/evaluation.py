@@ -94,6 +94,7 @@ class Evaluator:
         if self.config["evaluation"] in [Evaluation.TRAIN_TEST_SPLIT, Evaluation.SESSION_BASED]:
             train_mask, val_mask = user_ratings["split"] == "train", user_ratings["split"] == "val"
             train_rated_ids, val_rated_ids = user_ratings.loc[train_mask, "paper_id"].values.tolist(), user_ratings.loc[val_mask, "paper_id"].values.tolist()
+            user_info["train_rated_ratio"] = len(train_rated_ids) / len(rated_ids)
             y_train_rated, y_val = user_ratings.loc[train_mask, "rating"].values, user_ratings.loc[val_mask, "rating"].values
             val_rated_negative_ids = [id for id in val_rated_ids if id in negrated_ids]
             negrated_ranking_ids = load_negrated_ranking_ids_for_user(val_rated_negative_ids, self.config["ranking_random_state"])
@@ -102,7 +103,12 @@ class Evaluator:
             user_data_statistics = self.get_data_statistics_for_user(y_train_rated, base_n, zerorated_n, cache_n)
             user_predictions_dict[0] = self.get_papers_ids(train_rated_idxs, y_train_rated, val_rated_idxs, y_val, negrated_ranking_ids)
             negrated_ranking_val_idxs = np.array([user_predictions_dict[0]["val_ids"].index(id) for id in negrated_ranking_ids])
-            user_results, user_predictions, user_coefs = self.train_model_for_user(user_id, X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, user_data_statistics, negrated_ranking_val_idxs)
+            user_results, user_predictions, user_coefs = self.train_model_for_user(user_id, X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, 
+                                                                                   user_data_statistics, negrated_ranking_val_idxs)
+            if self.config["categories_dim"] is not None:
+                content_dim = len(user_coefs) - self.config["categories_dim"] - 1
+                sum_content_coef, sum_categories_coef = np.sum(np.abs(user_coefs[:content_dim])), np.sum(np.abs(user_coefs[content_dim : -1]))
+                user_info["coefs_categories_ratio"] = sum_categories_coef / (sum_content_coef + sum_categories_coef)
             user_results_dict[0] = user_results
             if self.config["save_users_predictions"]:
                  user_predictions_dict[0].update({"train_predictions": user_predictions["train_predictions"], "val_predictions": user_predictions["val_predictions"],
@@ -112,8 +118,10 @@ class Evaluator:
         elif self.config["evaluation"] == Evaluation.CROSS_VALIDATION:
             rated_idxs = self.embedding.get_idxs(rated_ids)
             split = self.cross_val.split(X = rated_ids, y = rated_labels)
+            train_rated_ratios, coefs_categories_ratios = [], []
             for fold_idx, (fold_train_idxs, fold_val_idxs) in enumerate(split):
                 train_rated_idxs, val_rated_idxs = rated_idxs[fold_train_idxs], rated_idxs[fold_val_idxs]
+                train_rated_ratios.append(len(train_rated_idxs) / len(rated_idxs))
                 val_rated_negative_ids = [id for id in self.embedding.get_papers_ids(val_rated_idxs) if id in negrated_ids]
                 negrated_ranking_ids = load_negrated_ranking_ids_for_user(val_rated_negative_ids, self.config["ranking_random_state"])
                 y_train_rated, y_val = rated_labels[fold_train_idxs], rated_labels[fold_val_idxs]
@@ -121,12 +129,20 @@ class Evaluator:
                 user_data_statistics = self.get_data_statistics_for_user(y_train_rated, base_n, zerorated_n, cache_n)
                 user_predictions_dict[fold_idx] = self.get_papers_ids(train_rated_idxs, y_train_rated, val_rated_idxs, y_val, negrated_ranking_ids)
                 negrated_ranking_val_idxs = np.array([user_predictions_dict[fold_idx]["val_ids"].index(id) for id in negrated_ranking_ids])
-                fold_results, fold_predictions, _ = self.train_model_for_user(user_id, X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, user_data_statistics, negrated_ranking_val_idxs)
+                fold_results, fold_predictions, fold_coefs = self.train_model_for_user(user_id, X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, 
+                                                                                       user_data_statistics, negrated_ranking_val_idxs)
+                if self.config["categories_dim"] is not None:
+                    content_dim = len(fold_coefs) - self.config["categories_dim"] - 1
+                    sum_content_coef, sum_categories_coef = np.sum(np.abs(fold_coefs[:content_dim])), np.sum(np.abs(fold_coefs[content_dim : -1]))
+                    coefs_categories_ratios.append(sum_categories_coef / (sum_content_coef + sum_categories_coef))
                 user_results_dict[fold_idx] = fold_results
                 if self.config["save_users_predictions"]:
                     user_predictions_dict[fold_idx].update({"train_predictions": fold_predictions["train_predictions"], "val_predictions": fold_predictions["val_predictions"],
                                                             "negrated_ranking_predictions": fold_predictions["negrated_ranking_predictions"],
                                                             "negative_samples_predictions": fold_predictions["negative_samples_predictions"], "tfidf_coefs": fold_predictions["tfidf_coefs"]})
+            user_info["train_rated_ratio"] = np.mean(train_rated_ratios)
+            if self.config["categories_dim"] is not None:
+                user_info["coefs_categories_ratio"] = np.mean(coefs_categories_ratios)
         self.save_user_info(user_id, user_info)
         self.save_user_results(user_id, user_results_dict)
         self.save_users_predictions(user_id, user_predictions_dict)
@@ -158,6 +174,11 @@ class Evaluator:
         X_train_rated, X_val = self.embedding.matrix[train_rated_idxs], self.embedding.matrix[val_rated_idxs]
         X_train, y_train = load_training_data_for_user(self.embedding, self.config["include_base"], self.config["include_zerorated"], self.config["include_cache"],
                                                        train_rated_idxs, y_train_rated, base_idxs, y_base, zerorated_idxs, y_zerorated, cache_idxs, y_cache)
+        if self.config["categories_dim"] is not None and self.config["categories_scale"] != 1.0:
+            categories_dim, categories_scale = self.config["categories_dim"], self.config["categories_scale"]
+            X_train_rated[:, -categories_dim:] *= categories_scale
+            X_val[:, -categories_dim:] *= categories_scale
+            X_train[:, -categories_dim:] *= categories_scale
         return X_train_rated, X_val, X_train, y_train
     
     def get_data_statistics_for_user(self, y_train_rated: np.ndarray, base_n: int = 0, zerorated_n: int = 0, cache_n: int = 0) -> dict:
@@ -208,8 +229,7 @@ class Evaluator:
                 user_predictions["negative_samples_predictions"][combination_idx] = y_negative_samples_proba.tolist()
             if self.config["save_tfidf_coefs"]:
                 user_predictions["tfidf_coefs"][combination_idx] = model.coef_[0].tolist()
-            if "save_users_coefs" in self.config and self.config["save_users_coefs"]:
-                user_coefs = np.hstack([model.coef_[0], model.intercept_[0]]) 
+            user_coefs = np.hstack([model.coef_[0], model.intercept_[0]]) 
         return user_results, user_predictions, user_coefs
 
     def get_model_for_user(self, hyperparameters_combination: tuple) -> object:

@@ -39,6 +39,8 @@ def load_config(config_path: Path) -> dict:
     if check_config(config):
         print("Config File is valid.")
     config["experiment_name"] = config_path.stem
+    embedding_folder_split = config["embedding_folder"].split("_")
+    config["categories_dim"] = int(embedding_folder_split[-1]) if "categories" in embedding_folder_split else None
     return config
 
 def convert_enums(config: dict) -> None:

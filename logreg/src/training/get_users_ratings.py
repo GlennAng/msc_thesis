@@ -14,6 +14,12 @@ from algorithm import Evaluation
 from load_files import load_users_ratings
 from training_data import LABEL_DTYPE
 
+def get_temporal_750_users_ratings() -> tuple:
+    return get_users_ratings(users_selection = "random", evaluation = Evaluation.SESSION_BASED, test_size = 0.0, max_users = 750,
+                        users_random_state = 42, model_random_state = 42, stratify = True, min_n_posrated = 20, min_n_negrated = 20,
+                        take_complement = False, users_mapped = False, min_n_posrated_train = 16, min_n_negrated_train = 16,
+                        min_n_posrated_val = 5, min_n_negrated_val = 5)
+
 def get_train_test_split(users_ratings: pd.DataFrame, test_size: float, random_state: int, stratify: bool = True) -> pd.DataFrame:
     from sklearn.model_selection import train_test_split
 
@@ -155,11 +161,9 @@ def get_users_ratings(users_selection: str, evaluation: Evaluation, test_size: f
         users_ratings = get_train_test_split(users_ratings, test_size, model_random_state, stratify)
     return users_ratings, users_ids_selected.tolist()
 
-    
 
 if __name__ == "__main__":
-
-    get_users_ratings(users_selection = "random", evaluation = Evaluation.SESSION_BASED, test_size = 0.0, max_users = 500,
+    _, users_ids = get_users_ratings(users_selection = "random", evaluation = Evaluation.SESSION_BASED, test_size = 0.0, max_users = 750,
                         users_random_state = 42, model_random_state = 42, stratify = True, min_n_posrated = 20, min_n_negrated = 20,
-                        take_complement = False, users_mapped = False, min_n_posrated_train = 10, min_n_negrated_train = 4,
-                        min_n_posrated_val = 5, min_n_negrated_val = 4)
+                        take_complement = False, users_mapped = False, min_n_posrated_train = 16, min_n_negrated_train = 16,
+                        min_n_posrated_val = 5, min_n_negrated_val = 5)
