@@ -33,6 +33,26 @@ class ProjectPaths:
         return ProjectPaths.data_path() / ProjectPaths.get_db_backup_date()
 
     @staticmethod
+    def data_db_backup_date_papers_path():
+        return ProjectPaths.data_db_backup_date_path() / "papers.parquet"
+
+    @staticmethod
+    def data_db_backup_date_papers_texts_path():
+        return ProjectPaths.data_db_backup_date_path() / "papers_texts.parquet"
+
+    @staticmethod
+    def data_db_backup_date_users_mapping_path():
+        return ProjectPaths.data_db_backup_date_path() / "users_mapping.pkl"
+
+    @staticmethod
+    def data_db_backup_date_users_ratings_path():
+        return ProjectPaths.data_db_backup_date_path() / "users_ratings.parquet"
+
+    @staticmethod
+    def data_db_backup_date_users_ratings_mapped_path():
+        return ProjectPaths.data_db_backup_date_path() / "users_ratings_mapped.parquet"
+
+    @staticmethod
     def finetuning_path():
         return ProjectPaths._base_path() / "finetuning"
 
@@ -50,6 +70,10 @@ class ProjectPaths:
     @staticmethod
     def logreg_embeddings_path():
         return ProjectPaths.logreg_path() / "embeddings"
+
+    @staticmethod
+    def logreg_embeddings_relevant_papers_path():
+        return ProjectPaths.logreg_embeddings_path() / "relevant_papers.pkl"
 
     @staticmethod
     def logreg_experiments_path():
