@@ -111,11 +111,6 @@ def sql_execute(query, sql_connection, **kwargs):
         res = None
     return res
 
-def get_db_backup_date() -> str:
-    query = '''SELECT MAX(time) FROM users_ratings;'''
-    backup_date = str(sql_execute(query)[0][0])
-    return backup_date.split(" ")[0]
-
 def save_users_mapping(path: Path, random_state: int = 42) -> dict:
     users_ids_query = "SELECT DISTINCT user_id FROM users_ratings WHERE rating IN (-1, 1) AND time IS NOT NULL ORDER BY user_id"
     users_ids = [row[0] for row in sql_execute(users_ids_query)]
@@ -197,27 +192,22 @@ sql_connection_string = f"postgresql://{db_user}:{db_password}@{db_host}:{db_por
 global_sql_engine = create_engine(sql_connection_string, pool_size = 20, pool_recycle = 3600, pool_pre_ping = True)
 
 if __name__ == "__main__":
-    db_backup_date = get_db_backup_date()
     data_path = Path(__file__).resolve().parent / "data"
-    data_db_backup_path = data_path / db_backup_date
-    data_db_backup_path.mkdir(parents = True, exist_ok = True)
-    db_backup_date_dict = {"db_backup_date": db_backup_date}
-    with open(data_path/ "db_backup_date.json", "w") as f:
-        json.dump(db_backup_date_dict, f, indent = 4)
+    data_path.mkdir(parents = True, exist_ok = True)
 
-    users_mapping_path = data_db_backup_path / "users_mapping.pkl"
+    users_mapping_path = data_path / "users_mapping.pkl"
     users_mapping = save_users_mapping(users_mapping_path)
-    users_ratings_path = data_db_backup_path / "users_ratings.parquet"
+    users_ratings_path = data_path / "users_ratings.parquet"
     save_users_ratings(users_ratings_path)
-    users_ratings_mapped_path = data_db_backup_path / "users_ratings_mapped.parquet"
+    users_ratings_mapped_path = data_path / "users_ratings_mapped.parquet"
     save_users_ratings(users_ratings_mapped_path, users_mapping)
 
-    papers_texts_path = data_db_backup_path / "papers_texts.parquet"
+    papers_texts_path = data_path / "papers_texts.parquet"
     save_papers_texts(papers_texts_path)
 
     if papers_categories_old_file is not None:
         papers_categories_old = pd.read_parquet(papers_categories_old_file, engine = "pyarrow")
     else:
         papers_categories_old = None
-    papers_path = data_db_backup_path / "papers.parquet"
+    papers_path = data_path / "papers.parquet"
     papers = save_papers(papers_path, papers_categories_old)

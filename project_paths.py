@@ -1,16 +1,6 @@
-import json
 from pathlib import Path
 
 class ProjectPaths:
-    _db_backup_date = None
-
-    @staticmethod
-    def get_db_backup_date():
-        if ProjectPaths._db_backup_date is None:
-            db_backup_date_json = ProjectPaths.data_path() / "db_backup_date.json"
-            with open(db_backup_date_json, "r") as f:
-                ProjectPaths._db_backup_date = json.load(f)["db_backup_date"]
-        return ProjectPaths._db_backup_date
 
     @staticmethod
     def add_all_paths_to_sys(paths_list : list) -> None:
@@ -29,28 +19,24 @@ class ProjectPaths:
         return ProjectPaths._base_path() / "data"
 
     @staticmethod
-    def data_db_backup_date_path():
-        return ProjectPaths.data_path() / ProjectPaths.get_db_backup_date()
+    def data_papers_path():
+        return ProjectPaths.data_path() / "papers.parquet"
 
     @staticmethod
-    def data_db_backup_date_papers_path():
-        return ProjectPaths.data_db_backup_date_path() / "papers.parquet"
+    def data_papers_texts_path():
+        return ProjectPaths.data_path() / "papers_texts.parquet"
 
     @staticmethod
-    def data_db_backup_date_papers_texts_path():
-        return ProjectPaths.data_db_backup_date_path() / "papers_texts.parquet"
+    def data_users_mapping_path():
+        return ProjectPaths.data_path() / "users_mapping.pkl"
 
     @staticmethod
-    def data_db_backup_date_users_mapping_path():
-        return ProjectPaths.data_db_backup_date_path() / "users_mapping.pkl"
+    def data_users_ratings_path():
+        return ProjectPaths.data_path() / "users_ratings.parquet"
 
     @staticmethod
-    def data_db_backup_date_users_ratings_path():
-        return ProjectPaths.data_db_backup_date_path() / "users_ratings.parquet"
-
-    @staticmethod
-    def data_db_backup_date_users_ratings_mapped_path():
-        return ProjectPaths.data_db_backup_date_path() / "users_ratings_mapped.parquet"
+    def data_users_ratings_mapped_path():
+        return ProjectPaths.data_path() / "users_ratings_mapped.parquet"
 
     @staticmethod
     def finetuning_path():

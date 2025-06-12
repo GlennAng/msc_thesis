@@ -19,7 +19,7 @@ def load_users_mapping(path: Path) -> dict:
     assert sorted(values) == list(range(len(users_mapping)))
     return users_mapping
 
-def load_users_ratings(path: Path, relevant_users_ids: list = None, relevant_columns: list = None) -> pd.DataFrame:
+def load_users_ratings(path: Path = ProjectPaths.data_users_ratings_path(), relevant_users_ids: list = None, relevant_columns: list = None) -> pd.DataFrame:
     users_ratings = pd.read_parquet(path, engine = "pyarrow")
     assert users_ratings["user_id"].is_monotonic_increasing
     if relevant_users_ids is not None:
@@ -35,7 +35,7 @@ def load_users_ratings(path: Path, relevant_users_ids: list = None, relevant_col
         users_ratings = users_ratings[relevant_columns]
     return users_ratings
 
-def load_papers_texts(path: Path, relevant_papers_ids: list = None, relevant_columns: list = None) -> pd.DataFrame:
+def load_papers_texts(path: Path = ProjectPaths.data_papers_texts_path(), relevant_papers_ids: list = None, relevant_columns: list = None) -> pd.DataFrame:
     papers_texts = pd.read_parquet(path, engine = "pyarrow")
     assert papers_texts["paper_id"].is_monotonic_increasing
     if relevant_papers_ids is not None:
@@ -47,7 +47,7 @@ def load_papers_texts(path: Path, relevant_papers_ids: list = None, relevant_col
             papers_texts = papers_texts[existing_columns]
     return papers_texts
 
-def load_papers(path: Path, relevant_papers_ids: list = None, relevant_columns: list = None) -> pd.DataFrame:
+def load_papers(path: Path = ProjectPaths.data_papers_path(), relevant_papers_ids: list = None, relevant_columns: list = None) -> pd.DataFrame:
     papers = pd.read_parquet(path, engine = "pyarrow")
     assert papers["paper_id"].is_monotonic_increasing
     if relevant_papers_ids is not None:
@@ -61,23 +61,19 @@ def load_papers(path: Path, relevant_papers_ids: list = None, relevant_columns: 
 
 if __name__ == "__main__":
 
-    users_mapping_path = ProjectPaths.data_db_backup_date_users_mapping_path()
+    papers_texts = load_papers_texts()
+    papers = load_papers()
+    assert (papers["paper_id"] == papers_texts["paper_id"]).all()
+
+    users_ratings = load_users_ratings()
+    unique_users_ids = users_ratings["user_id"].unique()
+
+    users_mapping_path = ProjectPaths.data_users_mapping_path()
     if users_mapping_path.exists():
         users_mapping = load_users_mapping(users_mapping_path)
-
-    users_ratings_mapped_path = ProjectPaths.data_db_backup_date_users_ratings_mapped_path()
-    users_ratings_mapped = load_users_ratings(users_ratings_mapped_path)
-    unique_users_ids_mapped = users_ratings_mapped["user_id"].unique()
-    assert list(unique_users_ids_mapped) == list(range(len(unique_users_ids_mapped)))
-
-    users_ratings_path = ProjectPaths.data_db_backup_date_users_ratings_path()
-    if users_ratings_path.exists():
-        users_ratings = load_users_ratings(users_ratings_path)
-        unique_users_ids = users_ratings["user_id"].unique()
+    users_ratings_mapped_path = ProjectPaths.data_users_ratings_mapped_path()
+    if users_ratings_mapped_path.exists():
+        users_ratings_mapped = load_users_ratings(users_ratings_mapped_path)
+        unique_users_ids_mapped = users_ratings_mapped["user_id"].unique()
+        assert list(unique_users_ids_mapped) == list(range(len(unique_users_ids_mapped)))
         assert len(unique_users_ids) == len(unique_users_ids_mapped)
-        
-    papers_texts_path = ProjectPaths.data_papers_texts_path()
-    papers_texts = load_papers_texts(papers_texts_path)
-    papers_path = ProjectPaths.data_papers_path()
-    papers = load_papers(papers_path)
-    assert (papers["paper_id"] == papers_texts["paper_id"]).all()
