@@ -197,10 +197,10 @@ if __name__ == "__main__":
 
     users_mapping_path = data_path / "users_mapping.pkl"
     users_mapping = save_users_mapping(users_mapping_path)
+    users_ratings_before_mapping_path = data_path / "users_ratings_before_mapping.parquet"
+    save_users_ratings(users_ratings_before_mapping_path)
     users_ratings_path = data_path / "users_ratings.parquet"
-    save_users_ratings(users_ratings_path)
-    users_ratings_mapped_path = data_path / "users_ratings_mapped.parquet"
-    save_users_ratings(users_ratings_mapped_path, users_mapping)
+    save_users_ratings(users_ratings_path, users_mapping)
 
     papers_texts_path = data_path / "papers_texts.parquet"
     save_papers_texts(papers_texts_path)

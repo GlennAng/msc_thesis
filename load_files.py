@@ -5,7 +5,7 @@ try:
 except ImportError:
     sys.path.append(str(Path(__file__).parents[0]))
     from project_paths import ProjectPaths
-ProjectPaths.add_logreg_src_paths_to_sys()
+ProjectPaths.add_logreg_paths_to_sys()
 
 import pickle, os, random
 import numpy as np, pandas as pd
@@ -59,6 +59,23 @@ def load_papers(path: Path = ProjectPaths.data_papers_path(), relevant_papers_id
             papers = papers[existing_columns]
     return papers
 
+def load_finetuning_users(path: Path = ProjectPaths.data_finetuning_users_path(), selection: str = "all") -> dict:
+    assert selection in ["all", "train", "val", "test"]
+    if not path.exists():
+        raise FileNotFoundError(f"Finetuning users file not found at {path}. Run 'get_users_ratings.py' to create it.")
+    with open(path, "rb") as f:
+        finetuning_users = pickle.load(f)
+    assert isinstance(finetuning_users, dict)
+    assert set(finetuning_users.keys()) == {"train", "val", "test"}
+    assert all(isinstance(users, list) for users in finetuning_users.values())
+    assert all(users == sorted(users) for users in finetuning_users.values())
+    assert all(len(users) == len(set(users)) for users in finetuning_users.values())
+    assert set(finetuning_users["train"]) & set(finetuning_users["val"]) & set(finetuning_users["test"]) == set()
+    if selection == "all":
+        return finetuning_users
+    else:
+        return finetuning_users[selection]
+
 if __name__ == "__main__":
 
     papers_texts = load_papers_texts()
@@ -67,13 +84,17 @@ if __name__ == "__main__":
 
     users_ratings = load_users_ratings()
     unique_users_ids = users_ratings["user_id"].unique()
+    assert list(unique_users_ids) == list(range(len(unique_users_ids)))
 
     users_mapping_path = ProjectPaths.data_users_mapping_path()
     if users_mapping_path.exists():
         users_mapping = load_users_mapping(users_mapping_path)
-    users_ratings_mapped_path = ProjectPaths.data_users_ratings_mapped_path()
-    if users_ratings_mapped_path.exists():
-        users_ratings_mapped = load_users_ratings(users_ratings_mapped_path)
-        unique_users_ids_mapped = users_ratings_mapped["user_id"].unique()
-        assert list(unique_users_ids_mapped) == list(range(len(unique_users_ids_mapped)))
-        assert len(unique_users_ids) == len(unique_users_ids_mapped)
+    users_ratings_before_mapping_path = ProjectPaths.data_users_ratings_before_mapping_path()
+    if users_ratings_before_mapping_path.exists():
+        users_ratings_before_mapping = load_users_ratings(users_ratings_before_mapping_path)
+        unique_users_ids_before_mapping = users_ratings_before_mapping["user_id"].unique()
+        assert len(unique_users_ids_before_mapping) == len(unique_users_ids)
+
+    finetuning_users_path = ProjectPaths.data_finetuning_users_path()
+    if finetuning_users_path.exists():
+        finetuning_users = load_finetuning_users(finetuning_users_path)

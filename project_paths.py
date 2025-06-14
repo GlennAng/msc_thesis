@@ -35,8 +35,12 @@ class ProjectPaths:
         return ProjectPaths.data_path() / "users_ratings.parquet"
 
     @staticmethod
-    def data_users_ratings_mapped_path():
-        return ProjectPaths.data_path() / "users_ratings_mapped.parquet"
+    def data_users_ratings_before_mapping_path():
+        return ProjectPaths.data_path() / "users_ratings_before_mapping.parquet"
+
+    @staticmethod
+    def data_finetuning_users_path():
+        return ProjectPaths.data_path() / "finetuning_users.pkl"
 
     @staticmethod
     def finetuning_path():
@@ -56,10 +60,6 @@ class ProjectPaths:
     @staticmethod
     def logreg_embeddings_path():
         return ProjectPaths.logreg_path() / "embeddings"
-
-    @staticmethod
-    def logreg_embeddings_relevant_papers_path():
-        return ProjectPaths.logreg_embeddings_path() / "relevant_papers.pkl"
 
     @staticmethod
     def logreg_experiments_path():
@@ -90,8 +90,9 @@ class ProjectPaths:
         return ProjectPaths.logreg_src_path() / "visualization"
 
     @staticmethod
-    def add_logreg_src_paths_to_sys() -> None:
+    def add_logreg_paths_to_sys() -> None:
         paths = [
+            ProjectPaths.logreg_path(),
             ProjectPaths.logreg_src_path(),
             ProjectPaths.logreg_src_embeddings_path(),
             ProjectPaths.logreg_src_processing_path(),
