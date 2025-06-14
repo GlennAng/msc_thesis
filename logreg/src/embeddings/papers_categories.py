@@ -5,25 +5,34 @@ try:
 except ImportError:
     sys.path.append(str(Path(__file__).parents[3]))
     from project_paths import ProjectPaths
-ProjectPaths.add_logreg_src_paths_to_sys()
+ProjectPaths.add_logreg_paths_to_sys()
 
-import pickle
+import argparse, pickle
 import numpy as np
 
 from embedding import *
 from load_files import load_papers
 from papers_categories_dicts import PapersCategories
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--embeddings_input_folder", type = str, required = True)
+    parser.add_argument("--dim", type = int, choices = [50, 100, 200, 300], default = 100)
+    return parser.parse_args()
+
 def load_glove_embeddings(dim: int) -> dict:
     from tqdm import tqdm
     glove_path = ProjectPaths.logreg_embeddings_path() / "glove" / f"glove.6B.{dim}d.txt"
     embeddings = {}
-    with open(glove_path, 'r', encoding = 'utf-8') as f:
-        for line in tqdm(f, desc = "Loading GloVe embeddings"):
-            parts = line.split()
-            word = parts[0]
-            vector = np.array(parts[1:], dtype = np.float32)
-            embeddings[word] = vector
+    try:
+        with open(glove_path, 'r', encoding = 'utf-8') as f:
+            for line in tqdm(f, desc = "Loading GloVe embeddings"):
+                parts = line.split()
+                word = parts[0]
+                vector = np.array(parts[1:], dtype = np.float32)
+                embeddings[word] = vector
+    except FileNotFoundError:
+        pass
     return embeddings
 
 def normalize_embedding(glove_embedding: np.ndarray, normalization: str = "l2_unit") -> np.ndarray:
@@ -57,7 +66,7 @@ def get_papers_ids_to_categories(papers_ids_to_categories_original: dict, origin
 def attach_papers_categories(embeddings: np.ndarray, papers_ids_to_idxs: dict, papers_categories: PapersCategories, 
                              dim: int = 100, normalization: str = "l2_unit") -> np.ndarray:
     n_papers = embeddings.shape[0]
-    papers = load_papers(ProjectPaths.data_db_backup_date_papers_path(), relevant_columns = ["paper_id", "l1"])
+    papers = load_papers(ProjectPaths.data_papers_path(), relevant_columns = ["paper_id", "l1"])
     papers_ids_to_categories_original = papers.set_index("paper_id")["l1"].to_dict()
     papers_ids_to_categories_original = {paper_id: category for paper_id, category in papers_ids_to_categories_original.items() if paper_id in papers_ids_to_idxs}
     papers_ids_to_categories = get_papers_ids_to_categories(papers_ids_to_categories_original, papers_categories.original_categories_to_categories)
@@ -68,8 +77,10 @@ def attach_papers_categories(embeddings: np.ndarray, papers_ids_to_idxs: dict, p
     return np.concatenate((embeddings, glove_matrix), axis = 1)
   
 if __name__ == "__main__":
-    embedding_path = ProjectPaths.logreg_embeddings_path() / "after_pca" / "gte_large_2025-02-23_256"
-    dim, normalization = 100, "l2_unit"
+    args = parse_args()
+    embedding_path = Path(args.embeddings_input_folder).resolve().stem
+    embedding_path = ProjectPaths.logreg_embeddings_path() / "after_pca" / embedding_path
+    dim, normalization = args.dim, "l2_unit"
     embedding = Embedding(embedding_path)
     from papers_categories_dicts import PAPERS_CATEGORIES
     papers_categories = PAPERS_CATEGORIES

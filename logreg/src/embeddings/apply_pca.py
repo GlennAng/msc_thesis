@@ -5,13 +5,17 @@ try:
 except ImportError:
     sys.path.append(str(Path(__file__).parents[3]))
     from project_paths import ProjectPaths
-ProjectPaths.add_logreg_src_paths_to_sys()
+ProjectPaths.add_logreg_paths_to_sys()
 
-import os, time
+import argparse, os, time
 import numpy as np
-from embedding import Embedding
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+
+from embedding import Embedding
+from load_files import load_papers
+papers = load_papers(relevant_columns = ["paper_id", "in_cache"])
+cache_papers_ids = papers[papers["in_cache"]]["paper_id"].tolist()
 
 def check_row_norms(matrix: np.ndarray) -> bool:
     norms = np.linalg.norm(matrix, axis = 1)
@@ -23,13 +27,24 @@ def l2_normalize_rows(matrix: np.ndarray) -> np.ndarray:
     mask = norms > 0
     return np.divide(matrix, norms[:, np.newaxis], where = mask[:, np.newaxis])
 
-if __name__ == "__main__":
-    EMBEDDINGS_INPUT_FOLDER = ProjectPaths.logreg_embeddings_path() / "before_pca" / "gte_large_x_2025-02-23"
-    PCA_DIM = 384
-    APPLY_ZSCORE = True
-    APPLY_L2NORM = True
+APPLY_ZSCORE = True
+APPLY_L2NORM = True
 
-    embeddings_matrix = Embedding(EMBEDDINGS_INPUT_FOLDER, 32).matrix
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--embeddings_input_folder", type = str, required = True)
+    parser.add_argument("--pca_dim", type = int, default = 256)
+    return parser.parse_args()
+
+if __name__ == "__main__":
+    parser = parse_args()
+    EMBEDDINGS_INPUT_FOLDER = Path(parser.embeddings_input_folder).resolve()
+    PCA_DIM = parser.pca_dim
+
+    embedding = Embedding(EMBEDDINGS_INPUT_FOLDER, 32)
+    embeddings_matrix = embedding.matrix
+    cache_papers_idxs = embedding.get_idxs(cache_papers_ids)
+    cache_embeddings_matrix = embeddings_matrix[cache_papers_idxs, :]
     apply_pca = (PCA_DIM < embeddings_matrix.shape[1])
     embeddings_output_folder = ProjectPaths.logreg_embeddings_path() / "after_pca" / f"{EMBEDDINGS_INPUT_FOLDER.stem}_{PCA_DIM}"
     print(f"Loaded embeddings matrix of shape {embeddings_matrix.shape} for PCA down to {PCA_DIM} dimensions.")
@@ -39,19 +54,22 @@ if __name__ == "__main__":
         print("Performing Z-score normalization..")
         start_time = time.time()
         scaler = StandardScaler()
-        embeddings_matrix = scaler.fit_transform(embeddings_matrix)
+        scaler.fit(cache_embeddings_matrix)
+        embeddings_matrix = scaler.transform(embeddings_matrix)
         scaler_params = np.vstack((scaler.mean_, scaler.scale_)) # Shape: (2, n_features)
-        mean_check = np.allclose(np.mean(embeddings_matrix, axis = 0), 0, atol = 1e-2)
-        std_check = np.allclose(np.std(embeddings_matrix, axis = 0), 1, atol = 1e-2)
+        normalized_cache = embeddings_matrix[cache_papers_idxs, :]
+        mean_check = np.allclose(np.mean(normalized_cache, axis = 0), 0, atol = 1e-2)
+        std_check = np.allclose(np.std(normalized_cache, axis = 0), 1, atol = 1e-2)
         if not mean_check or not std_check:
-            raise ValueError("The z-score normalization failed.")
+            raise ValueError("The Z-score normalization failed.")
         print(f"Z-score normalization successful. Took {time.time() - start_time:.2f} seconds. New Shape: {embeddings_matrix.shape}.")
 
     if apply_pca:
         print("Performing PCA..")
         start_time = time.time()
         pca = PCA(n_components = PCA_DIM, random_state = 42)
-        embeddings_matrix = pca.fit_transform(embeddings_matrix)
+        pca.fit(cache_embeddings_matrix)
+        embeddings_matrix = pca.transform(embeddings_matrix)
         pca_components = pca.components_
         pca_mean = pca.mean_
         print(f"PCA successful. Took {time.time() - start_time:.2f} seconds. New Shape: {embeddings_matrix.shape}.")

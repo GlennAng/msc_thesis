@@ -5,7 +5,7 @@ try:
 except ImportError:
     sys.path.append(str(Path(__file__).parents[3]))
     from project_paths import ProjectPaths
-ProjectPaths.add_logreg_src_paths_to_sys()
+ProjectPaths.add_logreg_paths_to_sys()
 
 import argparse, pickle, os, sys
 from matplotlib.backends.backend_pdf import PdfPages
@@ -152,7 +152,7 @@ class Global_Visualizer:
             config_string.append(f"Evaluation Method: Train-Test Split.")
         elif self.config["evaluation"] == Evaluation.SESSION_BASED:
             config_string.append(f"Evaluation Method: Session-Based.")
-        config_string.append(f"Desired Test Size: {self.config['test_size']}.")
+        config_string.append(f"Desired Train Size: {self.config['train_size']}.")
         config_string.append(f"Were the Training Sets stratified? {'Yes' if self.config['stratified'] else 'No'}.")
         urs, mrs, crs, rrs = self.config["users_random_state"], self.config["model_random_state"], self.config["cache_random_state"], self.config["ranking_random_state"]
         config_string.append(f"Random States:  Users: {urs}  |  Model: {mrs}  |  Cache: {crs}  |  Ranking: {rrs}.")
@@ -280,10 +280,13 @@ class Global_Visualizer:
             print(df_merged[["user_id", f"{metric}_x", f"{metric}_y", metric]].sort_values(metric))
 
 if __name__ == '__main__':
-    args_dict = parse_args()
-    if args_dict["score"] not in PRINT_SCORES:
-        raise ValueError(f"Score {args_dict['score']} not in {PRINT_SCORES}.")
-    config, users_info, hyperparameters_combinations, results_before_averaging_over_folds = load_outputs_files(args_dict["outputs_folder"])
-    global_visualizer = Global_Visualizer(config, users_info, hyperparameters_combinations, results_before_averaging_over_folds, args_dict["outputs_folder"],
-                                          args_dict["score"], args_dict["optimize_tail"])
-    global_visualizer.generate_pdf(args_dict["save_scores_tables"])
+    try:
+        args_dict = parse_args()
+        if args_dict["score"] not in PRINT_SCORES:
+            raise ValueError(f"Score {args_dict['score']} not in {PRINT_SCORES}.")
+        config, users_info, hyperparameters_combinations, results_before_averaging_over_folds = load_outputs_files(args_dict["outputs_folder"])
+        global_visualizer = Global_Visualizer(config, users_info, hyperparameters_combinations, results_before_averaging_over_folds, args_dict["outputs_folder"],
+                                            args_dict["score"], args_dict["optimize_tail"])
+        global_visualizer.generate_pdf(args_dict["save_scores_tables"])
+    except Exception as e:
+        print(f"Remark: Were not able to visualize the results globally. Error: {e}")

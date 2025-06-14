@@ -5,7 +5,7 @@ try:
 except ImportError:
     sys.path.append(str(Path(__file__).parents[2]))
     from project_paths import ProjectPaths
-ProjectPaths.add_logreg_src_paths_to_sys()
+ProjectPaths.add_logreg_paths_to_sys()
 
 import itertools, json, os, pickle, time
 import numpy as np, pandas as pd
@@ -28,6 +28,9 @@ def config_assertions(config: dict) -> None:
     assert config["logreg_solver"] == "lbfgs", "Config: logreg_solver must be 'lbfgs'."
     assert config["max_iter"] == 10000, "Config: max_iter must be 10000."
     assert config["weights"] == "global:cache_v", "Config: weights must be 'global:cache_v'."
+    assert config["users_selection"] in ["random", "finetuning_test", "finetuning_train", "finetuning_val"] or isinstance(config["users_selection"], list)
+    if config["evaluation"] in ["cross_validation", "train_test_split"]:
+        assert config["stratified"] == True, "Config: stratified must be True for evaluation in ['cross_validation', 'train_test_split']."
 
 def load_config(config_path: Path) -> dict:
     try:
@@ -109,10 +112,11 @@ def merge_users_infos(config: dict, users_ids: list) -> None:
     outputs_dir = config["outputs_dir"]
     for user_id in users_ids:
         json_file = config["outputs_dir"] / "tmp" / f"user_{user_id}" / "user_info.json"
-        user_info = json.load(open(json_file))
-        if not columns:
-            columns = ["user_id"] + list(user_info.keys())
-        users_infos.append([user_id] + [user_info[column] for column in columns[1:]])
+        if os.path.exists(json_file):
+            user_info = json.load(open(json_file))
+            if not columns:
+                columns = ["user_id"] + list(user_info.keys())
+            users_infos.append([user_id] + [user_info[column] for column in columns[1:]])
     users_infos_df = pd.DataFrame(users_infos, columns = columns)
     users_infos_df.to_csv(outputs_dir / "users_info.csv", index = False)
 
@@ -123,12 +127,13 @@ def merge_users_results(config: dict, users_ids: list) -> None:
     columns = ["user_id", "fold_idx", "combination_idx"] + scores_columns
     for user_id in users_ids:
         json_file = outputs_dir / "tmp" / f"user_{user_id}" / "user_results.json"
-        user_results = json.load(open(json_file))
-        for fold_idx in sorted(list(user_results.keys())):
-            fold_results = user_results[fold_idx]
-            for combination_idx in sorted(list(fold_results.keys())):
-                row = [user_id, fold_idx, combination_idx] + list(fold_results[combination_idx])
-                users_results.append(row)
+        if os.path.exists(json_file):
+            user_results = json.load(open(json_file))
+            for fold_idx in sorted(list(user_results.keys())):
+                fold_results = user_results[fold_idx]
+                for combination_idx in sorted(list(fold_results.keys())):
+                    row = [user_id, fold_idx, combination_idx] + list(fold_results[combination_idx])
+                    users_results.append(row)
     users_results_df = pd.DataFrame(users_results, columns = columns)
     users_results_df.to_csv(outputs_dir / "users_results.csv", index = False)
 
@@ -139,11 +144,12 @@ def merge_users_coefs(config: dict, users_ids: list) -> None:
         users_coefs_ids_to_idxs = {}
         for i, user_id in enumerate(users_ids):
             npy_file = outputs_dir / "tmp" / f"user_{user_id}" / "user_coefs.npy"
-            user_coefs = np.load(npy_file)
-            if i == 0:
-                users_coefs = np.empty((len(users_ids), len(user_coefs)))
-            users_coefs[i, :] = user_coefs
-            users_coefs_ids_to_idxs[user_id] = i
+            if os.path.exists(npy_file):
+                user_coefs = np.load(npy_file)
+                if i == 0:
+                    users_coefs = np.empty((len(users_ids), len(user_coefs)))
+                users_coefs[i, :] = user_coefs
+                users_coefs_ids_to_idxs[user_id] = i
         with open(outputs_dir / "users_coefs_ids_to_idxs.pkl", 'wb') as f:
             pickle.dump(users_coefs_ids_to_idxs, f)
         np.save(outputs_dir / "users_coefs.npy", users_coefs)
@@ -156,11 +162,11 @@ if __name__ == "__main__":
     convert_enums(config)
     create_outputs_folder(config)
 
-    users_ratings, users_ids = get_users_ratings(users_selection = config["users_selection"], evaluation = config["evaluation"], test_size = config["test_size"],
+    users_ratings, users_ids = get_users_ratings(users_selection = config["users_selection"], evaluation = config["evaluation"], train_size = config["train_size"],
                     max_users = config["max_users"], users_random_state = config["users_random_state"], model_random_state = config["model_random_state"],
-                    stratify = config["stratified"], min_n_posrated = config["min_n_posrated"], min_n_negrated = config["min_n_negrated"],
-                    take_complement = config["take_complement_of_users"], users_mapped = config["users_mapped"],
-                    min_n_posrated_train = config["min_n_posrated_train"], min_n_negrated_train = config["min_n_negrated_train"],
+                    stratify = config["stratified"], take_complement = config["take_complement_of_users"], 
+                    min_n_posrated = config["min_n_posrated"], min_n_negrated = config["min_n_negrated"], 
+                    min_n_posrated_train = config["min_n_posrated_train"], min_n_negrated_train = config["min_n_negrated_train"], 
                     min_n_posrated_val = config["min_n_posrated_val"], min_n_negrated_val = config["min_n_negrated_val"])
                     
     init_scores(config)

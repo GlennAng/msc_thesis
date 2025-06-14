@@ -5,23 +5,22 @@ try:
 except ImportError:
     sys.path.append(str(Path(__file__).parents[3]))
     from project_paths import ProjectPaths
-ProjectPaths.add_logreg_src_paths_to_sys()
+ProjectPaths.add_logreg_paths_to_sys()
 
+import os, pickle, random
 import numpy as np, pandas as pd
 pd.set_option("display.max_rows", None)
 
 from algorithm import Evaluation
-from load_files import load_users_ratings
+from load_files import load_users_ratings, load_finetuning_users
 from training_data import LABEL_DTYPE
-
-def get_temporal_750_users_ratings() -> tuple:
-    return get_users_ratings(users_selection = "random", evaluation = Evaluation.SESSION_BASED, test_size = 0.0, max_users = 750,
-                        users_random_state = 42, model_random_state = 42, stratify = True, min_n_posrated = 20, min_n_negrated = 20,
-                        take_complement = False, users_mapped = False, min_n_posrated_train = 16, min_n_negrated_train = 16,
-                        min_n_posrated_val = 5, min_n_negrated_val = 5)
 
 def get_train_test_split(users_ratings: pd.DataFrame, test_size: float, random_state: int, stratify: bool = True) -> pd.DataFrame:
     from sklearn.model_selection import train_test_split
+    if test_size == 0.0 or test_size == 1.0:
+        users_ratings_copy = users_ratings.copy()
+        users_ratings_copy["split"] = "train" if test_size == 0.0 else "val"
+        return users_ratings_copy
 
     def split_user_data(user_ratings: pd.DataFrame) -> pd.DataFrame:
         posrated_ids = user_ratings[user_ratings["rating"] == 1]["paper_id"].values
@@ -36,16 +35,8 @@ def get_train_test_split(users_ratings: pd.DataFrame, test_size: float, random_s
         user_ratings_copy["split"] = user_ratings_copy["paper_id"].apply(lambda x: "train" if x in train_rated_ids else "val")
         return user_ratings_copy
 
-    result_df = users_ratings.groupby("user_id", group_keys = False).apply(split_user_data, include_groups = False)
+    result_df = users_ratings.groupby("user_id", group_keys = False).apply(split_user_data, include_groups = True)
     return result_df.reset_index(drop = True)  
-
-def load_users_ratings_from_backup(users_mapped: bool) -> pd.DataFrame:
-    users_ratings_path = ProjectPaths.data_db_backup_date_path()
-    if users_mapped:
-        users_ratings_path /= "users_ratings_mapped.parquet"
-    else:
-        users_ratings_path /= "users_ratings.parquet"
-    return load_users_ratings(users_ratings_path)
 
 def filter_users_ratings_with_sufficient_votes(users_ratings: pd.DataFrame, min_n_posrated: int, min_n_negrated: int) -> pd.DataFrame:
     users_ratings = users_ratings.copy()
@@ -77,7 +68,7 @@ def split_single_user(user_ratings: pd.DataFrame, test_size: float, min_n_posrat
     for split_session_id in range(n_sessions, -1, -1):
         valid_split, test_size_split = check_single_split(user_ratings, split_session_id, min_n_posrated_train, min_n_negrated_train,
                                                           min_n_posrated_val, min_n_negrated_val)
-        if valid_split:
+        if valid_split and test_size_split <= 0.3:
             test_size_diff = abs(test_size_split - test_size)
             if test_size_diff < best_session_test_size_diff:
                 best_session_id, best_session_test_size_diff = split_session_id, test_size_diff
@@ -138,10 +129,11 @@ def select_users_random(users_ids_with_sufficient_votes: np.ndarray, max_users: 
         users_ids_selected = users_ids_with_sufficient_votes
     return process_selected_users(users_ids_selected, users_ids_with_sufficient_votes, take_complement)
 
-def get_users_ratings(users_selection: str, evaluation: Evaluation, test_size: float, max_users: int = None, users_random_state: int = 42, model_random_state: int = 42,
-                      stratify: bool = True, min_n_posrated: int = 0, min_n_negrated: int = 0, take_complement: bool = False, users_mapped: bool = False,
+def get_users_ratings(users_selection: str, evaluation: Evaluation, train_size: float, max_users: int = None, users_random_state: int = 42, model_random_state: int = 42,
+                      stratify: bool = True, min_n_posrated: int = 0, min_n_negrated: int = 0, take_complement: bool = False,
                       min_n_posrated_train: int = 0, min_n_negrated_train: int = 0, min_n_posrated_val: int = 0, min_n_negrated_val: int = 0) -> tuple:
-    users_ratings = load_users_ratings_from_backup(users_mapped)
+    test_size = 1.0 - train_size
+    users_ratings = load_users_ratings()
     if evaluation in [Evaluation.TRAIN_TEST_SPLIT, Evaluation.CROSS_VALIDATION]:
         users_ratings = filter_users_ratings_with_sufficient_votes(users_ratings, min_n_posrated, min_n_negrated)
     elif evaluation == Evaluation.SESSION_BASED:
@@ -150,7 +142,8 @@ def get_users_ratings(users_selection: str, evaluation: Evaluation, test_size: f
     users_ids_with_sufficient_votes = get_users_ids_with_sufficient_votes(users_ratings)
     
     if users_selection != "random":
-        assert max_users is None
+        if type(users_selection) is str:
+            users_selection = convert_users_selection_string(users_selection)
         users_ids_selected = select_users_explicit(users_selection, users_ids_with_sufficient_votes, take_complement)
     else:
         users_ids_selected = select_users_random(users_ids_with_sufficient_votes, max_users, users_random_state, take_complement)
@@ -161,9 +154,41 @@ def get_users_ratings(users_selection: str, evaluation: Evaluation, test_size: f
         users_ratings = get_train_test_split(users_ratings, test_size, model_random_state, stratify)
     return users_ratings, users_ids_selected.tolist()
 
+def convert_users_selection_string(users_selection: str) -> list:
+    if users_selection in ["finetuning_train", "finetuning_val", "finetuning_test"]:
+        if users_selection == "finetuning_train":
+            return load_finetuning_users(selection = "train")
+        elif users_selection == "finetuning_val":
+            return load_finetuning_users(selection = "val")
+        elif users_selection == "finetuning_test":
+            return load_finetuning_users(selection = "test")
+        
+def finetuning_users_query(take_complement: bool, random_state: int) -> list:
+    _, users_ids = get_users_ratings(users_selection = "random", evaluation = Evaluation.SESSION_BASED, train_size = 1.0, max_users = 500,
+                        users_random_state = random_state, min_n_posrated_train = 16, min_n_negrated_train = 16,
+                        min_n_posrated_val = 4, min_n_negrated_val = 4, take_complement = take_complement)
+    return users_ids
+
+def save_finetuning_users(path: Path, random_state: int = 42) -> None:
+    test_users_ids = finetuning_users_query(take_complement = False, random_state = random_state)
+    complement_users_ids = finetuning_users_query(take_complement = True, random_state = random_state)
+    assert test_users_ids == sorted(test_users_ids) and complement_users_ids == sorted(complement_users_ids)
+    assert len(test_users_ids) == len(set(test_users_ids)) and len(complement_users_ids) == len(set(complement_users_ids))
+    assert set(test_users_ids).isdisjoint(set(complement_users_ids))
+    assert len(complement_users_ids) >= 500
+    random.seed(random_state)
+    val_users_ids = random.sample(complement_users_ids, k = 500)
+    val_users_ids = sorted(val_users_ids)
+    assert val_users_ids == sorted(val_users_ids) and len(val_users_ids) == len(set(val_users_ids))
+    _, full_users_ids = get_users_ratings(users_selection = "random", evaluation = Evaluation.CROSS_VALIDATION, train_size = 1.0, max_users = None,
+                        users_random_state = random_state, min_n_posrated = 20, min_n_negrated = 20, take_complement = False)
+    assert full_users_ids == sorted(full_users_ids) and len(full_users_ids) == len(set(full_users_ids))
+    assert set(test_users_ids) <= set(full_users_ids) and set(val_users_ids) <= set(full_users_ids)
+    train_users_ids = [user_id for user_id in full_users_ids if user_id not in test_users_ids and user_id not in val_users_ids]
+    assert train_users_ids == sorted(train_users_ids) and len(train_users_ids) == len(set(train_users_ids))
+    assert set(train_users_ids).isdisjoint(set(test_users_ids)) and set(train_users_ids).isdisjoint(set(val_users_ids))
+    with open(path, "wb") as f:
+        pickle.dump({"test": test_users_ids, "val": val_users_ids, "train": train_users_ids}, f)
 
 if __name__ == "__main__":
-    _, users_ids = get_users_ratings(users_selection = "random", evaluation = Evaluation.SESSION_BASED, test_size = 0.0, max_users = 750,
-                        users_random_state = 42, model_random_state = 42, stratify = True, min_n_posrated = 20, min_n_negrated = 20,
-                        take_complement = False, users_mapped = False, min_n_posrated_train = 16, min_n_negrated_train = 16,
-                        min_n_posrated_val = 5, min_n_negrated_val = 5)
+    save_finetuning_users(ProjectPaths.data_finetuning_users_path(), random_state = 42)

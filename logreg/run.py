@@ -5,7 +5,7 @@ try:
 except ImportError:
     sys.path.append(str(Path(__file__).parents[1]))
     from project_paths import ProjectPaths
-ProjectPaths.add_logreg_src_paths_to_sys()
+ProjectPaths.add_logreg_paths_to_sys()
 
 import argparse, os, time
 

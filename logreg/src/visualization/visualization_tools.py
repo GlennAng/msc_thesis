@@ -5,7 +5,7 @@ try:
 except ImportError:
     sys.path.append(str(Path(__file__).parents[3]))
     from project_paths import ProjectPaths
-ProjectPaths.add_logreg_src_paths_to_sys()
+ProjectPaths.add_logreg_paths_to_sys()
 
 import json, pickle, re
 import matplotlib.colors as colors, matplotlib.pyplot as plt
@@ -105,12 +105,8 @@ def get_cache_type_str(cache_type: str, max_cache: int, n_cache_attached: int) -
 
 def get_users_selection_str(users_selection: str, users_ids: list) -> str:
     s = "User Selection Criterion among those who qualified: "
-    if users_selection == "random":
-        s += "Random."
-    elif users_selection == "largest_n":
-        s += "Largest Number of rated Papers."
-    elif users_selection == "smallest_n":
-        s += "Smallest Number of rated Papers."
+    if type(users_selection) == str:
+        s += f"{users_selection.capitalize()}."
     else:
         s += f"Specifically chosen."
         if len(users_ids) <= 100:

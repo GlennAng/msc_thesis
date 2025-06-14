@@ -5,13 +5,14 @@ try:
 except ImportError:
     sys.path.append(str(Path(__file__).parents[3]))
     from project_paths import ProjectPaths
-ProjectPaths.add_logreg_src_paths_to_sys()
+ProjectPaths.add_logreg_paths_to_sys()
 
 import argparse, gc, os, pickle, time, torch
 import numpy as np, torch.nn.functional as F
 from adapters import AutoAdapterModel
 from transformers import AutoModel, AutoTokenizer, pipeline
 
+from find_relevant_papers import find_relevant_papers
 from load_files import load_papers_texts
 
 MAX_TRIES = 20
@@ -22,6 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embeddings_folder", type = str)
     parser.add_argument("--max_batch_size", type = int)
     parser.add_argument("--max_sequence_length", type = int)
+    parser.add_argument("--all_papers", action = "store_true", default = False)
     return parser.parse_args()
 
 def load_model_and_tokenizer(model_path: str) -> tuple:
@@ -146,10 +148,11 @@ if __name__ == "__main__":
         raise ValueError("Embeddings Folder already exists.")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model, tokenizer = load_model_and_tokenizer(args.model_path)
-    with open(ProjectPaths.logreg_embeddings_relevant_papers_path(), 'rb') as f:
-        relevant_papers_ids = pickle.load(f)
-    papers_texts = load_papers_texts(ProjectPaths.data_db_backup_date_papers_texts_path(), relevant_columns = ["paper_id", "title", "abstract"])
-    papers_texts = papers_texts[papers_texts["paper_id"].isin(relevant_papers_ids)]
+    papers_texts = load_papers_texts(ProjectPaths.data_papers_texts_path(), relevant_columns = ["paper_id", "title", "abstract"])
+    if not args.all_papers:
+        print("Finding relevant papers IDs...")
+        relevant_papers_ids = find_relevant_papers()
+        papers_texts = papers_texts[papers_texts["paper_id"].isin(relevant_papers_ids)]
     papers_texts = papers_texts[["paper_id", "title", "abstract"]].values.tolist()
     max_sequence_length = args.max_sequence_length + (20 if args.model_path.startswith("Qwen/") else 0)
     tokenize_and_encode_papers_in_batches(embeddings_folder, papers_texts, device, model, tokenizer, args.max_batch_size, max_sequence_length, args.model_path)
