@@ -39,7 +39,7 @@ def load_papers_texts(path: Path = ProjectPaths.data_papers_texts_path(), releva
     papers_texts = pd.read_parquet(path, engine = "pyarrow")
     assert papers_texts["paper_id"].is_monotonic_increasing
     if relevant_papers_ids is not None:
-        papers_texts = papers_texts[papers_texts["paper_id"].isin(relevant_papers_ids)]
+        papers_texts = papers_texts[papers_texts["paper_id"].isin(relevant_papers_ids)].reset_index(drop = True)
     assert not papers_texts.isnull().any().any()
     if relevant_columns is not None:
         existing_columns = [col for col in relevant_columns if col in papers_texts.columns]
@@ -51,13 +51,21 @@ def load_papers(path: Path = ProjectPaths.data_papers_path(), relevant_papers_id
     papers = pd.read_parquet(path, engine = "pyarrow")
     assert papers["paper_id"].is_monotonic_increasing
     if relevant_papers_ids is not None:
-        papers = papers[papers["paper_id"].isin(relevant_papers_ids)]
+        papers = papers[papers["paper_id"].isin(relevant_papers_ids)].reset_index(drop = True)
     assert not papers[["paper_id", "in_ratings", "in_cache"]].isnull().any().any()
     if relevant_columns is not None:
         existing_columns = [col for col in relevant_columns if col in papers.columns]
         if existing_columns:
             papers = papers[existing_columns]
     return papers
+
+def load_relevant_papers_ids(path: Path = ProjectPaths.data_relevant_papers_ids_path()) -> list:
+    with open(path, "rb") as f:
+        relevant_papers_ids = pickle.load(f)
+    assert isinstance(relevant_papers_ids, list)
+    assert len(relevant_papers_ids) == len(set(relevant_papers_ids))
+    assert relevant_papers_ids == sorted(relevant_papers_ids)
+    return relevant_papers_ids
 
 def load_finetuning_users(path: Path = ProjectPaths.data_finetuning_users_path(), selection: str = "all") -> dict:
     assert selection in ["all", "train", "val", "test"]
@@ -81,6 +89,8 @@ if __name__ == "__main__":
     papers_texts = load_papers_texts()
     papers = load_papers()
     assert (papers["paper_id"] == papers_texts["paper_id"]).all()
+    relevant_papers_ids = load_relevant_papers_ids()
+    assert set(relevant_papers_ids) <= set(papers["paper_id"])
 
     users_ratings = load_users_ratings()
     unique_users_ids = users_ratings["user_id"].unique()
@@ -96,5 +106,4 @@ if __name__ == "__main__":
         assert len(unique_users_ids_before_mapping) == len(unique_users_ids)
 
     finetuning_users_path = ProjectPaths.data_finetuning_users_path()
-    if finetuning_users_path.exists():
-        finetuning_users = load_finetuning_users(finetuning_users_path)
+    finetuning_users = load_finetuning_users(finetuning_users_path)

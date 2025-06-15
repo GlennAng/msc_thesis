@@ -1,5 +1,7 @@
 from pathlib import Path
 
+FINETUNING_MODEL = "gte_large_256"
+
 class ProjectPaths:
 
     @staticmethod
@@ -27,6 +29,10 @@ class ProjectPaths:
         return ProjectPaths.data_path() / "papers_texts.parquet"
 
     @staticmethod
+    def data_relevant_papers_ids_path():
+        return ProjectPaths.data_path() / "relevant_papers_ids.pkl"
+
+    @staticmethod
     def data_users_mapping_path():
         return ProjectPaths.data_path() / "users_mapping.pkl"
 
@@ -46,8 +52,21 @@ class ProjectPaths:
     def finetuning_path():
         return ProjectPaths._base_path() / "finetuning"
 
+    @staticmethod
     def finetuning_data_path():
         return ProjectPaths.finetuning_path() / "data"
+
+    @staticmethod
+    def finetuning_data_model_path():
+        return ProjectPaths.finetuning_data_path() / FINETUNING_MODEL
+
+    @staticmethod
+    def finetuning_data_model_state_dicts_path():
+        return ProjectPaths.finetuning_data_model_path() / "state_dicts"
+
+    @staticmethod
+    def finetuning_data_model_datasets_path():
+        return ProjectPaths.finetuning_data_model_path() / "datasets"
 
     @staticmethod
     def finetuning_src_path():
@@ -98,5 +117,13 @@ class ProjectPaths:
             ProjectPaths.logreg_src_processing_path(),
             ProjectPaths.logreg_src_training_path(),
             ProjectPaths.logreg_src_visualization_path()
+        ]
+        ProjectPaths.add_all_paths_to_sys(paths)
+
+    @staticmethod
+    def add_finetuning_paths_to_sys() -> None:
+        paths = [
+            ProjectPaths.finetuning_path(),
+            ProjectPaths.finetuning_src_path(),
         ]
         ProjectPaths.add_all_paths_to_sys(paths)

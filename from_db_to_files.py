@@ -15,9 +15,8 @@ def parse_args() -> dict:
     parser.add_argument("--db_port", type = str)
     parser.add_argument("--papers_categories_old_file", type = Path)
     args_dict = vars(parser.parse_args())
-    if args_dict["papers_categories_old_file"] is not None:
-        if not isinstance(args_dict["papers_categories_old_file"], Path):
-            args_dict["papers_categories_old_file"] = Path(args_dict["papers_categories_old_file"]).resolve()
+    if not isinstance(args_dict["papers_categories_old_file"], Path):
+        args_dict["papers_categories_old_file"] = Path(args_dict["papers_categories_old_file"]).resolve()
     return set_login_parameters(args_dict), args_dict["papers_categories_old_file"]
 
 def set_login_parameters(args_dict: dict) -> None:
@@ -111,42 +110,6 @@ def sql_execute(query, sql_connection, **kwargs):
         res = None
     return res
 
-def save_users_mapping(path: Path, random_state: int = 42) -> dict:
-    users_ids_query = "SELECT DISTINCT user_id FROM users_ratings WHERE rating IN (-1, 1) AND time IS NOT NULL ORDER BY user_id"
-    users_ids = [row[0] for row in sql_execute(users_ids_query)]
-    random.seed(random_state)
-    indices = list(range(len(users_ids)))
-    random.shuffle(indices)
-    users_mapping = {user_id: idx for user_id, idx in zip(users_ids, indices)}
-    path.parent.mkdir(parents = True, exist_ok = True)
-    with open(path, "wb") as f:
-        pickle.dump(users_mapping, f)
-    return users_mapping
-
-def create_session_column(users_ratings: pd.DataFrame, session_threshold_min: int = 420) -> pd.Series:
-    session_threshold = pd.Timedelta(minutes = session_threshold_min)
-    users_ratings = users_ratings.sort_values(by = ["user_id", "time"]).copy()
-    users_ratings["time_diff"] = users_ratings.groupby("user_id")["time"].diff()
-    users_ratings["session_break"] = (users_ratings["time_diff"] > session_threshold) | users_ratings["time_diff"].isna()
-    return users_ratings.groupby("user_id")["session_break"].cumsum() - 1
-
-def save_users_ratings(path: Path, users_mapping: dict = None) -> pd.DataFrame:
-    users_ratings_query = """SELECT user_id, paper_id, rating, time FROM users_ratings WHERE rating IN (-1, 1) AND time IS NOT NULL"""
-    users_ratings = sql_execute(users_ratings_query)
-    users_ratings = pd.DataFrame(users_ratings, columns = ["user_id", "paper_id", "rating", "time"])
-    users_ratings["rating"] = users_ratings["rating"].replace(-1, 0)
-    users_ratings["time"] = pd.to_datetime(users_ratings["time"]).dt.floor('ms')
-    if users_mapping is not None:
-        users_ratings["user_id"] = users_ratings["user_id"].map(users_mapping).astype("int64")
-        unique_users_ids = users_ratings["user_id"].unique()
-        assert set(unique_users_ids) == set(range(len(users_mapping)))
-    assert not users_ratings.isnull().any().any()
-    users_ratings = users_ratings.sort_values(by = ["user_id", "time"]).reset_index(drop = True)
-    users_ratings["session_id"] = create_session_column(users_ratings)
-    path.parent.mkdir(parents = True, exist_ok = True)
-    users_ratings.to_parquet(path, index = False, compression = "gzip")
-    return users_ratings
-
 def save_papers_texts(path: Path) -> pd.DataFrame:
     papers_texts_query = """SELECT paper_id, title, abstract, authors FROM papers ORDER BY paper_id"""
     papers_texts = sql_execute(papers_texts_query)
@@ -168,7 +131,7 @@ def get_papers_categories(papers_categories_old: pd.DataFrame, papers_ids: pd.Se
     papers_categories = papers_categories.sort_values(by = "paper_id").reset_index(drop = True)
     return papers_categories
 
-def save_papers(path: Path, papers_categories_old: pd.DataFrame = None) -> pd.DataFrame:
+def save_papers(path: Path, papers_categories_old: pd.DataFrame) -> pd.DataFrame:
     papers_query = """SELECT paper_id FROM papers ORDER BY paper_id"""
     papers = sql_execute(papers_query)
     papers = pd.DataFrame(papers, columns = ["paper_id"], dtype = "int64")
@@ -179,12 +142,50 @@ def save_papers(path: Path, papers_categories_old: pd.DataFrame = None) -> pd.Da
     cache_papers_ids = [row[0] for row in sql_execute("SELECT DISTINCT paper_id FROM cache_papers ORDER BY paper_id")]
     assert set(cache_papers_ids) <= set(papers["paper_id"])
     papers["in_cache"] = papers["paper_id"].isin(cache_papers_ids)
-    if papers_categories_old is not None:
-        papers_categories = get_papers_categories(papers_categories_old, papers["paper_id"])
-        assert (papers["paper_id"] == papers_categories["paper_id"]).all()
-        papers = papers.merge(papers_categories, on = "paper_id", how = "left")
+    papers_categories = get_papers_categories(papers_categories_old, papers["paper_id"])
+    assert (papers["paper_id"] == papers_categories["paper_id"]).all()
+    papers = papers.merge(papers_categories, on = "paper_id", how = "left")
     papers.to_parquet(path, index = False, compression = "gzip")
     return papers
+
+def save_users_mapping(path: Path, users_ratings_before_mapping: pd.DataFrame, random_state: int = 42) -> dict:
+    users_ids = sorted(users_ratings_before_mapping["user_id"].unique().tolist())
+    random.seed(random_state)
+    indices = list(range(len(users_ids)))
+    random.shuffle(indices)
+    users_mapping = {user_id: idx for user_id, idx in zip(users_ids, indices)}
+    path.parent.mkdir(parents = True, exist_ok = True)
+    with open(path, "wb") as f:
+        pickle.dump(users_mapping, f)
+    return users_mapping
+
+def create_session_column(users_ratings: pd.DataFrame, session_threshold_min: int = 420) -> pd.Series:
+    session_threshold = pd.Timedelta(minutes = session_threshold_min)
+    users_ratings = users_ratings.sort_values(by = ["user_id", "time"]).copy()
+    users_ratings["time_diff"] = users_ratings.groupby("user_id")["time"].diff()
+    users_ratings["session_break"] = (users_ratings["time_diff"] > session_threshold) | users_ratings["time_diff"].isna()
+    return users_ratings.groupby("user_id")["session_break"].cumsum() - 1
+
+def save_users_ratings(path: Path, users_mapping: dict = None, papers: pd.DataFrame = None) -> pd.DataFrame:
+    users_ratings_query = """SELECT user_id, paper_id, rating, time FROM users_ratings WHERE rating IN (-1, 1) AND time IS NOT NULL"""
+    users_ratings = sql_execute(users_ratings_query)
+    users_ratings = pd.DataFrame(users_ratings, columns = ["user_id", "paper_id", "rating", "time"])
+    users_ratings["rating"] = users_ratings["rating"].replace(-1, 0)
+    users_ratings["time"] = pd.to_datetime(users_ratings["time"]).dt.floor('ms')
+    if papers is not None:
+        users_ratings_with_papers = users_ratings.merge(papers[["paper_id", "l1", "l2"]], on = "paper_id", how = "left")
+        users_ratings_filtered = users_ratings_with_papers[users_ratings_with_papers["l1"].notna() & users_ratings_with_papers["l2"].notna()]
+        users_ratings = users_ratings_filtered.drop(columns = ["l1", "l2"])
+    if users_mapping is not None:
+        users_ratings["user_id"] = users_ratings["user_id"].map(users_mapping).astype("int64")
+        unique_users_ids = users_ratings["user_id"].unique()
+        assert set(unique_users_ids) == set(range(len(users_mapping)))
+    assert not users_ratings.isnull().any().any()
+    users_ratings = users_ratings.sort_values(by = ["user_id", "time"]).reset_index(drop = True)
+    users_ratings["session_id"] = create_session_column(users_ratings)
+    path.parent.mkdir(parents = True, exist_ok = True)
+    users_ratings.to_parquet(path, index = False, compression = "gzip")
+    return users_ratings
 
 login_parameters, papers_categories_old_file = parse_args()
 db_name, db_user, db_password, db_host, db_port = login_parameters.values()
@@ -195,19 +196,17 @@ if __name__ == "__main__":
     data_path = Path(__file__).resolve().parent / "data"
     data_path.mkdir(parents = True, exist_ok = True)
 
-    users_mapping_path = data_path / "users_mapping.pkl"
-    users_mapping = save_users_mapping(users_mapping_path)
-    users_ratings_before_mapping_path = data_path / "users_ratings_before_mapping.parquet"
-    save_users_ratings(users_ratings_before_mapping_path)
-    users_ratings_path = data_path / "users_ratings.parquet"
-    save_users_ratings(users_ratings_path, users_mapping)
-
     papers_texts_path = data_path / "papers_texts.parquet"
     save_papers_texts(papers_texts_path)
 
-    if papers_categories_old_file is not None:
-        papers_categories_old = pd.read_parquet(papers_categories_old_file, engine = "pyarrow")
-    else:
-        papers_categories_old = None
+    papers_categories_old = pd.read_parquet(papers_categories_old_file, engine = "pyarrow")
     papers_path = data_path / "papers.parquet"
     papers = save_papers(papers_path, papers_categories_old)
+
+    users_ratings_before_mapping_path = data_path / "users_ratings_before_mapping.parquet"
+    users_ratings_before_mapping = save_users_ratings(users_ratings_before_mapping_path, papers = papers)
+
+    users_mapping_path = data_path / "users_mapping.pkl"
+    users_mapping = save_users_mapping(users_mapping_path, users_ratings_before_mapping)
+    users_ratings_path = data_path / "users_ratings.parquet"
+    save_users_ratings(users_ratings_path, users_mapping, papers = papers)
