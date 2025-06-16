@@ -1,5 +1,9 @@
 # I. Embedding Computation
-In order to run our experiments, we must first compute text embeddings for the required papers on the GPU. The currently supported models are:
+In order to run our experiments, you need a directory that contains the two files `abs_X.npy` and `abs_paper_ids_to_idx.pkl`. 
+The first is a numpy matrix of shape (n_papers, embedding_dim) containing the text embedding of each paper in the database whereas the second is a dictionary mapping the respective paper ids to their index in this matrix. Note that for most experiments, it is sufficient to only embed the papers stored in `relevant_papers_ids.pkl`.
+
+You may use your own embeddings or compute them for one of the provided models with the code below:
+
 - **gte-base-en-v1.5:** Model Size 0.1B parameters, Dimension 768.
 - **gte-large-en-v1.5:** Model Size 0.4B parameters, Dimension 1024.
 - **specter2_base:** Model Size 0.1B parameters, Dimension 768.
@@ -7,11 +11,12 @@ In order to run our experiments, we must first compute text embeddings for the r
 - **Qwen3-Embedding-4B:** Model Size 4B parameters, Dimension 2560.
 - **Qwen3-Embedding-8B:** Model Size 7B parameters, Dimension 4096.
 
-For example, then run the following to compute 210K text embeddings (more are not needed for experiments on a random selection of 500 users). In order to get text embeddings for the entire database of 3M papers, additionally include `--all_papers`:
+For example, then run the following to compute embeddings only for the relevant papers.
+Instead, you could compute embeddings for the entire database by further appending `--all_papers`:
 ```bash
 python run_embed.py --model_name gte-large-en-v1.5 --batch_size 500
 ```
-The outputs will then be stored in the directory `embeddings/before_pca/gte_large`.
+Note that the outputs will be stored in the directory `embeddings/before_pca/gte_large`.
 ### PCA Dimensionality Reduction
 Empirical results have shown strong downstream performance even after vastly lowering the embedding dimensionality via PCA. To perform this step, run:
 ```bash

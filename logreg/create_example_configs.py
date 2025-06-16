@@ -18,11 +18,10 @@ def create_example_config() -> dict:
     example_config.update({"min_n_posrated": 20, "min_n_negrated": 20})
     example_config.update({"min_n_posrated_train": 16, "min_n_negrated_train": 16, "min_n_posrated_val": 4, "min_n_negrated_val": 4})
     example_config.update({"include_base": False, "include_zerorated": False, "categories_scale": 1.0})
-    example_config.update({"include_cache": True, "cache_type": "user_filtered", "max_cache": 5000, "n_cache_attached": 5000})
-    example_config.update({"n_negative_samples": 100, "info_nce_temperature": 1.0})
+    example_config.update({"include_cache": True, "cache_type": "user_filtered", "max_cache": 5000, "n_cache_attached": 5000, "n_negative_samples": 100})
     example_config.update({"evaluation": "cross_validation", "train_size": 0.8, "stratified": True, "k_folds": 5})
     example_config.update({"algorithm": "logreg", "logreg_solver": "lbfgs", "svm_kernel": None, "max_iter": 10000, "n_jobs": -1})
-    example_config.update({"weights": "global:cache_v", "clf_C": 0.1, "weights_cache_v": 0.8, "weights_neg_scale": 8.0})
+    example_config.update({"weights": "global:cache_v", "clf_C": 0.1, "weights_cache_v": 0.9, "weights_neg_scale": 5.0})
     example_config.update({"embedding_folder": str(ProjectPaths.logreg_embeddings_path() / "after_pca" / "gte_large_256_categories_l2_unit_100"),
                            "embedding_float_precision": None})
     return example_config
@@ -30,8 +29,6 @@ def create_example_config() -> dict:
 def create_example_config_temporal() -> dict:
     example_config = create_example_config()
     example_config.update({"evaluation": "session_based", "train_size": 1.0})
-    example_config.update({"weights_cache_v": 0.9, "weights_neg_scale": 4.0})
-    example_config.update({"categories_scale": 0.25})
     return example_config
 
 def create_example_config_tfidf(example_config: dict) -> dict:
@@ -56,9 +53,3 @@ if __name__ == "__main__":
     example_config_temporal = create_example_config_temporal()
     with open(logreg_experiments_path / "example_config_temporal.json", "w") as f:
         json.dump(example_config_temporal, f, indent = 4)
-    example_config_tfidf = create_example_config_tfidf(example_config)
-    with open(logreg_experiments_path / "example_config_tfidf.json", "w") as f:
-        json.dump(example_config_tfidf, f, indent = 4)
-    example_config_tfidf_temporal = create_example_config_tfidf(example_config_temporal)
-    with open(logreg_experiments_path / "example_config_tfidf_temporal.json", "w") as f:
-        json.dump(example_config_tfidf_temporal, f, indent = 4)

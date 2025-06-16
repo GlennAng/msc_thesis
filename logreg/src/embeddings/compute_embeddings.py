@@ -12,8 +12,7 @@ import numpy as np, torch.nn.functional as F
 from adapters import AutoAdapterModel
 from transformers import AutoModel, AutoTokenizer, pipeline
 
-from find_relevant_papers import find_relevant_papers
-from load_files import load_papers_texts
+from load_files import load_papers_texts, load_relevant_papers_ids
 
 MAX_TRIES = 20
 
@@ -64,7 +63,6 @@ def get_detailed_instruct(task_description: str, query: str) -> str:
     return f"Instruct: {task_description}\nQuery: {query}"
 
 def tokenize_papers(batch_papers: list, tokenizer: AutoTokenizer, max_sequence_length: int, model_path: str) -> dict:
-    sep_token = tokenizer.sep_token
     is_qwen_model = model_path.startswith("Qwen/")
     batch_papers_ids, batch_papers_titles, batch_papers_abstracts = zip(*batch_papers)
     batch_papers_ids, batch_papers_titles, batch_papers_abstracts = list(batch_papers_ids), list(batch_papers_titles), list(batch_papers_abstracts)
@@ -73,6 +71,7 @@ def tokenize_papers(batch_papers: list, tokenizer: AutoTokenizer, max_sequence_l
         batch_papers_texts = [f"Title: {title}\nAbstract: {abstract}" for title, abstract in zip(batch_papers_titles, batch_papers_abstracts)]
         batch_papers_texts = [get_detailed_instruct(task_instruction, text) for text in batch_papers_texts]
     else:
+        sep_token = tokenizer.sep_token
         batch_papers_texts = [f"{title} {sep_token} {abstract}" for title, abstract in zip(batch_papers_titles, batch_papers_abstracts)]
     batch_tokenized_papers = tokenizer(text = batch_papers_texts, max_length = max_sequence_length, padding = True, truncation = True, return_tensors = "pt")
     return batch_papers_ids, batch_tokenized_papers
@@ -148,10 +147,10 @@ if __name__ == "__main__":
         raise ValueError("Embeddings Folder already exists.")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model, tokenizer = load_model_and_tokenizer(args.model_path)
-    papers_texts = load_papers_texts(ProjectPaths.data_papers_texts_path(), relevant_columns = ["paper_id", "title", "abstract"])
+    papers_texts = load_papers_texts(relevant_columns = ["paper_id", "title", "abstract"])
     if not args.all_papers:
         print("Finding relevant papers IDs...")
-        relevant_papers_ids = find_relevant_papers()
+        relevant_papers_ids = load_relevant_papers_ids()
         papers_texts = papers_texts[papers_texts["paper_id"].isin(relevant_papers_ids)]
     papers_texts = papers_texts[["paper_id", "title", "abstract"]].values.tolist()
     max_sequence_length = args.max_sequence_length + (20 if args.model_path.startswith("Qwen/") else 0)

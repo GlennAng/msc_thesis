@@ -21,40 +21,7 @@ TRAIN_TEST_SPLIT_RANDOM_STATE = 42
 VALIDATION_RANDOM_STATE = 42
 TESTING_NO_OVERLAP_RANDOM_STATES = [1, 2, 25, 26, 75, 76, 100, 101, 150, 151]
 
-def save_finetuning_users_ids(n_val_users : int = 500, n_test_users_no_overlap : int = 500, min_n_posrated : int = 20, min_n_negrated : int = 20, 
-                              random_state : int = USERS_SELECTION_RANDOM_STATE) -> None:
-    all_users = get_users_ids(users_selection = "random", max_users = None, min_n_posrated = min_n_posrated, min_n_negrated = min_n_negrated)
-    val_users = get_users_ids("random", n_test_users_no_overlap, min_n_posrated, min_n_negrated, random_state = random_state, take_complement = True)
-    val_users = val_users.sort_values(by = "user_id")
-    val_users = val_users.sample(n = n_val_users, random_state = random_state)
-    test_users_no_overlap = get_users_ids("random", n_test_users_no_overlap, min_n_posrated, min_n_negrated, random_state = random_state, take_complement = False)
-    val_users, test_users_no_overlap = sorted(val_users["user_id"].tolist()), sorted(test_users_no_overlap["user_id"].tolist())
-    train_users = sorted(list(set(all_users["user_id"].tolist()) - set(test_users_no_overlap)))
-    with open(f"{FILES_SAVE_PATH}/users/train_users_ids.pkl", "wb") as train_file:
-        pickle.dump(train_users, train_file)
-    with open(f"{FILES_SAVE_PATH}/users/val_users_ids.pkl", "wb") as val_file:
-        pickle.dump(val_users, val_file)
-    with open(f"{FILES_SAVE_PATH}/users/test_users_no_overlap_ids.pkl", "wb") as test_file:
-        pickle.dump(test_users_no_overlap, test_file)
 
-def load_finetuning_users_ids() -> tuple:
-    with open(f"{FILES_SAVE_PATH}/users/train_users_ids.pkl", "rb") as train_file:
-        train_users_ids = pickle.load(train_file)
-    with open(f"{FILES_SAVE_PATH}/users/val_users_ids.pkl", "rb") as val_file:
-        val_users_ids = pickle.load(val_file)
-    with open(f"{FILES_SAVE_PATH}/users/test_users_no_overlap_ids.pkl", "rb") as test_file:
-        test_users_no_overlap_ids = pickle.load(test_file)
-    return train_users_ids, val_users_ids, test_users_no_overlap_ids
-
-def save_projection_tensor(pca_components : np.ndarray, pca_mean : np.ndarray) -> None:
-    bias = -(pca_mean @ pca_components.T)
-    pca_components = torch.from_numpy(pca_components).to(torch.float32)
-    pca_bias = torch.from_numpy(bias).to(torch.float32)
-    projection = torch.nn.Linear(pca_components.shape[1], pca_components.shape[0], bias = True, dtype = torch.float32)
-    with torch.no_grad():
-        projection.weight.copy_(pca_components)
-        projection.bias.copy_(pca_bias)
-    torch.save(projection.state_dict(), f"{FILES_SAVE_PATH}/{TRANSFORMER_MODEL_NAME}/state_dicts/projection.pt")
 
 def save_users_embeddings_tensor(train_users_ids : list, users_coefs : np.ndarray, users_ids_to_idxs : dict, save_users_embeddings_ids_to_idxs : bool = True) -> None:
     users_embeddings_ids_to_idxs = {}

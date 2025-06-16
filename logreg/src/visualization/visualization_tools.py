@@ -25,7 +25,7 @@ PLOT_CONSTANTS = {"FIG_SIZE": (11, 8.5), "ALPHA_PLOT": 0.5, "ALPHA_FILL": 0.2, "
                   "N_PAPERS_PER_PAGE": 7, "N_PAPERS_IN_TOTAL" : 70, "MAX_LINES": 5, "LINE_HEIGHT": 0.025, "WORD_SPACING": 0.0075, "X_LOCATION": -0.125, 
                   "PLOT_SCORES" : [Score.BALANCED_ACCURACY, Score.RECALL, Score.PRECISION, Score.SPECIFICITY]}
 PRINT_SCORES = [Score.RECALL, Score.SPECIFICITY, Score.BALANCED_ACCURACY, Score.CEL, Score.NDCG, Score.MRR,
-                Score.NDCG_SAMPLES, Score.MRR_SAMPLES, Score.NDCG_ALL, Score.MRR_ALL, Score.INFO_NCE_ALL]
+                Score.NDCG_SAMPLES, Score.MRR_SAMPLES, Score.NDCG_ALL, Score.MRR_ALL, Score.INFO_NCE_1]
 n_scores_halved = len(Score) // 2
 
 def is_number(string: str) -> bool:
@@ -133,8 +133,6 @@ def get_users_info_table(users_info: pd.DataFrame) -> list:
     rows = {"Number of positively rated Papers": users_info["n_posrated"], "Number of negatively rated Papers": users_info["n_negrated"],
             "Percentage of positively rated among all rated": users_info["n_posrated"] / (users_info["n_posrated"] + users_info["n_negrated"]),
             "Percentage of train among all rated": users_info["train_rated_ratio"]}
-    if "coefs_categories_ratio" in users_info.columns:
-        rows["Percentage of categories coefs among non-bias sum"] = users_info["coefs_categories_ratio"]
     for row_name, row in rows.items():
         if row.isnull().all():
             data.append([row_name] + [np.float64('nan')] * 5)
@@ -225,7 +223,7 @@ def print_fifth_page(pdf: PdfPages, title: str, legend_text: str, best_global_hy
         full_table = [columns] + best_global_hyperparameters_combination_table
         with open(save_path, "wb") as f:
             pickle.dump(full_table, f)
-    print_table(best_global_hyperparameters_combination_table, [-0.14, -0.025, 1.25, 1.11], columns, [0.1] + (len(groups) * 2 + 1) * [0.15], bold_row = 0, grey_row = optimizer_row)
+    print_table(best_global_hyperparameters_combination_table, [-0.14, -0.025, 1.25, 1.11], columns, [0.125] + (len(groups) * 2 + 1) * [0.15], bold_row = 0, grey_row = optimizer_row)
     ax.text(0.5, -0.08, legend_text, fontsize = 8, ha = 'center', va = 'center')
     pdf.savefig(fig)
     plt.close(fig)

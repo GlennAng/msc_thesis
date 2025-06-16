@@ -65,8 +65,36 @@ class ProjectPaths:
         return ProjectPaths.finetuning_data_model_path() / "state_dicts"
 
     @staticmethod
+    def finetuning_data_model_state_dicts_projection_path():
+        return ProjectPaths.finetuning_data_model_state_dicts_path() / "projection.pt"
+
+    @staticmethod
+    def finetuning_data_model_state_dicts_categories_embeddings_l1_path():
+        return ProjectPaths.finetuning_data_model_state_dicts_path() / "categories_embeddings_l1.pt"
+
+    @staticmethod
+    def finetuning_data_model_state_dicts_users_embeddings_path():
+        return ProjectPaths.finetuning_data_model_state_dicts_path() / "users_embeddings.pt"
+
+    @staticmethod
     def finetuning_data_model_datasets_path():
         return ProjectPaths.finetuning_data_model_path() / "datasets"
+
+    @staticmethod
+    def finetuning_data_model_datasets_val_negative_samples_path():
+        return ProjectPaths.finetuning_data_model_datasets_path() / "val_negative_samples.pt"
+
+    @staticmethod
+    def finetuning_data_model_datasets_test_papers_path():
+        return ProjectPaths.finetuning_data_model_datasets_path() / "test_papers.pt"
+
+    @staticmethod
+    def finetuning_data_model_datasets_train_dataset_path():
+        return ProjectPaths.finetuning_data_model_datasets_path() / "train_dataset.pt"
+
+    @staticmethod
+    def finetuning_data_model_datasets_val_dataset_path():
+        return ProjectPaths.finetuning_data_model_datasets_path() / "val_dataset.pt"
 
     @staticmethod
     def finetuning_src_path():

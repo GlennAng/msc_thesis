@@ -11,7 +11,7 @@ import json, os, pickle
 import numpy as np
 from joblib import Parallel, delayed
 
-from algorithm import Algorithm, Evaluation, Score, get_cross_val, get_model, get_score, get_ranking_scores, derive_score, SCORES_DICT
+from algorithm import Algorithm, Evaluation, Score, get_cross_val, get_model, get_score, get_ranking_scores, get_category_scores, derive_score, SCORES_DICT
 from compute_tfidf import load_vectorizer
 from embedding import Embedding
 from load_files import load_papers
@@ -104,12 +104,11 @@ class Evaluator:
                 user_data_statistics = self.get_data_statistics_for_user(y_train_rated, base_n, zerorated_n, cache_n)
                 user_predictions_dict[0] = self.get_papers_ids(train_rated_idxs, y_train_rated, val_rated_idxs, y_val, negrated_ranking_ids)
                 negrated_ranking_val_idxs = np.array([user_predictions_dict[0]["val_ids"].index(id) for id in negrated_ranking_ids])
+                categories_dict = {"l1_train_rated": user_ratings.loc[train_mask, "l1"].values, "l1_val": user_ratings.loc[val_mask, "l1"].values,
+                                   "l2_train_rated": user_ratings.loc[train_mask, "l2"].values, "l2_val": user_ratings.loc[val_mask, "l2"].values}
                 user_results, user_predictions, user_coefs = self.train_model_for_user(user_id, X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, 
-                                                                                    user_data_statistics, negrated_ranking_val_idxs)
-                if self.config["categories_dim"] is not None:
-                    content_dim = len(user_coefs) - self.config["categories_dim"] - 1
-                    sum_content_coef, sum_categories_coef = np.sum(np.abs(user_coefs[:content_dim])), np.sum(np.abs(user_coefs[content_dim : -1]))
-                    user_info["coefs_categories_ratio"] = sum_categories_coef / (sum_content_coef + sum_categories_coef)
+                                                                                       user_data_statistics, negrated_ranking_val_idxs, categories_dict)
+
                 user_results_dict[0] = user_results
                 if self.config["save_users_predictions"]:
                     user_predictions_dict[0].update({"train_predictions": user_predictions["train_predictions"], "val_predictions": user_predictions["val_predictions"],
@@ -130,20 +129,16 @@ class Evaluator:
                     user_data_statistics = self.get_data_statistics_for_user(y_train_rated, base_n, zerorated_n, cache_n)
                     user_predictions_dict[fold_idx] = self.get_papers_ids(train_rated_idxs, y_train_rated, val_rated_idxs, y_val, negrated_ranking_ids)
                     negrated_ranking_val_idxs = np.array([user_predictions_dict[fold_idx]["val_ids"].index(id) for id in negrated_ranking_ids])
+                    categories_dict = {"l1_train_rated": user_ratings.loc[fold_train_idxs, "l1"].values, "l1_val": user_ratings.loc[fold_val_idxs, "l1"].values,
+                                       "l2_train_rated": user_ratings.loc[fold_train_idxs, "l2"].values, "l2_val": user_ratings.loc[fold_val_idxs, "l2"].values}
                     fold_results, fold_predictions, fold_coefs = self.train_model_for_user(user_id, X_train, y_train, X_train_rated, y_train_rated, X_val, y_val, 
-                                                                                        user_data_statistics, negrated_ranking_val_idxs)
-                    if self.config["categories_dim"] is not None:
-                        content_dim = len(fold_coefs) - self.config["categories_dim"] - 1
-                        sum_content_coef, sum_categories_coef = np.sum(np.abs(fold_coefs[:content_dim])), np.sum(np.abs(fold_coefs[content_dim : -1]))
-                        coefs_categories_ratios.append(sum_categories_coef / (sum_content_coef + sum_categories_coef))
+                                                                                           user_data_statistics, negrated_ranking_val_idxs, categories_dict)
                     user_results_dict[fold_idx] = fold_results
                     if self.config["save_users_predictions"]:
                         user_predictions_dict[fold_idx].update({"train_predictions": fold_predictions["train_predictions"], "val_predictions": fold_predictions["val_predictions"],
                                                                 "negrated_ranking_predictions": fold_predictions["negrated_ranking_predictions"],
                                                                 "negative_samples_predictions": fold_predictions["negative_samples_predictions"], "tfidf_coefs": fold_predictions["tfidf_coefs"]})
                 user_info["train_rated_ratio"] = np.mean(train_rated_ratios)
-                if self.config["categories_dim"] is not None:
-                    user_info["coefs_categories_ratio"] = np.mean(coefs_categories_ratios)
             self.save_user_info(user_id, user_info)
             self.save_user_results(user_id, user_results_dict)
             self.save_users_predictions(user_id, user_predictions_dict)
@@ -195,7 +190,8 @@ class Evaluator:
         return user_data_statistics
     
     def train_model_for_user(self, user_id: int, X_train: np.ndarray, y_train: np.ndarray, X_train_rated: np.ndarray, y_train_rated: np.ndarray, 
-                             X_val: np.ndarray, y_val: np.ndarray, user_data_statistics: dict, negrated_ranking_val_idxs: np.ndarray, voting_weight: float = None) -> tuple:
+                             X_val: np.ndarray, y_val: np.ndarray, user_data_statistics: dict, negrated_ranking_val_idxs: np.ndarray, categories_dict: dict,
+                             voting_weight: float = None) -> tuple:
         user_results, user_predictions, user_coefs = {}, {"train_predictions": {}, "val_predictions": {}, "negrated_ranking_predictions": {}, "negative_samples_predictions": {}, 
                                                           "tfidf_coefs": {}}, None
         sample_weights = np.empty(user_data_statistics["total_n"], dtype = np.float64)
@@ -225,7 +221,8 @@ class Evaluator:
                 y_negrated_ranking_proba, y_negrated_ranking_logits = y_val_proba[negrated_ranking_val_idxs], y_val_logits[negrated_ranking_val_idxs]
                 y_negative_samples_proba, y_negative_samples_logits = model.predict_proba(self.negative_samples_embeddings)[:, 1], model.decision_function(self.negative_samples_embeddings)
                 scores = self.get_scores_for_user(y_train_rated, y_train_rated_pred, y_train_rated_proba, y_train_rated_logits, y_val, y_val_pred, y_val_proba, y_val_logits,
-                                                y_negrated_ranking_proba, y_negrated_ranking_logits, y_negative_samples_pred, y_negative_samples_proba, y_negative_samples_logits)
+                                                  y_negrated_ranking_proba, y_negrated_ranking_logits, y_negative_samples_pred, y_negative_samples_proba, y_negative_samples_logits,
+                                                  categories_dict)
                 user_results[combination_idx] = scores
                 if self.config["save_users_predictions"]:
                     user_predictions["train_predictions"][combination_idx] = y_train_rated_proba.tolist()
@@ -244,17 +241,21 @@ class Evaluator:
     
     def get_scores_for_user(self, y_train_rated: np.ndarray, y_train_rated_pred: np.ndarray, y_train_rated_proba: np.ndarray, y_train_rated_logits: np.ndarray,
                             y_val: np.ndarray, y_val_pred: np.ndarray, y_val_proba: np.ndarray, y_val_logits: np.ndarray, y_negrated_ranking_proba: np.ndarray, 
-                            y_negrated_ranking_logits: np.ndarray, y_negative_samples_pred: np.ndarray, y_negative_samples_proba: np.ndarray, y_negative_samples_logits: np.ndarray) -> tuple:
+                            y_negrated_ranking_logits: np.ndarray, y_negative_samples_pred: np.ndarray, y_negative_samples_proba: np.ndarray, y_negative_samples_logits: np.ndarray,
+                            categories_dict: dict) -> tuple:
         user_scores = [0] * self.scores_n
         for score in self.non_derivable_scores:
             if not SCORES_DICT[score]["ranking"]:
-                user_scores[self.scores[f"train_{score.name.lower()}"]] = get_score(score, y_train_rated, y_train_rated_pred, y_train_rated_proba, 
+                user_scores[self.scores[f"train_{score.name.lower()}"]] = get_score(score, y_train_rated, y_train_rated_pred, y_train_rated_proba, y_negrated_ranking_proba,
                                                                                     y_negative_samples_pred, y_negative_samples_proba)
-                user_scores[self.scores[f"val_{score.name.lower()}"]] = get_score(score, y_val, y_val_pred, y_val_proba, 
+                user_scores[self.scores[f"val_{score.name.lower()}"]] = get_score(score, y_val, y_val_pred, y_val_proba, y_negrated_ranking_proba,
                                                                                   y_negative_samples_pred, y_negative_samples_proba)
-        ranking_scores = get_ranking_scores(y_train_rated, y_train_rated_logits, y_val, y_val_logits, y_negrated_ranking_logits, y_negative_samples_logits, self.config["info_nce_temperature"])
+        ranking_scores = get_ranking_scores(y_train_rated, y_train_rated_logits, y_val, y_val_logits, y_negrated_ranking_logits, y_negative_samples_logits)
         for ranking_score in ranking_scores:
             user_scores[self.scores[ranking_score]] = ranking_scores[ranking_score]
+        category_scores = get_category_scores(y_train_rated, y_train_rated_logits, y_val, y_val_logits, categories_dict)
+        for category_score in category_scores:
+            user_scores[self.scores[category_score]] = category_scores[category_score]
         user_scores_copy = user_scores.copy()
         for score in self.derivable_scores:
             user_scores[self.scores[f"train_{score.name.lower()}"]] = derive_score(score, user_scores_copy, self.scores, validation = False)
@@ -264,7 +265,7 @@ class Evaluator:
     def get_papers_ids(self, train_rated_idxs: np.ndarray, y_train_rated: np.ndarray, val_rated_idxs: np.ndarray, y_val: np.ndarray, negrated_ranking_ids: list) -> dict:
         return {"train_ids": self.embedding.get_papers_ids(train_rated_idxs), "train_labels" : y_train_rated.tolist(), 
                 "val_ids": self.embedding.get_papers_ids(val_rated_idxs), "val_labels": y_val.tolist(), "negrated_ranking_ids": negrated_ranking_ids}
-    
+
     def save_user_info(self, user_id : int, user_info : dict) -> None:
         folder = self.config["outputs_dir"] / "tmp" / f"user_{user_id}"
         if not os.path.exists(folder):

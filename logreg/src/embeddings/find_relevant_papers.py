@@ -14,7 +14,7 @@ from tqdm import tqdm
 from load_files import load_papers, load_finetuning_users, load_users_ratings
 from training_data import get_filtered_cache_papers_ids_for_user, get_negative_samples_ids
 
-def find_relevant_papers(seeds: list = [1, 2, 25, 26, 42, 75, 76, 100, 101, 150, 151]) -> list:
+def save_relevant_papers(seeds: list = [1, 2, 25, 26, 42, 75, 76, 100, 101, 150, 151]) -> list:
     users_ids = load_finetuning_users(selection = "test")
     print(len(users_ids), "Users loaded.")
     users_ratings = load_users_ratings(relevant_users_ids = users_ids)
@@ -36,7 +36,10 @@ def find_relevant_papers(seeds: list = [1, 2, 25, 26, 42, 75, 76, 100, 101, 150,
 
     relevant_papers_ids = sorted(list(relevant_papers_ids))
     print(len(relevant_papers_ids), "Final number of relevant papers IDs in List.")
+    path = ProjectPaths.data_relevant_papers_ids_path()
+    with open(path, "wb") as f:
+        pickle.dump(relevant_papers_ids, f)
     return relevant_papers_ids
 
 if __name__ == "__main__":
-    find_relevant_papers()
+    save_relevant_papers()
