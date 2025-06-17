@@ -213,7 +213,7 @@ class Evaluator:
                 sample_weights[user_data_statistics["train_rated_base_n"]:user_data_statistics["train_rated_base_zerorated_n"]] = w_z
                 sample_weights[user_data_statistics["train_rated_base_zerorated_n"]:user_data_statistics["total_n"]] = w_c
                 model.fit(X_train, y_train, sample_weight = sample_weights)
-            user_coefs = np.hstack([model.coef_[0], model.intercept_[0]]) 
+            user_coefs = np.hstack([model.coef_[0], model.intercept_[0]])
             if len(y_val) > 0:
                 y_train_rated_pred, y_val_pred, y_negative_samples_pred = model.predict(X_train_rated), model.predict(X_val), model.predict(self.negative_samples_embeddings)
                 y_train_rated_proba, y_train_rated_logits = model.predict_proba(X_train_rated)[:, 1], model.decision_function(X_train_rated)

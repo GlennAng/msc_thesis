@@ -65,9 +65,9 @@ class FinetuningDataset(Dataset):
         self.users_pos_starting_idxs, self.users_neg_starting_idxs = users_pos_starting_idxs, users_neg_starting_idxs
         self.users_counts_ids_to_idxs = {user_id.item(): user_idx for user_id, user_idx in zip(self.user_idx_tensor.unique(), range(self.n_users))}
 
-def create_dataset(dataset: dict) -> FinetuningDataset:
+def create_finetuning_dataset(dataset: dict) -> FinetuningDataset:
     user_idx_tensor, paper_id_tensor, rating_tensor = dataset["user_idx"], dataset["paper_id"], dataset["rating"]
-    input_ids_tensor, attention_mask_tensor, dataset["input_ids"], dataset["attention_mask"]
+    input_ids_tensor, attention_mask_tensor = dataset["input_ids"], dataset["attention_mask"]
     category_l1_tensor, category_l2_tensor, session_id_tensor = dataset["category_l1"], dataset["category_l2"], dataset["session_id"]
     return FinetuningDataset(user_idx_tensor = user_idx_tensor, paper_id_tensor = paper_id_tensor, rating_tensor = rating_tensor,
                              input_ids_tensor = input_ids_tensor, attention_mask_tensor = attention_mask_tensor, 
@@ -90,7 +90,7 @@ class TrainRatingsBatchSampler(BatchSampler):
         if self.users_sampling_strategy == "uniform":
             users_probas = torch.ones(self.dataset.n_users) / self.dataset.n_users
         elif self.users_sampling_strategy in ["proportional", "square_root_proportional", "cube_root_proportional"]:
-            if users_sampling_strategy == "proportional":
+            if self.users_sampling_strategy == "proportional":
                 users_counts = self.dataset.users_counts
             elif self.users_sampling_strategy == "square_root_proportional":
                 users_counts = torch.sqrt(self.dataset.users_counts)
@@ -99,6 +99,7 @@ class TrainRatingsBatchSampler(BatchSampler):
             users_probas = users_counts / torch.sum(users_counts)
         else:
             raise ValueError(f"Unknown users sampling strategy: {self.users_sampling_strategy}")
+        return users_probas
 
     def __len__(self) -> int:
         return self.n_batches_total
@@ -175,7 +176,7 @@ class TrainRatingsBatchSampler(BatchSampler):
         assert len_batch == self.batch_size
         assert len(user_idx_tensor.unique()) == self.n_users_per_batch
         for user_idx in user_idx_tensor.unique():
-            n_pos = label_tensor[user_idx_tensor == user_idx].sum().item()
+            n_pos = rating_tensor[user_idx_tensor == user_idx].sum().item()
             n_total = len(user_idx_tensor[user_idx_tensor == user_idx])
             n_neg = n_total - n_pos
             assert n_total == self.n_samples_per_user
@@ -183,10 +184,26 @@ class TrainRatingsBatchSampler(BatchSampler):
             assert n_neg >= self.n_min_negative_samples_per_user and n_neg <= self.n_max_negative_samples_per_user
         return True
 
-def get_train_ratings_dataloader(args_dict: dict, users_embeddings_ids_to_idxs: dict) -> DataLoader:
+def get_train_ratings_dataloader(args_dict: dict) -> DataLoader:
     train_ratings = create_dataset(load_finetuning_dataset(dataset_type = "train"))
     train_ratings_batch_sampler = TrainRatingsBatchSampler(train_ratings, args_dict)
     train_ratings_dataloader = DataLoader(train_ratings, batch_sampler = train_ratings_batch_sampler, num_workers = 4, pin_memory = True)
     first_batch = next(iter(train_ratings_dataloader))
-    train_ratings_dataloader.run_test(first_batch)
+    train_ratings_batch_sampler.run_test(first_batch)
     return train_ratings_dataloader
+
+class TrainNegativeSamplesDataset(Dataset):
+    def __init__(self, paper_id_tensor: torch.Tensor, category_l1_tensor: torch.Tensor, category_l2_tensor: torch.Tensor) -> None:
+        assert paper_id_tensor.tolist() == sorted(paper_id_tensor.tolist())
+        assert len(paper_id_tensor) == len(category_l1_tensor) == len(category_l2_tensor)
+        self.paper_id_tensor, self.category_l1_tensor, self.category_l2_tensor = paper_id_tensor, category_l1_tensor, category_l2_tensor
+        categories_l1 = self.category_l1_tensor.unique().tolist()
+        self.tensor_idxs_per_category_l1 = {category_l1: torch.where(self.category_l1_tensor == category_l1)[0] for category_l1 in categories_l1}
+        n_papers_per_category_l1 = {category_l1: len(tensor_idxs) for category_l1, tensor_idxs in self.tensor_idxs_per_category_l1.items()}
+        assert len(self.paper_id_tensor) == sum(n_papers_per_category_l1.values())
+    
+    def __len__(self) -> int:
+        return len(self.paper_id_tensor)
+
+    def __getitem__(self, idx: int) -> dict:
+        return {"paper_id": self.paper_id_tensor[idx], "category_l1": self.category_l1_tensor[idx], "category_l2": self.category_l2_tensor[idx]}

@@ -11,8 +11,7 @@ ProjectPaths.add_finetuning_paths_to_sys()
 import os, pickle, torch
 import numpy as np, pandas as pd
 from tqdm import tqdm
-from transformers import AutoTokenizer
-GTE_LARGE_PATH = "Alibaba-NLP/gte-large-en-v1.5"
+from transformers import AutoModel, AutoTokenizer
 
 VAL_RANDOM_STATE = 42
 TEST_RANDOM_STATES = [1, 2, 25, 26, 75, 76, 100, 101, 150, 151]
@@ -215,7 +214,7 @@ def save_train_val_users_papers(papers_type: str, tokenizer: AutoTokenizer, max_
 
 def save_finetuning_papers_type(papers_type: str, tokenizer: AutoTokenizer = None, max_sequence_length: int = 512) -> None:
     if tokenizer is None:
-        tokenizer = AutoTokenizer.from_pretrained(GTE_LARGE_PATH)
+        tokenizer = AutoTokenizer.from_pretrained(ProjectPaths.finetuning_data_model_hf())
     if papers_type == "val_negative_samples":
         save_val_negative_samples(tokenizer, max_sequence_length)
     elif papers_type == "test":
@@ -227,7 +226,7 @@ def save_finetuning_papers_type(papers_type: str, tokenizer: AutoTokenizer = Non
 
 def save_finetuning_papers(tokenizer: AutoTokenizer = None, max_sequence_length: int = 512) -> None:
     if tokenizer is None:
-        tokenizer = AutoTokenizer.from_pretrained(GTE_LARGE_PATH)
+        tokenizer = AutoTokenizer.from_pretrained(ProjectPaths.finetuning_data_model_hf())
     papers_types = ["val_negative_samples", "test", "train_users", "val_users"]
     for papers_type in papers_types:
         save_finetuning_papers_type(papers_type, tokenizer, max_sequence_length)
@@ -308,7 +307,7 @@ def fill_finetuning_papers_dataset(users_ratings: pd.DataFrame, papers: pd.DataF
         if negrated_ranking:
             negrated_ranking_ids = load_negrated_ranking_ids_for_user(negrated_ids, VAL_RANDOM_STATE)
             non_negrated_ranking_ids = [negrated_id for negrated_id in negrated_ids if negrated_id not in negrated_ranking_ids]
-            negrated_ids = negrated_ranking_ids + non_negrated_ranking_ids
+            negrated_ids = non_negrated_ranking_ids + negrated_ranking_ids
         rated_ids = posrated_ids + negrated_ids
         assert len(rated_ids) == n_ratings
         paper_id_list.extend(rated_ids)
@@ -374,7 +373,7 @@ def save_finetuning_datasets() -> None:
     for dataset_type in dataset_types:
         save_finetuning_dataset(dataset_type)
 
-def load_finetuning_dataset(dataset_type: str) -> dict:
+def load_finetuning_dataset(dataset_type: str, check: bool = False) -> dict:
     if dataset_type not in ["train", "val"]:
         raise ValueError(f"Invalid dataset type: {dataset_type}. Choose from ['train', 'val'].")
     if dataset_type == "train":
@@ -383,7 +382,26 @@ def load_finetuning_dataset(dataset_type: str) -> dict:
         tensor_path = ProjectPaths.finetuning_data_model_datasets_val_dataset_path()
     if not tensor_path.exists():
         raise FileNotFoundError(f"{dataset_type.capitalize()} dataset file not found: {tensor_path}.")
-    return torch.load(tensor_path, weights_only = True)
+    dataset = torch.load(tensor_path, weights_only = True)
+    if check:
+        users_coefs_ids_to_idxs = load_users_coefs_ids_to_idxs()
+        users_coefs_idxs_to_ids = {idx: user_id for user_id, idx in users_coefs_ids_to_idxs.items()}
+        finetuning_users = load_finetuning_users()
+        unique_users_idxs = torch.unique(dataset["user_idx"]).tolist()
+        unique_users_ids = [users_coefs_idxs_to_ids[idx] for idx in unique_users_idxs]
+        if dataset_type == "val":
+            assert unique_users_ids == finetuning_users["val"]
+        elif dataset_type == "train":
+            assert unique_users_ids == (finetuning_users["train"] + finetuning_users["val"])
+    return dataset
+
+def save_finetuning_model(model_path: str = ProjectPaths.finetuning_data_model_hf()) -> None:
+    tensor_path = ProjectPaths.finetuning_data_model_state_dicts_path() / "transformer_model"
+    if tensor_path.exists():
+        print(f"Transformer model already exists - skipping saving.")
+        return
+    model = AutoModel.from_pretrained(model_path, trust_remote_code = True, unpad_inputs = True, torch_dtype = "auto")
+    model.save_pretrained(tensor_path)
 
 def test_loading() -> None:
     val_users_embeddings_idxs = load_val_users_embeddings_idxs()
@@ -394,6 +412,10 @@ def test_loading() -> None:
     print(f"Loaded {len(categories_to_idxs_l2)} categories for L2.")
     test_papers = load_finetuning_papers("test", attach_l1 = True, attach_l2 = True)
     print(f"Loaded {len(test_papers['paper_id'])} test papers with L1 and L2 categories.")
+    train_dataset = load_finetuning_dataset("train", check = True)
+    print(f"Loaded train dataset with {len(train_dataset['user_idx'])} entries.")
+    val_dataset = load_finetuning_dataset("val", check = True)
+    print(f"Loaded validation dataset with {len(val_dataset['user_idx'])} entries.")
 
 if __name__ == "__main__":        
     os.makedirs(ProjectPaths.finetuning_data_model_path(), exist_ok = True)
@@ -404,5 +426,5 @@ if __name__ == "__main__":
     save_categories_embeddings_tensor()
     save_finetuning_papers()
     save_finetuning_datasets()
+    save_finetuning_model()
     test_loading()
-    load_finetuning_dataset("train")

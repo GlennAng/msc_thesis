@@ -27,7 +27,7 @@ def l2_normalize_rows(matrix: np.ndarray) -> np.ndarray:
     mask = norms > 0
     return np.divide(matrix, norms[:, np.newaxis], where = mask[:, np.newaxis])
 
-APPLY_ZSCORE = True
+APPLY_ZSCORE = False
 APPLY_L2NORM = True
 
 def parse_args() -> argparse.Namespace:

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 FINETUNING_MODEL = "gte_large_256"
+FINETUNING_MODEL_HF = "Alibaba-NLP/gte-large-en-v1.5"
 
 class ProjectPaths:
 
@@ -59,6 +60,10 @@ class ProjectPaths:
     @staticmethod
     def finetuning_data_model_path():
         return ProjectPaths.finetuning_data_path() / FINETUNING_MODEL
+
+    @staticmethod
+    def finetuning_data_model_hf():
+        return FINETUNING_MODEL_HF
 
     @staticmethod
     def finetuning_data_model_state_dicts_path():
