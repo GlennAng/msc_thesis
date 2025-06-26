@@ -1,0 +1,15 @@
+name: glenn_msc_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - matplotlib
+  - numpy
+  - pandas
+  - pip
+  - psycopg2
+  - pyarrow
+  - python=3.12
+  - scikit-learn
+  - sqlalchemy
+  - tqdm

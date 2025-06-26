@@ -4,9 +4,6 @@
 __pycache__/
 *.pyc
 data
-cross_eval/experiments
-cross_eval/outputs
 logreg/embeddings
 logreg/experiments
 logreg/outputs
-

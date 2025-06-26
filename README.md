@@ -1,4 +1,10 @@
 # I. Setup Instructions
+First, create and activate a conda environment via:
+```bash
+conda env create -f environment.yml
+conda activate glenn_msc_env
+```
+
 
 In order to run the code, you require 5 files that should all be placed in a directionary called `data`:
 
@@ -10,22 +16,22 @@ In order to run the code, you require 5 files that should all be placed in a dir
 
 You can check for completeness and correctness by running:
 ```bash
-python load_files.py
+python -m shared.src.load_files
 ```
 
 If you have access to the internal Scholar Inbox database, you can generate these files automatically. But additionally, you would need a file  `tsne_with_meta_full_for_plot_sorted.parquet` to include information about the paper categories. Given this access, then run:
 
 
 ```bash
-python from_db_to_files.py --scholar_inbox_dict --papers_categories_old_file /path/to/tsne_with_meta_full_for_plot_sorted.parquet 
+python -m shared.scripts.from_db_to_files --scholar_inbox_dict --papers_categories_old_file /path/to/tsne_with_meta_full_for_plot_sorted.parquet 
 ```
 Should the above fail to work, you may have to enter your database login credentials db_name, db_user, db_password, db_host and db_port as individual arguments (instead of scholar_inbox_dict which chooses the default settings).
 
 ```bash
-python logreg/src/training/get_users_ratings.py
+python -m logreg.src.training.get_users_ratings
 ```
 ```bash
-python logreg/src/embeddings/find_relevant_papers.py
+python -m logreg.src.embeddings.find_relevant_papers
 ```
 
 # II. Overview of the Files
