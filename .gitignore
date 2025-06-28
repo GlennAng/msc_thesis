@@ -4,6 +4,7 @@
 __pycache__/
 *.pyc
 data
-logreg/embeddings
-logreg/experiments
-logreg/outputs
+code/logreg/embeddings
+code/logreg/experiments
+code/logreg/outputs
+code/finetuning/data
