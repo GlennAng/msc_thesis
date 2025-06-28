@@ -83,7 +83,7 @@ def parse_arguments() -> dict:
         dest="closest_temporal_samples",
         default=True,
     )
-    parser.add_argument("--n_samples_from_most_recent_positive_votes", type=int, default=3)
+    parser.add_argument("--n_samples_from_most_recent_positive_votes", type=int, default=7)
     parser.add_argument("--n_samples_from_closest_negative_votes", type=int, default=4)
 
     parser.add_argument(
@@ -115,7 +115,12 @@ def parse_arguments() -> dict:
         action="store_false",
         dest="pretrained_categories_embeddings_l1",
     )
-    parser.add_argument("--include_l2_categories", action="store_true", default=False)
+    parser.add_argument(
+        "--not_include_l2_categories",
+        action="store_false",
+        dest="include_l2_categories",
+        default=True,
+    )
 
     parser.add_argument("--lr_transformer_model", type=float, default=1e-5)
     parser.add_argument("--lr_other", type=float, default=1e-5)
@@ -190,12 +195,15 @@ def load_optimizer(
             "lr": lr_other,
             "weight_decay": l2_regularization_other,
         },
-        {
-            "params": finetuning_model.categories_embeddings_l2.parameters(),
-            "lr": lr_other,
-            "weight_decay": l2_regularization_other,
-        },
     ]
+    if finetuning_model.categories_embeddings_l2 is not None:
+        param_groups.append(
+            {
+                "params": finetuning_model.categories_embeddings_l2.parameters(),
+                "lr": lr_other,
+                "weight_decay": l2_regularization_other,
+            }
+        )
     optimizer = torch.optim.Adam(param_groups)
     if lr_scheduler == "constant":
         return optimizer, None
@@ -519,6 +527,8 @@ def run_training(
             ):
                 log_string(logger, f"\nEarly stopping after {n_batches_processed_so_far} Batches.")
                 break
+        if n_batches_processed_so_far >= 9000:
+            break
     args_dict["time_elapsed"] = time.time() - start_time
     return train_losses, val_scores
 
