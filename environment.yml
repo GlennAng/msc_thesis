@@ -1,7 +1,10 @@
 name: glenn_msc_env
 channels:
+  - pytorch
+  - nvidia
   - conda-forge
   - defaults
+  - huggingface
 dependencies:
   - matplotlib
   - numpy
@@ -10,6 +13,14 @@ dependencies:
   - psycopg2
   - pyarrow
   - python=3.12
+  - pytorch
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=12.4
   - scikit-learn
   - sqlalchemy
   - tqdm
+  - wordcloud
+  - pip:
+      - adapters
+      - transformers

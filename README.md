@@ -16,16 +16,15 @@ In order to run the code, you require 5 files that should all be placed in a dir
 
 You can check for completeness and correctness by running:
 ```bash
-python -m shared.src.load_files
+python -m code.src.load_files
 ```
 
 If you have access to the internal Scholar Inbox database, you can generate these files automatically. But additionally, you would need a file  `tsne_with_meta_full_for_plot_sorted.parquet` to include information about the paper categories. Given this access, then run:
 
 
 ```bash
-python -m shared.scripts.from_db_to_files --scholar_inbox_dict --papers_categories_old_file /path/to/tsne_with_meta_full_for_plot_sorted.parquet 
+python -m code.scripts.from_db_to_files --scholar_inbox_dict --papers_categories_old_file /path/to/tsne_with_meta_full_for_plot_sorted.parquet 
 ```
-Should the above fail to work, you may have to enter your database login credentials db_name, db_user, db_password, db_host and db_port as individual arguments (instead of scholar_inbox_dict which chooses the default settings).
 
 ```bash
 python -m logreg.src.training.get_users_ratings
@@ -33,6 +32,8 @@ python -m logreg.src.training.get_users_ratings
 ```bash
 python -m logreg.src.embeddings.find_relevant_papers
 ```
+
+Should the first step fail to work, you may have to enter your database login credentials db_name, db_user, db_password, db_host and db_port as individual arguments (instead of scholar_inbox_dict which chooses the default settings).
 
 # II. Overview of the Files
 
@@ -72,6 +73,39 @@ A dictionary with 3 keys, each referencing a disjoint list of sorted user IDs:
 - **val:** Same as test but 500 different users.
 - **train:** All users with at least 20 up/down-votes (independent of session-based splits) except those in test and val.
 
-# III. Overview of the Subdirectories
-#### 1. logreg:  Experiments for evaluating the recommender model via logistic regression.
-#### 2. finetuning: Experiments for fine-tuning the embedding model in PyTorch.
+# III. Logistic Regression Evaluation:
+The following describes how to perform experiments for evaluating the recommender model via logistic regression.
+## 1. Embedding Computation:
+In order to run our experiments, you need a directory that includes the two files `abs_X.npy` and `abs_paper_ids_to_idx.pkl`. 
+The first is a numpy matrix of shape (n_papers, embedding_dim) containing the text embedding of each paper in the database whereas the second is a dictionary which maps the respective paper IDs to their index in this matrix. Note that for most experiments, it is sufficient to only embed the papers stored in `relevant_papers_ids.pkl`.
+
+You may use your own embeddings or compute them for one of the provided models (details in `code/logreg`). For example, then run the following to compute embeddings only for the relevant papers.
+Instead, you could compute embeddings for the entire database by further appending `--all_papers`:
+```bash
+python -m code.scripts.embed_run.py --model_name gte-large-en-v1.5 --batch_size 500
+```
+Note that the outputs will be stored in the directory `code/logreg/embeddings/before_pca/gte_large`.
+### PCA Dimensionality Reduction
+Empirical results have shown strong downstream performance even after vastly lowering the embedding dimensionality via PCA. To perform this step, run:
+```bash
+python -m code.logreg.src.embeddings.apply_pca.py --embeddings_input_folder code/logreg/embeddings/before_pca/gte_large --pca_dim 256
+```
+### Attaching Scientific Category Embeddings
+In order to attach GloVe word embeddings for the research categories (dimension from [50, 100, 200, 300]), run:
+```bash
+python -m code.logreg.src.papers_categories.py --embeddings_input_folder code/logreg/embeddings/after_pca/gte_large_256 --dim 100
+```
+This will require you to have the GloVe word embeddings downloaded into `code/logreg/embeddings/glove/glove.6B.100d.txt`.
+
+## 2. Experiments:
+Without needing to make any adjustments, you can run comprehensive experiments as follows:
+```bash
+python -m code.finetuning.src.finetuning_evaluation.py --embeddings_path code/logreg/embeddings/after_pca/gte_large_256_categories_l2_unit_100 --cross_validation --session_based --no_overlap
+```
+This will perform 10 cross-validation experiments (10 different random seeds), 10 session-based experiments (10 different random seeds) and summarize the results in 
+`code/logreg/embeddings/after_pca/gte_large_256_categories_l2_unit_100/visualization.pdf`. 
+You may also inspect the results of individual random seeds (e.g. 1) by looking up `code/logreg/embeddings/after_pca/gte_large_256_categories_l2_unit_100/outputs/no_overlap_cross_validation/no_overlap_cross_validation_s1/global_visu_bal.pdf`
+More details on how to change the evaluation parameters are given in `code/logreg`.
+
+# IV. Embedding Model Fine-tuning:
+The following describes how to fine-tuning your text embedding model in PyTorch.
