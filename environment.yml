@@ -24,3 +24,6 @@ dependencies:
   - pip:
       - adapters
       - transformers
+      - peft>=0.4.0
+      - bitsandbytes>=0.41.0
+      - accelerate>=0.21.0
