@@ -62,7 +62,7 @@ def extract_results(path: Path) -> dict:
     results = {}
     files = [f for f in path.iterdir() if f.is_file() and f.suffix == ".json"]
     for f in files:
-        task_name = f.name
+        task_name = f.stem
         with open(f, "r") as file:
             task_results = json.load(file)
         if (

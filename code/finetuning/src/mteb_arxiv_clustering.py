@@ -1,8 +1,6 @@
-import json
 from pathlib import Path
 
 import mteb
-import numpy as np
 import torch
 from adapters import AutoAdapterModel
 from transformers import AutoModel, AutoTokenizer
@@ -13,6 +11,7 @@ from ...logreg.src.embeddings.compute_embeddings import (
 )
 from ...src.project_paths import ProjectPaths
 from .finetuning_model import FinetuningModel, load_finetuning_model
+from .mteb_multi_task import extract_results
 
 
 class CustomEmbeddingWrapper:
@@ -54,38 +53,59 @@ class CustomEmbeddingWrapper:
                 papers_texts.append((0, parts[0].strip(), parts[1].strip()))
             else:
                 raise ValueError(f"Sentence does not contain a valid split point: {sentence}")
-        tokenized_papers = tokenize_papers(
-            papers_texts,
-            tokenizer=self.tokenizer,
-            max_sequence_length=max_length,
-            model_path=self.model_choice,
-        )[1]
-        with torch.no_grad():
-            with torch.inference_mode():
-                if isinstance(self.model, FinetuningModel):
-                    embeddings = self.model.perform_inference(
-                        max_batch_size=batch_size,
-                        input_ids_tensor=tokenized_papers["input_ids"].to(self.device),
-                        attention_mask_tensor=tokenized_papers["attention_mask"].to(self.device),
-                        category_l1_tensor=None,
-                        eval_type="test",
-                    )
-                else:
-                    embeddings = []
-                    for i in range(0, len(tokenized_papers["input_ids"]), batch_size):
-                        tokenized_papers_batch = {
-                            key: value[i:i + batch_size] for key, value in tokenized_papers.items()
-                        }
-                        tokenized_papers_batch = torch.tensor(tokenized_papers_batch)
-                        batch_outputs = self.model(**tokenized_papers_batch.to(self.device))
-                        embeddings.append(extract_embeddings(
-                            batch_outputs=batch_outputs,
-                            attention_mask=tokenized_papers_batch["attention_mask"].to(self.device),
-                            model_path=self.model_choice,
-                        ))
-                    embeddings = torch.cat(embeddings, dim=0)
-        result = embeddings.to(torch.float32).cpu().numpy()
-        print(f"Final result shape: {result.shape}, dtype: {result.dtype}")
+
+        if isinstance(self.model, FinetuningModel):
+            sep_token = self.tokenizer.sep_token
+            papers_texts = [
+                f"{title} {sep_token} {abstract}" for _, title, abstract in papers_texts
+            ]
+            inputs = self.tokenizer(
+                papers_texts,
+                padding=True,
+                truncation=True,
+                max_length=max_length,
+                return_tensors="pt",
+            )
+            input_ids = inputs["input_ids"]
+            attention_mask = inputs["attention_mask"]
+            embeddings = self.model.perform_inference(
+                max_batch_size=batch_size,
+                input_ids_tensor=input_ids,
+                attention_mask_tensor=attention_mask,
+                category_l1_tensor=None,
+                eval_type="test",
+            )
+            result = embeddings.cpu().numpy()
+
+        else:
+            embeddings = []
+            for i in range(0, len(papers_texts), batch_size):
+                batch_tokenized_papers = tokenize_papers(
+                    batch_papers=papers_texts[i : i + batch_size],
+                    tokenizer=self.tokenizer,
+                    max_sequence_length=max_length,
+                    model_path=(
+                        self.model_choice
+                        if isinstance(self.model_choice, str)
+                        else self.model_choice.stem
+                    ),
+                )[1]
+                with torch.autocast(device_type=device.type, dtype=torch.float16):
+                    with torch.no_grad():
+                        with torch.inference_mode():
+                            batch_papers_outputs = self.model(**batch_tokenized_papers.to(device))
+                            batch_papers_embeddings = extract_embeddings(
+                                batch_papers_outputs,
+                                batch_tokenized_papers["attention_mask"].to(device),
+                                model_path=(
+                                    self.model_choice
+                                    if isinstance(self.model_choice, str)
+                                    else self.model_choice.stem
+                                ),
+                            )
+                embeddings.append(batch_papers_embeddings)
+            embeddings = torch.cat(embeddings, dim=0)
+            result = embeddings.to(torch.float32).cpu().numpy()
         return result
 
 
@@ -105,6 +125,7 @@ MODELS_NAMES = [model if isinstance(model, str) else model.stem for model in MOD
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 evaluation = mteb.MTEB(tasks=mteb.get_tasks(tasks=["ArXivHierarchicalClusteringP2P"]))
+results = {}
 for i, model_choice in enumerate(MODELS_CHOICES):
     model = None
     print(f"Evaluation Model: {MODELS_NAMES[i]}.")
@@ -130,5 +151,15 @@ for i, model_choice in enumerate(MODELS_CHOICES):
         model=embedding_wrapper,
         output_folder=ProjectPaths.data_path(),
         overwrite_results=True,
-        encode_kwargs={"batch_size": 15, "max_length": 512},
+        encode_kwargs={"batch_size": 5, "max_length": 512},
     )
+
+    model_results = extract_results(
+        ProjectPaths.data_path() / "no_model_name_available" / "no_revision_available"
+    )
+    assert len(model_results) == 1
+    print(model_results)
+    results[MODELS_NAMES[i]] = model_results["ArXivHierarchicalClusteringP2P"]
+print("Results:")
+for model_name, score in results.items():
+    print(f"{model_name}: {score:.4f}")
