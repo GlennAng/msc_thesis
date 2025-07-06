@@ -28,7 +28,8 @@ def plot_piecharts(
     ax1.legend(
         wedges1, categories, loc="upper right", bbox_to_anchor=(2.0, 0.05), ncol=4, fontsize=14
     )  # only need 1 legend
-    plt.savefig("piecharts.pdf", dpi=300, bbox_inches="tight")
+    plt.savefig("piecharts.pdf", format="pdf", dpi=300, bbox_inches="tight")
+    plt.tight_layout()
     plt.show()
 
 
@@ -93,7 +94,7 @@ def plot_vertical_mirrorchart(
     labels = [title_1, title_2]
     ax.legend(handles, labels, loc="best")
     plt.title(title, fontweight="bold", fontsize=14)
-    plt.savefig("mirrorchart.pdf", dpi=300, bbox_inches="tight")
+    plt.savefig("mirrorchart.pdf", format="pdf", dpi=300, bbox_inches="tight")
     plt.tight_layout()
     plt.show()
 

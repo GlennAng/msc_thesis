@@ -24,7 +24,7 @@ from ...src.load_files import (
 from ...src.project_paths import ProjectPaths
 
 VAL_RANDOM_STATE = 42
-TEST_RANDOM_STATES = [1, 2, 25, 26, 75, 76, 100, 101, 150, 151]
+TEST_RANDOM_STATES = [1, 25, 75, 100, 150]
 
 
 def load_users_coefs_ids_to_idxs() -> dict:

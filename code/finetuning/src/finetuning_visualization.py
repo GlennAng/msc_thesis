@@ -52,41 +52,45 @@ def get_scores_dict(outputs_folder: Path) -> dict:
         outputs_folder = Path(outputs_folder).resolve()
     scores_dict = {}
     for folder in os.listdir(outputs_folder):
-        folder_path = outputs_folder / folder
-        folder_name = " ".join([w.capitalize() for w in folder.split("_")])
-        scores_dfs, random_states = [], []
-        for random_state in os.listdir(folder_path):
-            random_states.append(random_state.split("_")[-1][1:])
-            scores_tables = []
-            table_index = 1
-            while True:
-                table_path = folder_path / random_state / f"scores_table_{table_index}.pkl"
-                if table_path.exists():
-                    with open(table_path, "rb") as f:
-                        scores_table = scores_table_to_df(pickle.load(f))
-                    scores_tables.append(scores_table)
-                    table_index += 1
-                else:
-                    break
-            if scores_tables:
-                if len(scores_tables) == 1:
-                    scores_df = scores_tables[0]
-                else:
-                    tables_to_concat = [scores_tables[0]] + [
-                        table.iloc[1:] for table in scores_tables[1:]
-                    ]
-                    scores_df = pd.concat(tables_to_concat, axis=0, ignore_index=True)
-                scores_df.set_index("Score", inplace=True)
-                scores_dfs.append(scores_df)
-        mean_scores_df = pd.concat(scores_dfs).groupby(level=0).mean()
-        std_scores_df = pd.concat(scores_dfs).groupby(level=0).std()
-        std_scores_df.fillna(0, inplace=True)
-        random_states = sorted(random_states, key=lambda x: int(x))
-        scores_dict[folder_name] = {
-            "mean": mean_scores_df,
-            "std": std_scores_df,
-            "random_states": random_states,
-        }
+        try:
+            folder_path = outputs_folder / folder
+            folder_name = " ".join([w.capitalize() for w in folder.split("_")])
+            scores_dfs, random_states = [], []
+            for random_state in os.listdir(folder_path):
+                random_states.append(random_state.split("_")[-1][1:])
+                scores_tables = []
+                table_index = 1
+                while True:
+                    table_path = folder_path / random_state / f"scores_table_{table_index}.pkl"
+                    if table_path.exists():
+                        with open(table_path, "rb") as f:
+                            scores_table = scores_table_to_df(pickle.load(f))
+                        scores_tables.append(scores_table)
+                        table_index += 1
+                    else:
+                        break
+                if scores_tables:
+                    if len(scores_tables) == 1:
+                        scores_df = scores_tables[0]
+                    else:
+                        tables_to_concat = [scores_tables[0]] + [
+                            table.iloc[1:] for table in scores_tables[1:]
+                        ]
+                        scores_df = pd.concat(tables_to_concat, axis=0, ignore_index=True)
+                    scores_df.set_index("Score", inplace=True)
+                    scores_dfs.append(scores_df)
+            mean_scores_df = pd.concat(scores_dfs).groupby(level=0).mean()
+            std_scores_df = pd.concat(scores_dfs).groupby(level=0).std()
+            std_scores_df.fillna(0, inplace=True)
+            random_states = sorted(random_states, key=lambda x: int(x))
+            scores_dict[folder_name] = {
+                "mean": mean_scores_df,
+                "std": std_scores_df,
+                "random_states": random_states,
+            }
+        except Exception as e:
+            print(f"Error processing folder {folder}: {e}")
+            continue
     return scores_dict
 
 

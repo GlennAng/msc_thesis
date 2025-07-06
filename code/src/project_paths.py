@@ -49,6 +49,10 @@ class ProjectPaths:
     @staticmethod
     def finetuning_data_path():
         return ProjectPaths.finetuning_path() / "data"
+    
+    @staticmethod
+    def finetuning_data_checkpoints_path():
+        return ProjectPaths.finetuning_data_path() / "checkpoints"
 
     @staticmethod
     def finetuning_data_model_path():

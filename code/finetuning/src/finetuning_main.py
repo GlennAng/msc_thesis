@@ -101,6 +101,7 @@ def parse_arguments() -> dict:
     parser.add_argument(
         "--model_path", type=str, default=str(ProjectPaths.finetuning_data_model_state_dicts_path())
     )
+    parser.add_argument("--unfreeze_from_bottom", action="store_true", default=False)
     parser.add_argument("--n_unfreeze_layers", type=int, default=4)
     parser.add_argument(
         "--not_pretrained_projection", action="store_false", dest="pretrained_projection"
@@ -121,9 +122,16 @@ def parse_arguments() -> dict:
         dest="include_l2_categories",
         default=True,
     )
+    parser.add_argument(
+        "--unfreeze_word_embeddings",
+        action="store_true",
+        default=False,
+    )
 
     parser.add_argument("--lr_transformer_model", type=float, default=1e-5)
     parser.add_argument("--lr_other", type=float, default=1e-5)
+    parser.add_argument("--lr_projection", type=float, default=1e-5)
+    parser.add_argument("--lr_users_embeddings", type=float, default=1e-5)
     parser.add_argument(
         "--lr_scheduler", type=str, default="linear_decay", choices=["constant", "linear_decay"]
     )
@@ -170,6 +178,8 @@ def load_optimizer(
     l2_regularization_transformer_model: float,
     lr_other: float,
     l2_regularization_other: float,
+    lr_projection: float,
+    lr_users_embeddings: float,
     lr_scheduler: str,
     n_batches_total: int,
     n_warmup_steps: int,
@@ -182,17 +192,17 @@ def load_optimizer(
         },
         {
             "params": finetuning_model.projection.parameters(),
-            "lr": lr_other,
+            "lr": lr_projection,
             "weight_decay": l2_regularization_other,
         },
         {
             "params": finetuning_model.users_embeddings.parameters(),
-            "lr": lr_other,
+            "lr": lr_users_embeddings,
             "weight_decay": l2_regularization_other,
         },
         {
             "params": finetuning_model.categories_embeddings_l1.parameters(),
-            "lr": lr_other,
+            "lr": lr_transformer_model,
             "weight_decay": l2_regularization_other,
         },
     ]
@@ -200,7 +210,7 @@ def load_optimizer(
         param_groups.append(
             {
                 "params": finetuning_model.categories_embeddings_l2.parameters(),
-                "lr": lr_other,
+                "lr": lr_transformer_model,
                 "weight_decay": l2_regularization_other,
             }
         )
@@ -395,6 +405,7 @@ def process_batch(
     scheduler: torch.optim.lr_scheduler,
     train_dataset_batch: dict,
     train_negative_samples_batch: dict,
+    i: int,
 ) -> float:
     user_idx_tensor = train_dataset_batch["user_idx"].to(finetuning_model.device)
     sorted_unique_user_idx_tensor = torch.unique(user_idx_tensor, sorted=True).to(
@@ -408,7 +419,7 @@ def process_batch(
                 user_idx_tensor,
                 sorted_unique_user_idx_tensor,
                 args_dict["n_batch_negatives"],
-                args_dict["seed"],
+                args_dict["seed"] + i,
             )
         train_dataset_scores, batch_negatives_scores = finetuning_model(
             eval_type="train",
@@ -488,6 +499,7 @@ def run_training(
             scheduler,
             train_dataset_batch,
             train_negative_samples_batch,
+            i,
         )
         train_losses.append((i, train_loss))
         n_batches_processed_so_far = i + 1
@@ -508,9 +520,9 @@ def run_training(
             train_losses_chunk = [
                 loss for _, loss in train_losses[-args_dict["n_batches_per_val"] :]
             ]
-            log_string(
-                logger, f"AVERAGED TRAIN LOSS: {round_number(np.mean(train_losses_chunk))}.\n"
-            )
+            log_string(logger, f"AVERAGED TRAIN LOSS: {round_number(np.mean(train_losses_chunk))}.")
+            log_string(logger,
+                       f"LEARNING RATE: {optimizer.param_groups[0]['lr']}\n")
             val_scores_batch, baseline_metric, early_stopping_counter = process_val(
                 finetuning_model,
                 args_dict,
@@ -527,8 +539,8 @@ def run_training(
             ):
                 log_string(logger, f"\nEarly stopping after {n_batches_processed_so_far} Batches.")
                 break
-        if n_batches_processed_so_far >= 9000:
-            break
+            if i >= 20000:
+                break
     args_dict["time_elapsed"] = time.time() - start_time
     return train_losses, val_scores
 
@@ -551,7 +563,10 @@ if __name__ == "__main__":
             len(load_categories_to_idxs("l2")) if args_dict["include_l2_categories"] else None
         ),
         val_users_embeddings_idxs=load_val_users_embeddings_idxs(),
+        unfreeze_word_embeddings=args_dict["unfreeze_word_embeddings"],
+        unfreeze_from_bottom=args_dict["unfreeze_from_bottom"],
     )
+    print(finetuning_model.get_memory_footprint())
     args_dict["n_transformer_layers"] = finetuning_model.count_transformer_layers()
     args_dict["n_transformer_parameters"], args_dict["n_unfrozen_transformer_parameters"] = (
         finetuning_model.count_transformer_parameters()
@@ -566,6 +581,8 @@ if __name__ == "__main__":
         l2_regularization_transformer_model=args_dict["l2_regularization_transformer_model"],
         lr_other=args_dict["lr_other"],
         l2_regularization_other=args_dict["l2_regularization_other"],
+        lr_projection=args_dict["lr_projection"],
+        lr_users_embeddings=args_dict["lr_users_embeddings"],
         lr_scheduler=args_dict["lr_scheduler"],
         n_batches_total=args_dict["n_batches_total"],
         n_warmup_steps=args_dict["n_warmup_steps"],

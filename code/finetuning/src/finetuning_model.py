@@ -23,6 +23,8 @@ class FinetuningModel(nn.Module):
         categories_embeddings_l2: nn.Embedding = None,
         val_users_embeddings_idxs: torch.Tensor = None,
         n_unfreeze_layers: int = 4,
+        unfreeze_word_embeddings: bool = False,
+        unfreeze_from_bottom: bool = False,
     ) -> None:
         super().__init__()
         self.transformer_model = transformer_model
@@ -32,13 +34,15 @@ class FinetuningModel(nn.Module):
         self.users_embeddings = users_embeddings
         self.categories_embeddings_l1 = categories_embeddings_l1
         self.categories_embeddings_l2 = categories_embeddings_l2
+        self.unfreeze_word_embeddings = unfreeze_word_embeddings
         self.device = next(transformer_model.parameters()).device
         assert (
             self.device
             == self.projection.weight.device
             == self.users_embeddings.weight.device
-            == self.categories_embeddings_l1.weight.device
         )
+        if categories_embeddings_l1 is not None:
+            assert self.device == self.categories_embeddings_l1.weight.device
         if categories_embeddings_l2 is not None:
             assert self.device == self.categories_embeddings_l2.weight.device
         if val_users_embeddings_idxs is not None:
@@ -46,7 +50,7 @@ class FinetuningModel(nn.Module):
             assert self.val_users_embeddings_idxs.tolist() == sorted(
                 self.val_users_embeddings_idxs.tolist()
             )
-        self.unfreeze_layers(n_unfreeze_layers)
+        self.unfreeze_layers(n_unfreeze_layers, unfreeze_from_bottom)
 
     def forward(
         self,
@@ -83,13 +87,15 @@ class FinetuningModel(nn.Module):
         papers_embeddings = self.transformer_model(
             input_ids=input_ids_tensor, attention_mask=attention_mask_tensor
         ).last_hidden_state[:, 0, :]
-        papers_embeddings = self.projection(papers_embeddings)
-        papers_embeddings = F.normalize(papers_embeddings, p=2, dim=1)
-        categories_embeddings = self.categories_embeddings_l1(category_l1_tensor)
-        if self.categories_embeddings_l2 is not None:
-            categories_embeddings_l2 = self.categories_embeddings_l2(category_l2_tensor)
-            categories_embeddings = categories_embeddings + categories_embeddings_l2
-        papers_embeddings = torch.cat((papers_embeddings, categories_embeddings), dim=1)
+        if self.projection is not None:
+            papers_embeddings = self.projection(papers_embeddings)
+            papers_embeddings = F.normalize(papers_embeddings, p=2, dim=1)
+        if self.categories_embeddings_l1 is not None:
+            categories_embeddings = self.categories_embeddings_l1(category_l1_tensor)
+            if self.categories_embeddings_l2 is not None:
+                categories_embeddings_l2 = self.categories_embeddings_l2(category_l2_tensor)
+                categories_embeddings = categories_embeddings + categories_embeddings_l2
+            papers_embeddings = torch.cat((papers_embeddings, categories_embeddings), dim=1)
 
         if sorted_unique_user_idx_tensor is not None:
             assert sorted_unique_user_idx_tensor.tolist() == sorted(
@@ -140,8 +146,9 @@ class FinetuningModel(nn.Module):
             input_ids_tensor = input_ids_tensor.to(self.device)
         if attention_mask_tensor.device != self.device:
             attention_mask_tensor = attention_mask_tensor.to(self.device)
-        if category_l1_tensor.device != self.device:
-            category_l1_tensor = category_l1_tensor.to(self.device)
+        if category_l1_tensor is not None:
+            if category_l1_tensor.device != self.device:
+                category_l1_tensor = category_l1_tensor.to(self.device)
         if category_l2_tensor is not None:
             if category_l2_tensor.device != self.device:
                 category_l2_tensor = category_l2_tensor.to(self.device)
@@ -181,12 +188,19 @@ class FinetuningModel(nn.Module):
                 model_path / "categories_embeddings_l2.pt",
             )
 
-    def unfreeze_layers(self, n_unfreeze_layers: int) -> None:
+    def unfreeze_layers(self, n_unfreeze_layers: int, unfreeze_from_bottom: bool) -> None:
         for param in self.transformer_model.parameters():
             param.requires_grad = False
         transformer_layers = self.transformer_model.encoder.layer
-        for i in range(len(transformer_layers) - n_unfreeze_layers, len(transformer_layers)):
-            transformer_layers[i].requires_grad_(True)
+        if unfreeze_from_bottom:
+            for i in range(n_unfreeze_layers):
+                transformer_layers[i].requires_grad_(True)
+        else:
+            for i in range(len(transformer_layers) - n_unfreeze_layers, len(transformer_layers)):
+                transformer_layers[i].requires_grad_(True)
+        if self.unfreeze_word_embeddings:
+            for param in self.transformer_model.embeddings.parameters():
+                param.requires_grad = True
 
     def count_transformer_layers(self) -> int:
         return len(self.transformer_model.encoder.layer)
@@ -194,7 +208,7 @@ class FinetuningModel(nn.Module):
     def count_transformer_parameters(self) -> tuple:
         n_params_total = 0
         n_params_unfreeze = 0
-        for name, param in self.named_parameters():
+        for _, param in self.named_parameters():
             n_params_total += param.numel()
             if param.requires_grad:
                 n_params_unfreeze += param.numel()
@@ -232,7 +246,9 @@ class FinetuningModel(nn.Module):
                     batch_attention_mask_tensor = attention_mask_tensor[
                         n_samples_processed:upper_bound
                     ]
-                    batch_category_l1_tensor = category_l1_tensor[n_samples_processed:upper_bound]
+                    batch_category_l1_tensor = None
+                    if category_l1_tensor is not None:
+                        batch_category_l1_tensor = category_l1_tensor[n_samples_processed:upper_bound]
                     batch_category_l2_tensor = None
                     if category_l2_tensor is not None:
                         batch_category_l2_tensor = category_l2_tensor[
@@ -329,6 +345,18 @@ class FinetuningModel(nn.Module):
                     category_l2_tensor=category_l2_tensor,
                     sorted_unique_user_idx_tensor=self.val_users_embeddings_idxs,
                 ).cpu()
+            
+    def get_memory_footprint(self) -> dict:
+        memory_info = {}
+        total_params = sum(p.numel() for p in self.parameters())
+        trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        memory_info["total_parameters"] = total_params
+        memory_info["trainable_parameters"] = trainable_params
+        memory_info["trainable_percentage"] = (trainable_params / total_params)
+        if torch.cuda.is_available():
+            memory_info["gpu_memory_allocated (GB)"] = torch.cuda.memory_allocated() / 1024**3
+            memory_info["gpu_memory_reserved (GB)"] = torch.cuda.memory_reserved() / 1024**3
+        return memory_info
 
 
 def load_transformer_model(transformer_path: str, device: torch.device) -> AutoModel:
@@ -408,6 +436,8 @@ def load_finetuning_model(
     mode: str,
     n_unfreeze_layers: int = 4,
     val_users_embeddings_idxs: torch.Tensor = None,
+    unfreeze_word_embeddings: bool = False,
+    unfreeze_from_bottom: bool = False,
     projection_state_dict: dict = None,
     users_embeddings_state_dict: dict = None,
     categories_embeddings_l1_state_dict: dict = None,
@@ -516,4 +546,6 @@ def load_finetuning_model(
         categories_embeddings_l2,
         val_users_embeddings_idxs=val_users_embeddings_idxs,
         n_unfreeze_layers=n_unfreeze_layers,
+        unfreeze_word_embeddings=unfreeze_word_embeddings,
+        unfreeze_from_bottom=unfreeze_from_bottom,
     )

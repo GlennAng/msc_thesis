@@ -82,27 +82,27 @@ The first is a numpy matrix of shape (n_papers, embedding_dim) containing the te
 You may use your own embeddings or compute them for one of the provided models (details in `code/logreg`). For example, then run the following to compute embeddings only for the relevant papers.
 Instead, you could compute embeddings for the entire database by further appending `--all_papers`:
 ```bash
-python -m code.scripts.embed_run.py --model_name gte-large-en-v1.5 --batch_size 500
+python -m code.scripts.embed_run --model_name gte-large-en-v1.5 --batch_size 500
 ```
 Note that the outputs will be stored in the directory `code/logreg/embeddings/before_pca/gte_large`.
 ### PCA Dimensionality Reduction
 Empirical results have shown strong downstream performance even after vastly lowering the embedding dimensionality via PCA. To perform this step, run:
 ```bash
-python -m code.logreg.src.embeddings.apply_pca.py --embeddings_input_folder code/logreg/embeddings/before_pca/gte_large --pca_dim 256
+python -m code.logreg.src.embeddings.apply_pca --embeddings_input_folder code/logreg/embeddings/before_pca/gte_large --pca_dim 256
 ```
 ### Attaching Scientific Category Embeddings
 In order to attach GloVe word embeddings for the research categories (dimension from [50, 100, 200, 300]), run:
 ```bash
-python -m code.logreg.src.papers_categories.py --embeddings_input_folder code/logreg/embeddings/after_pca/gte_large_256 --dim 100
+python -m code.logreg.src.papers_categories --embeddings_input_folder code/logreg/embeddings/after_pca/gte_large_256 --dim 100
 ```
 This will require you to have the GloVe word embeddings downloaded into `code/logreg/embeddings/glove/glove.6B.100d.txt`.
 
 ## 2. Experiments:
 Without needing to make any adjustments, you can run comprehensive experiments as follows:
 ```bash
-python -m code.finetuning.src.finetuning_evaluation.py --embeddings_path code/logreg/embeddings/after_pca/gte_large_256_categories_l2_unit_100 --cross_validation --session_based --no_overlap
+python -m code.finetuning.src.finetuning_evaluation --embeddings_path code/logreg/embeddings/after_pca/gte_large_256_categories_l2_unit_100 --cross_validation --session_based --no_overlap
 ```
-This will perform 10 cross-validation experiments (10 different random seeds), 10 session-based experiments (10 different random seeds) and summarize the results in 
+This will perform 5 cross-validation experiments (5 different random seeds), 5 session-based experiments (5 different random seeds) and summarize the results in 
 `code/logreg/embeddings/after_pca/gte_large_256_categories_l2_unit_100/visualization.pdf`. 
 You may also inspect the results of individual random seeds (e.g. 1) by looking up `code/logreg/embeddings/after_pca/gte_large_256_categories_l2_unit_100/outputs/no_overlap_cross_validation/no_overlap_cross_validation_s1/global_visu_bal.pdf`
 More details on how to change the evaluation parameters are given in `code/logreg`.

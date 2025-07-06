@@ -14,25 +14,25 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 
 | Model Name | Bal. Acc. | NDCG | MRR | InfoNCE |
 |------------|------------------|------|-----|---------|
-| specter2_base | 76.99 | 83.86 | 78.44 | 0.9826 |
-| gte-base-en-v1.5 | 77.27 | 83.99 | 78.61 | 0.9805 |
-| gte-large-en-v1.5 | 77.50 | 84.27 | 78.99 | 0.9686 |
-| gte-large-en-v1.5 fine-tuned| **79.20** | 85.49 | 80.60 | 0.9079 |
-| Qwen3-Embedding-0.6B | 77.61 | 84.46 | 79.24 | 0.9500 |
-| Qwen3-Embedding-4B | 78.93 | 85.86 | 81.09 | 0.8787 |
-| Qwen3-Embedding-8B | 79.08 | **86.00** | **81.27** | **0.8681** |
+| specter2_base | 76.99 | 83.91 | 78.51 | 0.9794 |
+| gte-base-en-v1.5 | 77.28 | 84.03 | 78.67 | 0.9788 |
+| gte-large-en-v1.5 | 77.48 | 84.32 | 79.06 | 0.9660 |
+| gte-large-en-v1.5 fine-tuned| **79.16** | 85.53 | 80.64 | 0.9061 |
+| Qwen3-Embedding-0.6B | 77.61 | 84.48 | 79.26 | 0.9482 |
+| Qwen3-Embedding-4B | 78.96 | 85.87 | 81.11 | 0.8763 |
+| Qwen3-Embedding-8B | 79.10 | **86.05** | **81.34** | **0.8655** |
 
 ## Session-based Evaluation
 
 | Model Name | Bal. Acc. | NDCG | MRR | InfoNCE |
 |------------|------------------|------|-----|---------|
-| specter2_base | 71.97 | 80.42 | 73.92 | 1.1849 |
-| gte-base-en-v1.5 | 71.28 | 79.82 |73.11 | 1.2281 |
-| gte-large-en-v1.5 | 71.52 | 80.53 | 74.06 | 1.1900 |
-| gte-large-en-v1.5 fine-tuned| **74.72** | **82.70** | 76.92 | 1.0761 |
-| Qwen3-Embedding-0.6B | 71.96 | 80.11 | 73.49 | 1.1804 |
-| Qwen3-Embedding-4B | 73.91 | 82.32 | 76.43 | 1.0851 |
-| Qwen3-Embedding-8B | 74.70 | 82.69 | **76.93** | **1.0534** |
+| specter2_base | 71.99 | 80.40 | 73.90 | 1.1830 |
+| gte-base-en-v1.5 | 71.27 | 79.90 |73.23 | 1.2255 |
+| gte-large-en-v1.5 | 71.52 | 80.52 | 74.05 | 1.1878 |
+| gte-large-en-v1.5 fine-tuned| **74.73** | **82.71** | 76.93 | 1.0763 |
+| Qwen3-Embedding-0.6B | 71.99 | 80.19 | 73.59 | 1.1779 |
+| Qwen3-Embedding-4B | 73.88 | 82.36 | 76.49 | 1.0832 |
+| Qwen3-Embedding-8B | 74.68 | 82.71 | **76.95** | **1.0512** |
 
 
 # II. Experiment Setup
