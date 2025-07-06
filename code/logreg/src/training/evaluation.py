@@ -168,7 +168,6 @@ class Evaluator:
             if self.config["evaluation"] in [
                 Evaluation.TRAIN_TEST_SPLIT,
                 Evaluation.SESSION_BASED,
-                Evaluation.SESSION_BASED_RANDOM_NEG,
             ]:
                 train_ratings, val_ratings = split_ratings(user_ratings)
                 user_info["train_rated_ratio"] = len(train_ratings) / len(user_ratings)

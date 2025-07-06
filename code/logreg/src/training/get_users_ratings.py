@@ -245,7 +245,7 @@ def get_users_ratings(
         users_ratings = filter_users_ratings_with_sufficient_votes(
             users_ratings, min_n_posrated, min_n_negrated
         )
-    elif evaluation in [Evaluation.SESSION_BASED, Evaluation.SESSION_BASED_RANDOM_NEG]:
+    elif evaluation == Evaluation.SESSION_BASED:
         users_ratings = filter_users_ratings_with_sufficient_votes_session_based(
             users_ratings,
             test_size,
