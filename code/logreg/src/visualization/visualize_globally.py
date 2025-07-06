@@ -338,10 +338,6 @@ class Global_Visualizer:
             config_string.append(
                 "Evaluation Method: Session-Based (with Time Sorting for Ranking Negatives)."
             )
-        elif self.config["evaluation"] == Evaluation.SESSION_BASED_RANDOM_NEG:
-            config_string.append(
-                "Evaluation Method: Session-Based (with Random Sampling for Ranking Negatives)."
-            )
         if self.config["evaluation"] != Evaluation.SESSION_BASED:
             config_string.append(
                 "Same Ranking Negatives for all Positives? "
