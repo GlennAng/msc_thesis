@@ -7,6 +7,7 @@ import pandas as pd
 
 from ....src.load_files import (
     load_finetuning_users,
+    load_papers,
     load_users_ratings,
 )
 from ....src.project_paths import ProjectPaths
@@ -14,6 +15,66 @@ from .algorithm import Evaluation
 from .training_data import LABEL_DTYPE
 
 pd.set_option("display.max_rows", None)
+
+
+def get_users_distributions(
+    users_ratings: pd.DataFrame, papers: pd.DataFrame = None
+) -> pd.DataFrame:
+    if papers is None:
+        papers = load_papers(relevant_columns=["paper_id", "l1"])
+    l1_categories = sorted([cat for cat in papers["l1"].unique() if pd.notna(cat)])
+    users_ratings = users_ratings.copy()
+    users_ratings = users_ratings[users_ratings["rating"] > 0]
+    users_ratings_merged = users_ratings.merge(
+        papers[["paper_id", "l1"]],
+        on="paper_id",
+        how="left",
+    )
+    assert len(users_ratings_merged) == len(users_ratings), "Not all paper_ids have l1 labels."
+    users_distributions = (
+        users_ratings_merged.groupby(["user_id", "l1"])
+        .size()
+        .reset_index(name="count")
+        .pivot(index="user_id", columns="l1", values="count")
+        .fillna(0)
+    )
+    for category in l1_categories:
+        if category not in users_distributions.columns:
+            users_distributions[category] = 0
+    users_distributions = users_distributions[l1_categories]
+    users_distributions = users_distributions.div(users_distributions.sum(axis=1), axis=0)
+    return users_distributions.reset_index()
+
+
+def get_top_categories_for_all_users(
+    users_distributions: pd.DataFrame, top_n: int = 3
+) -> pd.DataFrame:
+    results = []
+    for _, row in users_distributions.iterrows():
+        user_id = int(row["user_id"])
+        categories = row.drop("user_id")
+        top_categories = categories.sort_values(ascending=False).head(top_n)
+        for rank, (category, proportion) in enumerate(top_categories.items(), 1):
+            results.append(
+                {"user_id": user_id, "rank": rank, "category": category, "proportion": proportion}
+            )
+    return pd.DataFrame(results)
+
+
+def get_significant_categories_for_all_users(
+    users_distributions: pd.DataFrame, min_percentage: float = 0.1
+) -> pd.DataFrame:
+    results = []
+    for _, row in users_distributions.iterrows():
+        user_id = int(row["user_id"])
+        categories = row.drop("user_id")
+        significant_categories = categories[categories >= min_percentage]
+        significant_categories = significant_categories.sort_values(ascending=False)
+        for rank, (category, proportion) in enumerate(significant_categories.items(), 1):
+            results.append(
+                {"user_id": user_id, "rank": rank, "category": category, "proportion": proportion}
+            )
+    return pd.DataFrame(results)
 
 
 def get_train_test_split(
@@ -223,6 +284,29 @@ def select_users_random(
     )
 
 
+def get_users_ratings_val_test_temporal(users_selection: str) -> tuple:
+    if users_selection == "finetuning_val":
+        users = load_finetuning_users(selection="val")
+        users_ratings = pd.read_parquet(
+            ProjectPaths.data_val_users_temporal_ratings_path(), engine="pyarrow"
+        )
+        assert np.all(users_ratings["user_id"].unique() == users)
+        print(f"{len(users)} Users selected for Validation Users session-based Evaluation.")
+        return users_ratings, users
+    elif users_selection == "finetuning_test":
+        users = load_finetuning_users(selection="test")
+        users_ratings = pd.read_parquet(
+            ProjectPaths.data_test_users_temporal_ratings_path(), engine="pyarrow"
+        )
+        assert np.all(users_ratings["user_id"].unique() == users)
+        print(f"{len(users)} Users selected for Test Users session-based Evaluation.")
+        return users_ratings, users
+    else:
+        raise ValueError(
+            f"Invalid users_selection: {users_selection}. Expected 'finetuning_val' or 'finetuning_test'."
+        )
+
+
 def get_users_ratings(
     users_selection: str,
     evaluation: Evaluation,
@@ -239,6 +323,13 @@ def get_users_ratings(
     min_n_posrated_val: int = 0,
     min_n_negrated_val: int = 0,
 ) -> tuple:
+    if users_selection == "finetuning_val" and evaluation == Evaluation.SESSION_BASED:
+        if ProjectPaths.data_val_users_temporal_ratings_path().exists():
+            return get_users_ratings_val_test_temporal(users_selection)
+    elif users_selection == "finetuning_test" and evaluation == Evaluation.SESSION_BASED:
+        if ProjectPaths.data_test_users_temporal_ratings_path().exists():
+            return get_users_ratings_val_test_temporal(users_selection)
+
     test_size = 1.0 - train_size
     users_ratings = load_users_ratings()
     if evaluation in [Evaluation.TRAIN_TEST_SPLIT, Evaluation.CROSS_VALIDATION]:
@@ -348,3 +439,30 @@ def save_finetuning_users(path: Path, random_state: int = 42) -> None:
 
 if __name__ == "__main__":
     save_finetuning_users(ProjectPaths.data_finetuning_users_path(), random_state=42)
+    val_users = load_finetuning_users(selection="val")
+    val_users_temporal_ratings = get_users_ratings(
+        users_selection=val_users,
+        evaluation=Evaluation.SESSION_BASED,
+        train_size=1.0,
+        min_n_posrated_train=16,
+        min_n_negrated_train=16,
+        min_n_posrated_val=4,
+        min_n_negrated_val=4,
+    )[0]
+    val_users_temporal_ratings.to_parquet(
+        ProjectPaths.data_val_users_temporal_ratings_path(), index=False
+    )
+    test_users = load_finetuning_users(selection="test")
+    test_users_temporal_ratings = get_users_ratings(
+        users_selection=test_users,
+        evaluation=Evaluation.SESSION_BASED,
+        train_size=1.0,
+        min_n_posrated_train=16,
+        min_n_negrated_train=16,
+        min_n_posrated_val=4,
+        min_n_negrated_val=4,
+    )[0]
+    test_users_temporal_ratings.to_parquet(
+        ProjectPaths.data_test_users_temporal_ratings_path(), index=False
+    )
+    print("Saved val and test users temporal ratings.")

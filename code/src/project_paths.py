@@ -41,6 +41,14 @@ class ProjectPaths:
     @staticmethod
     def data_finetuning_users_path():
         return ProjectPaths.data_path() / "finetuning_users.pkl"
+    
+    @staticmethod
+    def data_val_users_temporal_ratings_path():
+        return ProjectPaths.data_path() / "val_users_temporal_ratings.parquet"
+    
+    @staticmethod
+    def data_test_users_temporal_ratings_path():
+        return ProjectPaths.data_path() / "test_users_temporal_ratings.parquet"
 
     @staticmethod
     def finetuning_path():

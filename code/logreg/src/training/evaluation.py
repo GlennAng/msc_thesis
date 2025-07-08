@@ -7,7 +7,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
-from .weights_handler import Weights_Handler
 
 from ....src.load_files import load_papers
 from ..embeddings.compute_tfidf import load_vectorizer
@@ -24,6 +23,7 @@ from .algorithm import (
     get_ranking_scores,
     get_score,
 )
+from .get_users_ratings import get_significant_categories_for_all_users, get_users_distributions
 from .training_data import (
     LABEL_DTYPE,
     load_filtered_cache_for_user,
@@ -31,6 +31,7 @@ from .training_data import (
     load_negative_samples_embeddings,
     load_negrated_ranking_idxs_for_user,
 )
+from .weights_handler import Weights_Handler
 
 
 class Evaluator:
@@ -96,6 +97,11 @@ class Evaluator:
                 self.users_coefs_ids_to_idxs = pickle.load(f)
 
         papers = load_papers(relevant_columns=["paper_id", "in_ratings", "in_cache", "l1", "l2"])
+        users_significant_categories = get_significant_categories_for_all_users(
+            get_users_distributions(users_ratings, papers)
+        )
+        print(users_significant_categories.head(50))
+        
         if self.include_global_cache:
             (
                 self.global_cache_ids,

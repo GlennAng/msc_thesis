@@ -63,7 +63,7 @@ def parse_arguments() -> dict:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--testing", action="store_true", default=False)
 
-    parser.add_argument("--batch_size", type=int, default=125)
+    parser.add_argument("--batch_size", type=int, default=25)
     parser.add_argument(
         "--users_sampling_strategy",
         type=str,
@@ -76,7 +76,7 @@ def parse_arguments() -> dict:
     parser.add_argument("--n_max_positive_samples_per_user", type=int, default=None)
     parser.add_argument("--n_max_negative_samples_per_user", type=int, default=4)
     parser.add_argument("--n_train_negative_samples", type=int, default=20)
-    parser.add_argument("--n_batch_negatives", type=int, default=7)
+    parser.add_argument("--n_batch_negatives", type=int, default=0)
     parser.add_argument(
         "--not_closest_temporal_samples",
         action="store_false",
@@ -93,8 +93,8 @@ def parse_arguments() -> dict:
     parser.add_argument("--info_nce_temperature_batch_negatives", type=float, default=2.5)
     parser.add_argument("--info_nce_temperature_negative_samples", type=float, default=2.5)
     parser.add_argument("--info_nce_log_q_correction", action="store_true", default=False)
-    parser.add_argument("--n_batches_total", type=int, default=10000)
-    parser.add_argument("--n_batches_per_val", type=int, default=500)
+    parser.add_argument("--n_batches_total", type=int, default=50000)
+    parser.add_argument("--n_batches_per_val", type=int, default=2000)
     parser.add_argument("--val_metric", type=str, default="ndcg_all")
     parser.add_argument("--early_stopping_patience", type=int, default=None)
 
@@ -129,11 +129,10 @@ def parse_arguments() -> dict:
     )
 
     parser.add_argument("--lr_transformer_model", type=float, default=1e-5)
-    parser.add_argument("--lr_other", type=float, default=1e-5)
     parser.add_argument("--lr_projection", type=float, default=1e-5)
     parser.add_argument("--lr_users_embeddings", type=float, default=1e-5)
     parser.add_argument(
-        "--lr_scheduler", type=str, default="linear_decay", choices=["constant", "linear_decay"]
+        "--lr_scheduler", type=str, default="constant", choices=["constant", "linear_decay"]
     )
     parser.add_argument("--l2_regularization_transformer_model", type=float, default=0)
     parser.add_argument("--l2_regularization_other", type=float, default=0)
@@ -176,7 +175,6 @@ def load_optimizer(
     finetuning_model: FinetuningModel,
     lr_transformer_model: float,
     l2_regularization_transformer_model: float,
-    lr_other: float,
     l2_regularization_other: float,
     lr_projection: float,
     lr_users_embeddings: float,
@@ -354,15 +352,17 @@ def process_val(
     logger: logging.Logger,
     baseline_metric: float = None,
     early_stopping_counter: int = None,
+    original_ndcg_scores: torch.Tensor = None,
 ) -> tuple:
     if baseline_metric is None or early_stopping_counter is None:
         assert n_updates_so_far == 0
     baseline_metric_string = "None" if baseline_metric is None else round_number(baseline_metric)
-    val_scores_batch, val_scores_batch_string = run_validation(
+    val_scores_batch, val_scores_batch_string, ndcg_scores = run_validation(
         finetuning_model,
         val_data["val_dataset"],
         val_data["val_negative_samples"],
         print_results=False,
+        original_ndcg_scores=original_ndcg_scores,
     )
     val_scores_batch_string = (
         f"VALIDATION METRICS AFTER UPDATE {n_updates_so_far} / {args_dict['n_batches_total']}:"
@@ -395,7 +395,7 @@ def process_val(
         f"{args_dict['early_stopping_patience']}.\n"
     )
     log_string(logger, val_scores_batch_string)
-    return val_scores_batch, baseline_metric, early_stopping_counter
+    return val_scores_batch, baseline_metric, early_stopping_counter, ndcg_scores
 
 
 def process_batch(
@@ -475,7 +475,7 @@ def run_training(
     val_data: dict,
     logger: logging.Logger,
 ) -> tuple:
-    val_scores_batch, baseline_metric, early_stopping_counter = process_val(
+    val_scores_batch, baseline_metric, early_stopping_counter, original_ndcg_scores = process_val(
         finetuning_model, args_dict, val_data, 0, logger
     )
     train_losses, val_scores = [], [(0, val_scores_batch)]
@@ -523,7 +523,7 @@ def run_training(
             log_string(logger, f"AVERAGED TRAIN LOSS: {round_number(np.mean(train_losses_chunk))}.")
             log_string(logger,
                        f"LEARNING RATE: {optimizer.param_groups[0]['lr']}\n")
-            val_scores_batch, baseline_metric, early_stopping_counter = process_val(
+            val_scores_batch, baseline_metric, early_stopping_counter, _ = process_val(
                 finetuning_model,
                 args_dict,
                 val_data,
@@ -531,6 +531,7 @@ def run_training(
                 logger,
                 baseline_metric,
                 early_stopping_counter,
+                original_ndcg_scores,
             )
             val_scores.append((n_batches_processed_so_far, val_scores_batch))
             if (
@@ -579,7 +580,6 @@ if __name__ == "__main__":
         finetuning_model=finetuning_model,
         lr_transformer_model=args_dict["lr_transformer_model"],
         l2_regularization_transformer_model=args_dict["l2_regularization_transformer_model"],
-        lr_other=args_dict["lr_other"],
         l2_regularization_other=args_dict["l2_regularization_other"],
         lr_projection=args_dict["lr_projection"],
         lr_users_embeddings=args_dict["lr_users_embeddings"],

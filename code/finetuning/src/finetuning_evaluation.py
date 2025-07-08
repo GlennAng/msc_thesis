@@ -387,9 +387,8 @@ def compute_user_ranking_metrics(
         user_ranking_metrics_all,
     )
 
-
-def print_metrics(scores_dict: dict, metrics: list) -> str:
-    METRIC_STRINGS = {
+def get_metric_strings() -> dict:
+    return {
         "bcel": "BCEL",
         "recall": "Recall",
         "specificity": "Specificity",
@@ -398,22 +397,35 @@ def print_metrics(scores_dict: dict, metrics: list) -> str:
         "mrr": "MRR",
         "hr@1": "HR@1",
         "infonce": "InfoNCE",
+        "worst_10_ndcg": "Worst 10 NDCG",
+        "worst_3_ndcg": "Worst 3 NDCG",
+        "worst_ndcg": "Worst NDCG",
+        "worst_10_ndcg_diff": "Worst 10 NDCG Diff",
+        "worst_3_ndcg_diff": "Worst 3 NDCG Diff",
+        "worst_ndcg_diff": "Worst NDCG Diff",
+        "best_10_ndcg_diff": "Best 10 NDCG Diff",
+        "best_3_ndcg_diff": "Best 3 NDCG Diff",
+        "best_ndcg_diff": "Best NDCG Diff",
     }
+
+
+def print_metrics(scores_dict: dict, metrics: list) -> str:
+    metric_strings = get_metric_strings()
     metrics_string = ""
     for i, metric in enumerate(metrics):
         metric_string = metric.split("_")[1]
         if i > 0:
             metrics_string += ", "
-        metrics_string += f"{METRIC_STRINGS[metric_string]}: {format_number(scores_dict[metric])}"
+        metrics_string += f"{metric_strings[metric_string]}: {format_number(scores_dict[metric])}"
     return metrics_string
 
 
 def print_validation(scores_dict: dict) -> str:
     validation_str = ""
-    validation_str += "\nClassification: " + print_metrics(
+    validation_str += "\nClassification:   " + print_metrics(
         scores_dict, [f"val_{metric}" for metric in FINETUNING_CLASSIFICATION_METRICS]
     )
-    validation_str += "\nRanking (Explicit Negatives): " + print_metrics(
+    validation_str += "\nRanking (Explicit Negatives):   " + print_metrics(
         scores_dict,
         [f"val_{metric}_explicit_negatives" for metric in FINETUNING_RANKING_METRICS],
     )
@@ -421,9 +433,33 @@ def print_validation(scores_dict: dict) -> str:
         scores_dict,
         [f"val_{metric}_negative_samples" for metric in FINETUNING_RANKING_METRICS],
     )
-    validation_str += "\nRanking (All): " + print_metrics(
+    validation_str += "\nRanking (All):   " + print_metrics(
         scores_dict, [f"val_{metric}_all" for metric in FINETUNING_RANKING_METRICS]
     )
+    metric_strings = get_metric_strings()
+    validation_str += "\nWorst nDCG:   "
+    for i, ndcg_str in enumerate(["worst_10_ndcg", "worst_3_ndcg", "worst_ndcg"]):
+        score = scores_dict[ndcg_str]
+        if i > 0:
+            validation_str += ", "
+        validation_str += f"{metric_strings[ndcg_str]}: {format_number(score)}"
+    diff_strings_worst = ["worst_10_ndcg_diff", "worst_3_ndcg_diff", "worst_ndcg_diff"]
+    if all(diff_string in scores_dict for diff_string in diff_strings_worst):
+        validation_str += "\nWorst nDCG Diff:   "
+        for i, ndcg_diff_str in enumerate(diff_strings_worst):
+            score = scores_dict[ndcg_diff_str]
+            if i > 0:
+                validation_str += ", "
+            validation_str += f"{metric_strings[ndcg_diff_str]}: {format_number(score)}"
+    diff_strings_best = ["best_10_ndcg_diff", "best_3_ndcg_diff", "best_ndcg_diff"]
+    if all(diff_string in scores_dict for diff_string in diff_strings_best):
+        validation_str += "\nBest nDCG Diff:   "
+        for i, ndcg_diff_str in enumerate(diff_strings_best):
+            score = scores_dict[ndcg_diff_str]
+            if i > 0:
+                validation_str += ", "
+            validation_str += f"{metric_strings[ndcg_diff_str]}: {format_number(score)}"
+
     return validation_str
 
 
@@ -432,6 +468,7 @@ def run_validation(
     val_dataset: FinetuningDataset,
     val_negative_samples: dict,
     print_results: bool = True,
+    original_ndcg_scores: torch.Tensor = None,
 ) -> tuple:
     scores_dict = {}
     assert (
@@ -486,6 +523,20 @@ def run_validation(
         val_ranking_metrics_explicit_negatives[i] = val_user_ranking_metrics[0]
         val_ranking_metrics_negative_samples[i] = val_user_ranking_metrics[1]
         val_ranking_metrics_all[i] = val_user_ranking_metrics[2]
+    ndcg_scores = val_ranking_metrics_all[:, 0]
+    ndgc_scores_sorted = ndcg_scores.sort(descending=False).values
+    scores_dict["worst_10_ndcg"] = ndgc_scores_sorted[:10].mean().item()
+    scores_dict["worst_3_ndcg"] = ndgc_scores_sorted[:3].mean().item()
+    scores_dict["worst_ndcg"] = ndgc_scores_sorted[0].item()
+    if original_ndcg_scores is not None:
+        ndcg_scores_diff = ndcg_scores - original_ndcg_scores
+        ndcg_scores_diff_sorted = ndcg_scores_diff.sort(descending=False).values
+        scores_dict["worst_10_ndcg_diff"] = ndcg_scores_diff_sorted[:10].mean().item()
+        scores_dict["worst_3_ndcg_diff"] = ndcg_scores_diff_sorted[:3].mean().item()
+        scores_dict["worst_ndcg_diff"] = ndcg_scores_diff_sorted[0].item()
+        scores_dict["best_10_ndcg_diff"] = ndcg_scores_diff_sorted[-10:].mean().item()
+        scores_dict["best_3_ndcg_diff"] = ndcg_scores_diff_sorted[-3:].mean().item()
+        scores_dict["best_ndcg_diff"] = ndcg_scores_diff_sorted[-1].item()
 
     val_classification_metrics = torch.mean(val_classification_metrics, dim=0)
     val_ranking_metrics_explicit_negatives = torch.mean(
@@ -509,7 +560,7 @@ def run_validation(
         print(validation_str)
     if training_mode:
         finetuning_model.train()
-    return scores_dict, validation_str
+    return scores_dict, validation_str, ndcg_scores
 
 
 def test_validation(finetuning_model: FinetuningModel) -> None:
