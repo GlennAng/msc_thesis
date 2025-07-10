@@ -17,6 +17,26 @@ from ..embeddings.compute_tfidf import get_mean_embedding, train_vectorizer_for_
 from ..training.algorithm import SCORES_DICT, Score
 from .results_handling import average_over_users
 
+CATEGORIES_ABBREVIATiONS = {
+    "Physics": "PHYS",
+    "Computer Science": "CS",
+    "Mathematics": "MATH",
+    "Astronomy": "ASTRO",
+    "Biology": "BIO",
+    "Medicine": "MED",
+    "Engineering": "ENG",
+    "Chemistry": "CHEM",
+    "Economics": "ECON",
+    "Psychology": "PSYCH",
+    "Electrical Engineering": "EE",
+    "Materials Science": "MATS",
+    "Earth Science": "EARTH",
+    "Linguistics": "LING",
+    "Philosophy": "PHIL",
+    "Geography": "GEO",
+    "Sociology": "SOC",
+}
+
 HYPERPARAMETERS_ABBREVIATIONS = {
     "clf_C": "C",
     "weights_cache_v": "v",
@@ -339,11 +359,11 @@ def print_fourth_page(
 
 def get_best_global_hyperparameters_combination_tables(
     best_global_hyperparameters_combination_df: pd.DataFrame,
-    tail_users: np.ndarray,
     high_votes_users: np.ndarray,
     low_votes_users: np.ndarray,
     high_ratio_users: np.ndarray,
     low_ratio_users: np.ndarray,
+    non_cs_users: np.ndarray,
 ) -> tuple:
     averaged_over_all_users = average_over_users(best_global_hyperparameters_combination_df)
     averaged_over_high_votes_users = average_over_users(
@@ -366,9 +386,9 @@ def get_best_global_hyperparameters_combination_tables(
             best_global_hyperparameters_combination_df["user_id"].isin(low_ratio_users)
         ]
     )
-    averaged_over_tail_users = average_over_users(
+    averaged_over_non_cs_users = average_over_users(
         best_global_hyperparameters_combination_df.loc[
-            best_global_hyperparameters_combination_df["user_id"].isin(tail_users)
+            best_global_hyperparameters_combination_df["user_id"].isin(non_cs_users)
         ]
     )
     dfs = [
@@ -377,10 +397,10 @@ def get_best_global_hyperparameters_combination_tables(
         averaged_over_low_votes_users,
         averaged_over_high_ratio_users,
         averaged_over_low_ratio_users,
-        averaged_over_tail_users,
+        averaged_over_non_cs_users,
     ]
     tables = [[] for _ in range(max([SCORES_DICT[score]["page"] for score in Score]) + 1)]
-    for s, score in enumerate(list(Score)):
+    for _, score in enumerate(list(Score)):
         score_name = score.name.lower()
         row = [SCORES_DICT[score]["abbreviation"]]
         for i, df in enumerate(dfs):
@@ -403,7 +423,7 @@ def print_fifth_page(
     fig, ax = plt.subplots(figsize=PLOT_CONSTANTS["FIG_SIZE"])
     ax.axis("off")
     ax.text(0.5, 1.12, title, fontsize=15, ha="center", va="center", fontweight="bold")
-    groups = ["All", "HiVote", "LoVote", "HiPosi", "LoPosi", "Tail"]
+    groups = ["All", "HiVote", "LoVote", "HiPosi", "LoPosi", "NonCS"]
     columns = ["Score"]
     for group in groups:
         columns.extend([group, f"{group}_T"])
@@ -431,7 +451,7 @@ def get_interesting_users_table(interesting_users_df: pd.DataFrame) -> list:
     for _, row in interesting_users_df.iterrows():
         data_row = [
             int(row["user_id"]),
-            int(row["combination_idx"]),
+            CATEGORIES_ABBREVIATiONS[row["category"]],
             int(row["n_posrated"]),
             int(row["n_negrated"]),
         ]
@@ -458,7 +478,7 @@ def print_interesting_users(
         va="center",
         fontweight="bold",
     )
-    columns = ["User ID", "Combi", "N_POS", "N_NEG"] + [
+    columns = ["User ID", "L1", "N_POS", "N_NEG"] + [
         SCORES_DICT[score]["abbreviation"] for score in PRINT_SCORES
     ]
     print_table(
@@ -818,15 +838,15 @@ def get_user_info_table(user_info: pd.DataFrame) -> tuple:
     columns = [
         "Number of Positively Rated",
         "Number of Negatively Rated",
-        "Number of Base",
-        "Number of Cache",
+        "Most popular Category L1",
+        "Second most popular Category L1",
     ]
     data = [
         [
             user_info["n_posrated"].iloc[0],
             user_info["n_negrated"].iloc[0],
-            user_info["n_base"].iloc[0],
-            user_info["n_cache"].iloc[0],
+            user_info["most_popular_category_l1"].iloc[0],
+            user_info["second_most_popular_category_l1"].iloc[0],
         ]
     ]
     return columns, data
@@ -1081,6 +1101,8 @@ def get_papers_table_data(papers_texts: pd.DataFrame, outcome_df: pd.DataFrame) 
                 i,
                 int(row["paper_id"]),
                 row["class_1_proba_formatted"],
+                row["l1"],
+                row["l2"],
                 row["title_clean"],
                 row["abstract_clean"],
             ]
@@ -1274,7 +1296,8 @@ def plot_papers(pdf: PdfPages, table_data: list, table_name: str, word_scores: d
     ax.axis("off")
     ax.text(0.5, 1.12, table_name, fontsize=12, ha="center", va="center", weight="bold")
     for i in range(len(table_data)):
-        s = f"#{table_data[i][0]}:   ID: {table_data[i][1]},   Class 1 Proba: {table_data[i][2]}."
+        s = f"#{table_data[i][0]}:   ID: {table_data[i][1]},   Class 1 Proba: {table_data[i][2]},   "
+        s += f"L1: {table_data[i][3]},   L2: {table_data[i][4]}."
         ax.text(
             0.5,
             1.0675 - i * 0.175,
@@ -1690,7 +1713,8 @@ def plot_single_paper(
     plt.rcParams["text.usetex"] = False
     fig, ax = plt.subplots(figsize=PLOT_CONSTANTS["FIG_SIZE"])
     ax.axis("off")
-    s = f"#{table_data[0]}:   ID: {table_data[1]},   Class 1 Proba: {table_data[2]}."
+    s = f"#{table_data[0]}:   ID: {table_data[1]},   Class 1 Proba: {table_data[2]}"
+    s += f",   L1: {table_data[3]},   L2: {table_data[4]}."
     ax.text(0.5, 1.12, page_title + f"\n{s}", fontsize=11, ha="center", va="center", weight="bold")
 
     title, abstract = table_data[-2], table_data[-1]

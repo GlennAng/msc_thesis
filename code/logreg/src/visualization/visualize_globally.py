@@ -86,6 +86,12 @@ class Global_Visualizer:
         self.results_before_averaging_over_folds = results_before_averaging_over_folds
         self.folder = folder
         self.score, self.tail = score, tail
+        self.users_significant_categories = pd.read_parquet(
+            self.folder / "users_significant_categories.parquet"
+        )
+        self.users_significant_categories = self.users_significant_categories[
+            self.users_significant_categories["rank"] == 1
+        ]
         self.extract_users_data()
         self.extract_optimization_data()
         self.extract_results_data()
@@ -219,6 +225,11 @@ class Global_Visualizer:
                 self.n_tail_users, f"val_{self.score.name.lower()}"
             )
         self.tail_users = tail_df["user_id"].values
+
+        self.non_cs_users = self.users_significant_categories[
+            self.users_significant_categories["category"] != "Computer Science"
+        ]["user_id"].values
+
 
     def extract_best_individual_hyperparameters_combination_data(self) -> None:
         self.best_individual_hyperparameters_combination_df = (
@@ -434,19 +445,18 @@ class Global_Visualizer:
         title += "):"
         legend_text = "Legend:   "
         legend_text += f"All: All {self.n_users} Users | HiVote/LoVote: The "
-        f"{len(self.high_votes_users)} Users with the highest/lowest number "
-        "of positively + negatively rated Papers\n"
+        legend_text += f"{len(self.high_votes_users)} Users with the highest/lowest number "
+        legend_text += "of positively + negatively rated Papers\n"
         legend_text += f"HiPosi/LoPosi: The {len(self.high_ratio_users)} Users with the "
-        "highest/lowest ratio of positively to negatively rated Papers | "
-        legend_text += f"Tail: The {self.n_tail_users} Users with the worst Validation Performance "
-        "on the Score in the grey Row."
+        legend_text += "highest/lowest ratio of positively to negatively rated Papers | "
+        legend_text += f"NonCS: The {len(self.non_cs_users)} Users whose main category is not Computer Science."
         scores_tables = get_best_global_hyperparameters_combination_tables(
             self.best_global_hyperparameters_combination_df,
-            self.tail_users,
             self.high_votes_users,
             self.low_votes_users,
             self.high_ratio_users,
             self.low_ratio_users,
+            self.non_cs_users,
         )
         optimizer_page = SCORES_DICT[self.score]["page"]
         scores_same_page = [
@@ -473,6 +483,11 @@ class Global_Visualizer:
                 self.users_info, on="user_id"
             )
         )
+        best_global_merged_with_users_info = (
+            best_global_merged_with_users_info.merge(
+                self.users_significant_categories, on="user_id", how="left"
+            )
+        )
         print_interesting_users(
             pdf,
             self.score,
@@ -488,6 +503,11 @@ class Global_Visualizer:
         best_global_merged_with_users_info = (
             interesting_users_best_global_hyperparameters_combination_df.merge(
                 self.users_info, on="user_id"
+            )
+        )
+        best_global_merged_with_users_info = (
+            best_global_merged_with_users_info.merge(
+                self.users_significant_categories, on="user_id", how="left"
             )
         )
         print_interesting_users(

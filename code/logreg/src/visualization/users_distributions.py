@@ -10,6 +10,7 @@ papers = load_papers()
 users_ratings = load_users_ratings()
 test_users = load_finetuning_users(selection="test")
 users_ratings = users_ratings[users_ratings["user_id"].isin(test_users)]
+users_ratings = users_ratings[users_ratings["rating"] == 1]
 users_ratings = users_ratings.merge(
     papers[["paper_id", "l1"]],
     on="paper_id",
@@ -23,6 +24,8 @@ for user_id in test_users:
     s = f"User {user_id}, {distribution.index[0]}: {distribution.values[0]:.2f}"
     if distribution.values[0] < 1:
         s += f", {distribution.index[1]}: {distribution.values[1]:.2f}"
+    if distribution.values[0] < 1 and distribution.values[0] + distribution.values[1] < 1:
+        s += f", {distribution.index[2]}: {distribution.values[2]:.2f}"
     print(s)
 
 

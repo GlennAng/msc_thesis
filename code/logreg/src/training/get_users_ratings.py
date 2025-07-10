@@ -12,7 +12,8 @@ from ....src.load_files import (
 )
 from ....src.project_paths import ProjectPaths
 from .algorithm import Evaluation
-from .training_data import LABEL_DTYPE
+
+LABEL_DTYPE = np.int64
 
 pd.set_option("display.max_rows", None)
 
@@ -46,23 +47,11 @@ def get_users_distributions(
     return users_distributions.reset_index()
 
 
-def get_top_categories_for_all_users(
-    users_distributions: pd.DataFrame, top_n: int = 3
-) -> pd.DataFrame:
-    results = []
-    for _, row in users_distributions.iterrows():
-        user_id = int(row["user_id"])
-        categories = row.drop("user_id")
-        top_categories = categories.sort_values(ascending=False).head(top_n)
-        for rank, (category, proportion) in enumerate(top_categories.items(), 1):
-            results.append(
-                {"user_id": user_id, "rank": rank, "category": category, "proportion": proportion}
-            )
-    return pd.DataFrame(results)
-
-
 def get_significant_categories_for_all_users(
-    users_distributions: pd.DataFrame, min_percentage: float = 0.1
+    users_distributions: pd.DataFrame,
+    min_percentage: float = 0.1,
+    top_n: int = 4,
+    outputs_folder: Path = None,
 ) -> pd.DataFrame:
     results = []
     for _, row in users_distributions.iterrows():
@@ -74,7 +63,11 @@ def get_significant_categories_for_all_users(
             results.append(
                 {"user_id": user_id, "rank": rank, "category": category, "proportion": proportion}
             )
-    return pd.DataFrame(results)
+    results_df = pd.DataFrame(results)
+    results_df = results_df[results_df["rank"] <= top_n].reset_index(drop=True)
+    if outputs_folder is not None:
+        results_df.to_parquet(outputs_folder / "users_significant_categories.parquet", index=False)
+    return results_df
 
 
 def get_train_test_split(

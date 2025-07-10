@@ -23,12 +23,11 @@ from .algorithm import (
     get_ranking_scores,
     get_score,
 )
-from .get_users_ratings import get_significant_categories_for_all_users, get_users_distributions
 from .training_data import (
     LABEL_DTYPE,
+    get_val_cache_attached_negative_samples_ids,
     load_filtered_cache_for_user,
     load_global_cache,
-    load_negative_samples_embeddings,
     load_negrated_ranking_idxs_for_user,
 )
 from .weights_handler import Weights_Handler
@@ -97,11 +96,6 @@ class Evaluator:
                 self.users_coefs_ids_to_idxs = pickle.load(f)
 
         papers = load_papers(relevant_columns=["paper_id", "in_ratings", "in_cache", "l1", "l2"])
-        users_significant_categories = get_significant_categories_for_all_users(
-            get_users_distributions(users_ratings, papers)
-        )
-        print(users_significant_categories.head(50))
-        
         if self.include_global_cache:
             (
                 self.global_cache_ids,
@@ -115,61 +109,85 @@ class Evaluator:
             if self.config["include_cache"]:
                 self.cache_papers_ids = papers[papers["in_cache"]]["paper_id"].tolist()
                 assert self.cache_papers_ids == sorted(self.cache_papers_ids)
-        self.negative_samples_ids, self.negative_samples_embeddings = (
-            load_negative_samples_embeddings(
-                self.embedding,
-                papers,
-                self.config["n_negative_samples"],
-                self.config["ranking_random_state"],
-                exclude_in_ratings=True,
-                exclude_in_cache=True,
-            )
-        )
-        self.cache_attached_ids = load_negative_samples_embeddings(
-            self.embedding,
-            papers,
-            self.config["n_cache_attached"],
-            self.config["cache_random_state"],
-            papers_to_exclude=self.negative_samples_ids,
-        )[0]
 
-        self.cache_attached_idxs = self.embedding.get_idxs(self.cache_attached_ids)
-        assert (
-            len(self.cache_attached_ids)
-            == len(self.cache_attached_idxs)
-            == self.config["n_cache_attached"]
+        val_negative_samples_ids, cache_attached_papers_ids, _ = (
+            get_val_cache_attached_negative_samples_ids(
+                users_ratings=users_ratings,
+                papers=papers,
+                n_val_negative_samples=self.config["n_negative_samples"],
+                ranking_random_state=self.config["ranking_random_state"],
+                n_cache_attached=self.config["n_cache_attached"],
+                cache_random_state=self.config["cache_random_state"],
+                cache_attached_user_specific=True,
+                users_significant_categories_path=self.config["outputs_dir"],
+                return_all_papers_ids=False,
+            )
         )
         users_ids = users_ratings["user_id"].unique().tolist()
         users_ratings = users_ratings.merge(
             papers[["paper_id", "l1", "l2"]], on="paper_id", how="left"
         )
         if self.config["n_jobs"] == 1:
-            for user_id in users_ids:
+            for i, user_id in enumerate(users_ids):
                 user_ratings = users_ratings[users_ratings["user_id"] == user_id].reset_index(
                     drop=True
                 )
-                self.evaluate_user(user_id, user_ratings)
+                user_val_negative_samples_ids = val_negative_samples_ids[i]
+                user_cache_attached_papers_ids = None
+                if cache_attached_papers_ids is not None:
+                    user_cache_attached_papers_ids = cache_attached_papers_ids[i]
+                self.evaluate_user(
+                    user_id,
+                    user_ratings,
+                    user_val_negative_samples_ids,
+                    user_cache_attached_papers_ids,
+                )
         else:
-            users_ratings_list = [
-                (user_id, users_ratings[users_ratings["user_id"] == user_id].reset_index(drop=True))
-                for user_id in users_ids
-            ]
+            users_list = []
+            for i, user_id in enumerate(users_ids):
+                users_list.append(
+                    (
+                        user_id,
+                        users_ratings[users_ratings["user_id"] == user_id].reset_index(drop=True),
+                        val_negative_samples_ids[i],
+                        (
+                            cache_attached_papers_ids[i]
+                            if cache_attached_papers_ids is not None
+                            else None
+                        ),
+                    )
+                )
             Parallel(n_jobs=self.config["n_jobs"])(
-                delayed(self.evaluate_user)(user_id, user_ratings)
-                for user_id, user_ratings in users_ratings_list
+                delayed(self.evaluate_user)(
+                    user_id,
+                    user_ratings,
+                    user_val_negative_samples_ids,
+                    user_cache_attached_papers_ids,
+                )
+                for user_id, user_ratings, user_val_negative_samples_ids, user_cache_attached_papers_ids in users_list
             )
 
-    def evaluate_user(self, user_id: int, user_ratings: pd.DataFrame) -> None:
+    def evaluate_user(
+        self,
+        user_id: int,
+        user_ratings: pd.DataFrame,
+        user_val_negative_samples_ids: np.ndarray = None,
+        user_cache_attached_papers_ids: np.ndarray = None,
+    ) -> None:
+        user_val_negative_samples_ids = user_val_negative_samples_ids.tolist()
+        negative_samples_embeddings = self.embedding.matrix[
+            self.embedding.get_idxs(user_val_negative_samples_ids)
+        ]
         user_results_dict, user_predictions_dict = {}, {}
         posrated_n, negrated_n = len(user_ratings[user_ratings["rating"] == 1]), len(
             user_ratings[user_ratings["rating"] == 0]
         )
         assert posrated_n + negrated_n == len(user_ratings)
         _, cache_embedding_idxs, cache_n, y_cache = self.set_cache_for_user(
-            user_ratings["paper_id"].tolist()
+            user_ratings["paper_id"].tolist(), user_cache_attached_papers_ids
         )
         user_info = self.store_user_info(posrated_n, negrated_n, cache_n)
-        user_predictions_dict["negative_samples_ids"] = self.negative_samples_ids
+        user_predictions_dict["negative_samples_ids"] = user_val_negative_samples_ids
         try:
             if self.config["evaluation"] in [
                 Evaluation.TRAIN_TEST_SPLIT,
@@ -212,6 +230,7 @@ class Evaluator:
                     y_train_rated,
                     X_val,
                     y_val,
+                    negative_samples_embeddings,
                     categories_dict,
                     train_negrated_ranking_idxs,
                     val_negrated_ranking_idxs,
@@ -275,7 +294,7 @@ class Evaluator:
                             same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
                         )
                     )
-                    fold_results, fold_preictions, _ = self.train_model_for_user(
+                    fold_results, fold_predictions, _ = self.train_model_for_user(
                         user_id,
                         X_train,
                         y_train,
@@ -283,6 +302,7 @@ class Evaluator:
                         y_train_rated,
                         X_val,
                         y_val,
+                        negative_samples_embeddings,
                         categories_dict,
                         train_negrated_ranking_idxs,
                         val_negrated_ranking_idxs,
@@ -294,12 +314,12 @@ class Evaluator:
                     if self.config["save_users_predictions"]:
                         user_predictions_dict[fold_idx].update(
                             {
-                                "train_predictions": fold_preictions["train_predictions"],
-                                "val_predictions": fold_preictions["val_predictions"],
-                                "negative_samples_predictions": fold_preictions[
+                                "train_predictions": fold_predictions["train_predictions"],
+                                "val_predictions": fold_predictions["val_predictions"],
+                                "negative_samples_predictions": fold_predictions[
                                     "negative_samples_predictions"
                                 ],
-                                "tfidf_coefs": fold_preictions["tfidf_coefs"],
+                                "tfidf_coefs": fold_predictions["tfidf_coefs"],
                             }
                         )
                 user_info["train_rated_ratio"] = np.mean(train_rated_ratios)
@@ -313,7 +333,11 @@ class Evaluator:
             print(f"Error evaluating user {user_id}: {e}")
             traceback.print_exc()
 
-    def set_cache_for_user(self, rated_ids: list) -> tuple:
+    def set_cache_for_user(self, rated_ids: list, cache_attached_papers_ids: np.ndarray) -> tuple:
+        cache_attached_papers_ids = (
+            [] if cache_attached_papers_ids is None else cache_attached_papers_ids.tolist()
+        )
+        cache_attached_papers_idxs = self.embedding.get_idxs(cache_attached_papers_ids)
         if self.include_global_cache:
             cache_ids, cache_idxs, cache_n, y_cache = (
                 self.global_cache_ids,
@@ -333,11 +357,11 @@ class Evaluator:
             else:
                 cache_ids, cache_idxs, cache_n, y_cache = [], [], 0, []
         if self.include_global_cache or self.config["include_cache"]:
-            cache_ids += self.cache_attached_ids
-            cache_idxs = np.concatenate((cache_idxs, self.cache_attached_idxs))
-            cache_n += len(self.cache_attached_idxs)
+            cache_ids += cache_attached_papers_ids
+            cache_idxs = np.concatenate((cache_idxs, cache_attached_papers_idxs))
+            cache_n += len(cache_attached_papers_ids)
             y_cache = np.concatenate(
-                (y_cache, np.zeros(len(self.cache_attached_idxs), dtype=LABEL_DTYPE))
+                (y_cache, np.zeros(len(cache_attached_papers_ids), dtype=LABEL_DTYPE))
             )
         return cache_ids, cache_idxs, cache_n, y_cache
 
@@ -366,6 +390,7 @@ class Evaluator:
         y_train_rated: np.ndarray,
         X_val: np.ndarray,
         y_val: np.ndarray,
+        negative_samples_embeddings: np.ndarray,
         categories_dict: dict,
         train_negrated_ranking_idxs: np.ndarray,
         val_negrated_ranking_idxs: np.ndarray,
@@ -419,7 +444,7 @@ class Evaluator:
                 y_train_rated_pred, y_val_pred, y_negative_samples_pred = (
                     model.predict(X_train_rated),
                     model.predict(X_val),
-                    model.predict(self.negative_samples_embeddings),
+                    model.predict(negative_samples_embeddings),
                 )
                 y_train_rated_proba, y_train_rated_logits = model.predict_proba(X_train_rated)[
                     :, 1
@@ -430,8 +455,8 @@ class Evaluator:
                 y_train_negrated_ranking_logits = y_train_rated_logits[train_negrated_ranking_idxs]
                 y_val_negrated_ranking_logits = y_val_logits[val_negrated_ranking_idxs]
                 y_negative_samples_proba, y_negative_samples_logits = model.predict_proba(
-                    self.negative_samples_embeddings
-                )[:, 1], model.decision_function(self.negative_samples_embeddings)
+                    negative_samples_embeddings
+                )[:, 1], model.decision_function(negative_samples_embeddings)
                 scores = self.get_scores_for_user(
                     y_train_rated,
                     y_train_rated_pred,
@@ -653,3 +678,16 @@ def split_ratings(user_ratings: pd.DataFrame) -> tuple:
         and val_ratings["time"].is_monotonic_increasing
     )
     return train_ratings, val_ratings
+
+
+def index_negative_samples_ids(
+    negative_samples_ids: np.ndarray, embedding: Embedding
+) -> np.ndarray:
+    negative_samples_ids_shape = negative_samples_ids.shape
+    negative_samples_idxs = embedding.get_idxs(negative_samples_ids.flatten())
+    negative_samples_idxs = negative_samples_idxs.reshape(negative_samples_ids_shape)
+    if negative_samples_idxs.shape != negative_samples_ids_shape:
+        raise ValueError(
+            f"Negative samples IDs shape {negative_samples_ids_shape} does not match indexed shape {negative_samples_idxs.shape}."
+        )
+    return negative_samples_idxs

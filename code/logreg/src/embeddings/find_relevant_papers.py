@@ -9,7 +9,7 @@ from ....src.load_files import (
     load_users_ratings,
 )
 from ....src.project_paths import ProjectPaths
-from ..training.training_data import get_negative_samples_ids
+from ..training.training_data import get_val_cache_attached_negative_samples_ids
 
 
 def save_relevant_papers(seeds: list = TEST_RANDOM_STATES) -> list:
@@ -22,21 +22,21 @@ def save_relevant_papers(seeds: list = TEST_RANDOM_STATES) -> list:
     print(len(relevant_papers_ids), "Relevant papers loaded.")
 
     for random_state in tqdm(seeds):
-        negative_samples_ids = get_negative_samples_ids(
-            papers,
-            n_negative_samples=100,
-            random_state=random_state,
-            exclude_in_ratings=True,
-            exclude_in_cache=True,
+        negative_samples_ids = (
+            get_val_cache_attached_negative_samples_ids(
+                users_ratings=users_ratings,
+                papers=papers,
+                n_val_negative_samples=100,
+                ranking_random_state=random_state,
+                n_cache_attached=5000,
+                cache_random_state=random_state,
+                cache_attached_user_specific=True,
+                users_significant_categories_path=None,
+                return_all_papers_ids=True,
+            )[2]
         )
+        print(f"Random state {random_state}: {len(negative_samples_ids)} negative samples collected.")
         relevant_papers_ids.update(negative_samples_ids)
-        cache_attached_ids = get_negative_samples_ids(
-            papers,
-            n_negative_samples=5000,
-            random_state=random_state,
-            papers_to_exclude=negative_samples_ids,
-        )
-        relevant_papers_ids.update(cache_attached_ids)
     print(len(relevant_papers_ids), "Total relevant papers IDs collected after negative sampling.")
 
     cache_papers_ids = papers[papers["in_cache"]]["paper_id"].tolist()

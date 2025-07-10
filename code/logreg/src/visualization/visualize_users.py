@@ -5,9 +5,10 @@ import pickle
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
-from ....src.load_files import load_papers_texts
+from ....src.load_files import load_papers, load_papers_texts
 from ..embeddings.embedding import compute_cosine_similarities
 from .results_handling import average_over_folds_with_std
 from .visualization_tools import (
@@ -58,10 +59,39 @@ def preprocess_args(args: dict, gv: Global_Visualizer) -> None:
 
 
 class User_Visualizer:
-    def __init__(self, user_id: int) -> None:
+    def __init__(self, user_id: int, user_significant_categories: pd.DataFrame) -> None:
         self.user_id = user_id
         self.user_info = gv.users_info[gv.users_info["user_id"] == user_id]
+        self.extract_most_popular_categories_l1(user_significant_categories)
         self.extract_results_for_user()
+
+    def extract_most_popular_categories_l1(self, user_significant_categories: pd.DataFrame) -> None:
+        self.user_info = self.user_info.copy()
+        user_most_significant_category = user_significant_categories[
+            user_significant_categories["rank"] == 1
+        ]
+        user_most_significant_category_name = user_most_significant_category["category"].values[0]
+        user_most_significant_category_ratio = user_most_significant_category["proportion"].values[
+            0
+        ]
+        self.user_info.loc[self.user_info.index, "most_popular_category_l1"] = (
+            f"{user_most_significant_category_name} ({user_most_significant_category_ratio:.2%})"
+        )
+        user_second_most_significant_category = user_significant_categories[
+            user_significant_categories["rank"] == 2
+        ]
+        if user_second_most_significant_category.empty:
+            self.user_info.loc[self.user_info.index, "second_most_popular_category_l1"] = "None"
+        else:
+            user_second_most_significant_category_name = user_second_most_significant_category[
+                "category"
+            ].values[0]
+            user_second_most_significant_category_ratio = user_second_most_significant_category[
+                "proportion"
+            ].values[0]
+            self.user_info.loc[self.user_info.index, "second_most_popular_category_l1"] = (
+                f"{user_second_most_significant_category_name} ({user_second_most_significant_category_ratio:.2%})"
+            )
 
     def extract_results_for_user(self) -> None:
         hyperparameters_combination = args["hyperparameters_combination"]
@@ -154,7 +184,7 @@ class User_Visualizer:
         with open(cosine_folder / "negative_samples_ids.pkl", "rb") as file:
             self.cosine_similarities["negative_samples_ids"] = pickle.load(file)
 
-    def visualize_papers(self, pdf: PdfPages, fold_idx: int, wc_words_scores: dict) -> None:
+    def visualize_papers(self, pdf: PdfPages, fold_idx: int, wc_words_scores: dict, papers: pd.DataFrame) -> None:
         papers_texts = load_papers_texts(relevant_columns=["paper_id", "title", "abstract"])
         fold_predictions = self.user_predictions[str(fold_idx)]
         hyperparameters_combination = str(args["hyperparameters_combination"])
@@ -166,8 +196,14 @@ class User_Visualizer:
         fold_train_predictions_df = turn_predictions_into_df(
             fold_train_predictions, fold_predictions["train_ids"], fold_predictions["train_labels"]
         )
+        fold_train_predictions_df = fold_train_predictions_df.merge(
+            papers, on="paper_id", how="left"
+        )
         fold_val_predictions_df = turn_predictions_into_df(
             fold_val_predictions, fold_predictions["val_ids"], fold_predictions["val_labels"]
+        )
+        fold_val_predictions_df = fold_val_predictions_df.merge(
+            papers, on="paper_id", how="left"
         )
         negative_samples_predictions_df = turn_predictions_into_df(
             negative_samples_predictions,
@@ -178,6 +214,9 @@ class User_Visualizer:
         negative_samples_predictions_df = negative_samples_predictions_df.nlargest(
             100, "class_1_proba"
         ).sort_values("class_1_proba", ascending=False)
+        negative_samples_predictions_df = negative_samples_predictions_df.merge(
+            papers, on="paper_id", how="left"
+        )
         negative_samples_selection = get_papers_table_data(
             papers_texts, negative_samples_predictions_df
         )
@@ -272,8 +311,14 @@ if __name__ == "__main__":
             args["users_ids"],
             args["outputs_folder"] / "users_predictions",
         )
+    users_significant_categories = pd.read_parquet(
+        gv.folder / "users_significant_categories.parquet"
+    )
     for user_id in args["users_ids"]:
-        uv = User_Visualizer(user_id)
+        user_significant_categories = users_significant_categories[
+            users_significant_categories["user_id"] == user_id
+        ]
+        uv = User_Visualizer(user_id, user_significant_categories)
         user_predictions_path = (
             gv.folder / "users_predictions" / f"user_{user_id}" / "user_predictions.json"
         )
@@ -288,5 +333,6 @@ if __name__ == "__main__":
                 uv.visualize_user_info(pdf)
                 wc_words_scores = uv.visualize_wordclouds(pdf, fold_idx)
                 if args["visualize_papers"]:
+                    papers = load_papers(relevant_columns=["paper_id", "l1", "l2"])
                     uv.load_cosine_similarities_for_user()
-                    uv.visualize_papers(pdf, fold_idx, wc_words_scores)
+                    uv.visualize_papers(pdf, fold_idx, wc_words_scores, papers)
