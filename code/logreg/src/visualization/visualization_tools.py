@@ -499,7 +499,7 @@ def get_largest_performance_gain_table(
     for _, row in largest_performance_gain_df.iterrows():
         data_row = [
             int(row["user_id"]),
-            int(row["combination_idx"]),
+            CATEGORIES_ABBREVIATiONS[row["category"]],
             int(row["n_posrated"]),
             int(row["n_negrated"]),
         ]
@@ -536,15 +536,15 @@ def print_largest_performance_gain(
         fontweight="bold",
     )
     columns = (
-        ["User ID", "Combi", "N_POS", "N_NEG"]
+        ["User ID", "L1", "N_POS", "N_NEG"]
         + [SCORES_DICT[score]["abbreviation"] for score in PRINT_SCORES]
         + [SCORES_DICT[gv_score]["abbreviation"] + "_Val"]
     )
     print_table(
         get_largest_performance_gain_table(largest_performance_gain_df, gv_score),
-        [-0.14, -0.1, 1.25, 1.19],
+        [-0.14, -0.12, 1.25, 1.19],
         columns,
-        [0.11] + [0.085] + 2 * [0.09] + (2 * len(PRINT_SCORES) + 1) * [0.125],
+        4 * [0.1] + len(Score) * [0.125],
         grey_column=columns.index(SCORES_DICT[gv_score]["abbreviation"]),
     )
     pdf.savefig(fig)

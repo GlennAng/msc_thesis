@@ -114,6 +114,34 @@ def load_finetuning_users(
         return finetuning_users[selection]
 
 
+def load_users_significant_categories(
+    path: Path = ProjectPaths.data_users_significant_categories_path(),
+    relevant_users_ids: list = None,
+    relevant_columns: list = None,
+) -> pd.DataFrame:
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Users significant categories file not found at {path}. Run 'get_users_ratings.py' to create it."
+        )
+    users_significant_categories = pd.read_parquet(path, engine="pyarrow")
+    assert users_significant_categories["user_id"].is_monotonic_increasing
+    assert (users_significant_categories["proportion"] >= 0.1).all()
+    assert users_significant_categories.groupby("user_id").size().max() <= 4
+    if relevant_users_ids is not None:
+        users_significant_categories = users_significant_categories[
+            users_significant_categories["user_id"].isin(relevant_users_ids)
+        ].reset_index(drop=True)
+    assert not users_significant_categories.isnull().any().any()
+    if relevant_columns is not None:
+        existing_columns = [
+            col for col in relevant_columns if col in users_significant_categories.columns
+        ]
+        if existing_columns:
+            users_significant_categories = users_significant_categories[existing_columns]
+    
+    return users_significant_categories
+
+
 if __name__ == "__main__":
     papers_texts = load_papers_texts()
     papers = load_papers()
@@ -135,3 +163,4 @@ if __name__ == "__main__":
         assert len(unique_users_ids_before_mapping) == len(unique_users_ids)
 
     finetuning_users = load_finetuning_users()
+    users_significant_categories = load_users_significant_categories()

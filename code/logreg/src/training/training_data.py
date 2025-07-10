@@ -1,15 +1,11 @@
 import random
 from math import ceil, floor
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from ....src.load_files import load_users_significant_categories
 from ..embeddings.embedding import Embedding
-from .get_users_ratings import (
-    get_significant_categories_for_all_users,
-    get_users_distributions,
-)
 
 LABEL_DTYPE = np.int64
 
@@ -327,15 +323,13 @@ def get_val_cache_attached_negative_samples_ids(
     n_cache_attached: int,
     cache_random_state: int,
     cache_attached_user_specific: bool = True,
-    users_significant_categories_path: Path = None,
     return_all_papers_ids: bool = False,
 ) -> tuple:
-    users_significant_categories = get_significant_categories_for_all_users(
-        get_users_distributions(users_ratings, papers),
-        outputs_folder=users_significant_categories_path,
-    )
-    users_ids = users_significant_categories["user_id"].unique().tolist()
+    users_ids = users_ratings["user_id"].unique().tolist()
     n_users = len(users_ids)
+    users_significant_categories = load_users_significant_categories(
+        relevant_users_ids=users_ids,
+    )
     val_negative_samples_ids_per_category, val_negative_samples_ids_list = (
         get_negative_samples_ids_per_category(
             papers=papers,

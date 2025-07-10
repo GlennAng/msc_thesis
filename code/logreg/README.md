@@ -14,25 +14,25 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 
 | Model Name | Bal. Acc. | NDCG | MRR | InfoNCE |
 |------------|------------------|------|-----|---------|
+| tf-idf | 73.68 | 81.52 | 75.34 | 1.2745 |
 | specter2_base | 77.02 | 84.19 | 78.87 | 0.9626 |
 | gte-base-en-v1.5 | 77.31 | 84.24 | 78.94 | 0.9660 |
 | gte-large-en-v1.5 | 77.50 | 84.52 | 79.31 | 0.9542 |
-| gte-large-en-v1.5 fine-tuned| **79.16** | 85.53 | 80.64 | 0.9061 |
 | Qwen3-Embedding-0.6B | 77.70 | 84.70 | 79.55 | 0.9322 |
 | Qwen3-Embedding-4B | 78.96 | 86.04 | 81.32 | 0.8660 |
-| Qwen3-Embedding-8B | 79.10 | **86.05** | **81.34** | **0.8655** |
+| Qwen3-Embedding-8B | 79.10 | **86.29** | **81.66** | **0.8485** |
 
 ## Session-based Evaluation
 
 | Model Name | Bal. Acc. | NDCG | MRR | InfoNCE |
 |------------|------------------|------|-----|---------|
+| tf-idf | 63.89 | 73.39 | 64.72 | 1.7614 |
 | specter2_base | 72.15 | 80.89 | 74.53 | 1.1607 |
 | gte-base-en-v1.5 | 71.47 | 80.25 |73.68 | 1.2077 |
 | gte-large-en-v1.5 | 71.68 | 80.84 | 74.46 | 1.1719 |
-| gte-large-en-v1.5 fine-tuned| **74.73** | **82.71** | 76.93 | 1.0763 |
 | Qwen3-Embedding-0.6B | 72.28 | 80.69 | 74.25 | 1.1513 |
 | Qwen3-Embedding-4B | 73.87 | 82.67 | 76.89 | 1.0664 |
-| Qwen3-Embedding-8B | 74.68 | 82.71 | **76.95** | **1.0512** |
+| Qwen3-Embedding-8B | **75.06** | **83.17** | **77.55** | **1.0228** |
 
 
 # II. Experiment Setup

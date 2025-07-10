@@ -6,13 +6,14 @@ conda activate glenn_msc_env
 ```
 
 
-In order to run the code, you require 5 files that should all be placed in a directionary called `data`:
+In order to run the code, you require 6 files that should all be placed in a directionary called `data`:
 
 - `papers.parquet`
 - `papers_texts.parquet`
 - `relevant_papers_ids.pkl`
 - `users_ratings.parquet` 
 - `finetuning_users.pkl`
+- `users_significant_categories.parquet`
 
 You can check for completeness and correctness by running:
 ```bash
@@ -72,6 +73,13 @@ A dictionary with 3 keys, each referencing a disjoint list of sorted user IDs:
 - **test:** 500 users for which there exists a session-based split such that there are at least 16 up/down-votes in the training split and at least 4 up/down-votes in the validation set (while further assuring the training split makes up at least 70% in total).
 - **val:** Same as test but 500 different users.
 - **train:** All users with at least 20 up/down-votes (independent of session-based splits) except those in test and val.
+
+### 6. Columns in Users Significant Categories:
+- **user_id:** Integer identifier of the user for which the 4 most popular scientific categories among his upvotes are stated 
+(but only if they make up at least 10% of the total upvotes).
+- **rank:** Integer from 1 to 4 with 1 indicating the most popular category.
+- **category:** String representing the level-1 category name (e.g. "Computer Science").
+- **proportion:** Float in [0, 1] indicating how much of the total upvotes belong to that category.
 
 # III. Logistic Regression Evaluation:
 The following describes how to perform experiments for evaluating the recommender model via logistic regression.

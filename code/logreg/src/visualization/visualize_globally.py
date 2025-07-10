@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
+from ....src.load_files import load_users_significant_categories
+
 from ..training.algorithm import (
     SCORES_DICT,
     Algorithm,
@@ -86,8 +88,8 @@ class Global_Visualizer:
         self.results_before_averaging_over_folds = results_before_averaging_over_folds
         self.folder = folder
         self.score, self.tail = score, tail
-        self.users_significant_categories = pd.read_parquet(
-            self.folder / "users_significant_categories.parquet"
+        self.users_significant_categories = load_users_significant_categories(
+            relevant_users_ids=self.users_info["user_id"].unique().tolist(),
         )
         self.users_significant_categories = self.users_significant_categories[
             self.users_significant_categories["rank"] == 1
@@ -518,6 +520,11 @@ class Global_Visualizer:
         )
 
     def generate_eighth_page(self, pdf: PdfPages) -> None:
+        self.largest_performance_gain_df = (
+            self.largest_performance_gain_df.merge(
+                self.users_significant_categories, on="user_id"
+            )
+        )
         print_largest_performance_gain(
             pdf,
             self.largest_performance_gain_df,

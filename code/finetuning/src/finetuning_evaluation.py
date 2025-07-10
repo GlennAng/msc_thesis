@@ -14,6 +14,8 @@ from ...logreg.src.visualization.visualization_tools import format_number
 from ...scripts.create_example_configs import (
     create_example_config,
     create_example_config_temporal,
+    create_example_config_tfidf,
+    create_example_config_tfidf_temporal,
 )
 from ...src.load_files import load_finetuning_users
 from ...src.project_paths import ProjectPaths
@@ -44,6 +46,7 @@ def parse_arguments() -> dict:
     parser.add_argument("--allow_outputs", action="store_true", default=False)
     parser.add_argument("--cross_validation", action="store_true", default=False)
     parser.add_argument("--session_based", action="store_true", default=False)
+    parser.add_argument("--tfidf", action="store_true", default=False)
     args_dict = vars(parser.parse_args())
 
     if args_dict["embeddings_path"] is not None:
@@ -118,6 +121,7 @@ def save_finetuning_config(
     users_ids: list,
     evaluation: str,
     random_state: int,
+    tfidf: bool = False,
     users_coefs_path: Path = None,
 ) -> None:
     if not isinstance(file_path, Path):
@@ -126,11 +130,18 @@ def save_finetuning_config(
         embeddings_folder = Path(embeddings_folder).resolve()
     if users_coefs_path is not None and not isinstance(users_coefs_path, Path):
         users_coefs_path = Path(users_coefs_path).resolve()
-    example_config = (
-        create_example_config()
-        if evaluation == "cross_validation"
-        else create_example_config_temporal()
-    )
+    if tfidf:
+        example_config = (
+            create_example_config_tfidf(embeddings_folder)
+            if evaluation == "cross_validation"
+            else create_example_config_tfidf_temporal(embeddings_folder)
+        )
+    else:
+        example_config = (
+            create_example_config()
+            if evaluation == "cross_validation"
+            else create_example_config_temporal()
+        )
     example_config["embedding_folder"] = str(embeddings_folder)
     example_config["users_selection"] = users_ids
     example_config["model_random_state"] = random_state
@@ -151,6 +162,7 @@ def run_testing_single(
     users_ids: list,
     evaluation: str,
     random_states: list,
+    tfidf: bool = False,
     users_coefs_path: Path = None,
 ) -> None:
     for folder in [embeddings_folder, configs_folder, outputs_folder]:
@@ -174,7 +186,8 @@ def run_testing_single(
             users_ids,
             evaluation,
             random_state,
-            users_coefs_path,
+            tfidf=tfidf,
+            users_coefs_path=users_coefs_path,
         )
         configs_names.append(config_name)
 
@@ -208,6 +221,7 @@ def run_testing(
     test_users_no_overlap_ids: list,
     cross_validation: bool,
     session_based: bool,
+    tfidf: bool = False,
     val_random_state: int = VAL_RANDOM_STATE,
     test_no_overlap_random_states: list = TEST_RANDOM_STATES,
 ) -> None:
@@ -224,6 +238,7 @@ def run_testing(
             val_users_ids,
             "session_based",
             [val_random_state],
+            tfidf=tfidf,
         )
         if (embeddings_folder / "users_coefs.npy").exists():
             run_testing_single(
@@ -234,6 +249,7 @@ def run_testing(
                 val_users_ids,
                 "session_based",
                 [val_random_state],
+                tfidf=tfidf,
                 users_coefs_path=embeddings_folder,
             )
     if test_users_no_overlap_ids is not None:
@@ -246,6 +262,7 @@ def run_testing(
                 test_users_no_overlap_ids,
                 "session_based",
                 test_no_overlap_random_states,
+                tfidf=tfidf,
             )
         if cross_validation:
             run_testing_single(
@@ -256,6 +273,7 @@ def run_testing(
                 test_users_no_overlap_ids,
                 "cross_validation",
                 test_no_overlap_random_states,
+                tfidf=tfidf,
             )
 
 
@@ -605,5 +623,6 @@ if __name__ == "__main__":
             test_users_no_overlap_ids,
             evaluation_config["cross_validation"],
             evaluation_config["session_based"],
+            evaluation_config["tfidf"],
         )
     visualize_testing(evaluation_config["model_path"], evaluation_config["outputs_folder"])

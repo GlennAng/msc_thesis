@@ -8,7 +8,11 @@ import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
-from ....src.load_files import load_papers, load_papers_texts
+from ....src.load_files import (
+    load_papers,
+    load_papers_texts,
+    load_users_significant_categories,
+)
 from ..embeddings.embedding import compute_cosine_similarities
 from .results_handling import average_over_folds_with_std
 from .visualization_tools import (
@@ -184,7 +188,9 @@ class User_Visualizer:
         with open(cosine_folder / "negative_samples_ids.pkl", "rb") as file:
             self.cosine_similarities["negative_samples_ids"] = pickle.load(file)
 
-    def visualize_papers(self, pdf: PdfPages, fold_idx: int, wc_words_scores: dict, papers: pd.DataFrame) -> None:
+    def visualize_papers(
+        self, pdf: PdfPages, fold_idx: int, wc_words_scores: dict, papers: pd.DataFrame
+    ) -> None:
         papers_texts = load_papers_texts(relevant_columns=["paper_id", "title", "abstract"])
         fold_predictions = self.user_predictions[str(fold_idx)]
         hyperparameters_combination = str(args["hyperparameters_combination"])
@@ -202,9 +208,7 @@ class User_Visualizer:
         fold_val_predictions_df = turn_predictions_into_df(
             fold_val_predictions, fold_predictions["val_ids"], fold_predictions["val_labels"]
         )
-        fold_val_predictions_df = fold_val_predictions_df.merge(
-            papers, on="paper_id", how="left"
-        )
+        fold_val_predictions_df = fold_val_predictions_df.merge(papers, on="paper_id", how="left")
         negative_samples_predictions_df = turn_predictions_into_df(
             negative_samples_predictions,
             self.user_predictions["negative_samples_ids"],
@@ -311,8 +315,8 @@ if __name__ == "__main__":
             args["users_ids"],
             args["outputs_folder"] / "users_predictions",
         )
-    users_significant_categories = pd.read_parquet(
-        gv.folder / "users_significant_categories.parquet"
+    users_significant_categories = load_users_significant_categories(
+        relevant_users_ids=args["users_ids"],
     )
     for user_id in args["users_ids"]:
         user_significant_categories = users_significant_categories[

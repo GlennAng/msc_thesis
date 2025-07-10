@@ -119,7 +119,6 @@ class Evaluator:
                 n_cache_attached=self.config["n_cache_attached"],
                 cache_random_state=self.config["cache_random_state"],
                 cache_attached_user_specific=True,
-                users_significant_categories_path=self.config["outputs_dir"],
                 return_all_papers_ids=False,
             )
         )

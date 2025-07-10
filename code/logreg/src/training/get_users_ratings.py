@@ -7,7 +7,6 @@ import pandas as pd
 
 from ....src.load_files import (
     load_finetuning_users,
-    load_papers,
     load_users_ratings,
 )
 from ....src.project_paths import ProjectPaths
@@ -16,58 +15,6 @@ from .algorithm import Evaluation
 LABEL_DTYPE = np.int64
 
 pd.set_option("display.max_rows", None)
-
-
-def get_users_distributions(
-    users_ratings: pd.DataFrame, papers: pd.DataFrame = None
-) -> pd.DataFrame:
-    if papers is None:
-        papers = load_papers(relevant_columns=["paper_id", "l1"])
-    l1_categories = sorted([cat for cat in papers["l1"].unique() if pd.notna(cat)])
-    users_ratings = users_ratings.copy()
-    users_ratings = users_ratings[users_ratings["rating"] > 0]
-    users_ratings_merged = users_ratings.merge(
-        papers[["paper_id", "l1"]],
-        on="paper_id",
-        how="left",
-    )
-    assert len(users_ratings_merged) == len(users_ratings), "Not all paper_ids have l1 labels."
-    users_distributions = (
-        users_ratings_merged.groupby(["user_id", "l1"])
-        .size()
-        .reset_index(name="count")
-        .pivot(index="user_id", columns="l1", values="count")
-        .fillna(0)
-    )
-    for category in l1_categories:
-        if category not in users_distributions.columns:
-            users_distributions[category] = 0
-    users_distributions = users_distributions[l1_categories]
-    users_distributions = users_distributions.div(users_distributions.sum(axis=1), axis=0)
-    return users_distributions.reset_index()
-
-
-def get_significant_categories_for_all_users(
-    users_distributions: pd.DataFrame,
-    min_percentage: float = 0.1,
-    top_n: int = 4,
-    outputs_folder: Path = None,
-) -> pd.DataFrame:
-    results = []
-    for _, row in users_distributions.iterrows():
-        user_id = int(row["user_id"])
-        categories = row.drop("user_id")
-        significant_categories = categories[categories >= min_percentage]
-        significant_categories = significant_categories.sort_values(ascending=False)
-        for rank, (category, proportion) in enumerate(significant_categories.items(), 1):
-            results.append(
-                {"user_id": user_id, "rank": rank, "category": category, "proportion": proportion}
-            )
-    results_df = pd.DataFrame(results)
-    results_df = results_df[results_df["rank"] <= top_n].reset_index(drop=True)
-    if outputs_folder is not None:
-        results_df.to_parquet(outputs_folder / "users_significant_categories.parquet", index=False)
-    return results_df
 
 
 def get_train_test_split(

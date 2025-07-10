@@ -84,12 +84,18 @@ def create_example_config_temporal() -> dict:
 
 
 def create_example_config_tfidf(example_config: dict) -> dict:
-    example_config = example_config.copy()
+    example_config = create_example_config().copy()
     example_config.update({"clf_C": 0.4, "weights_cache_v": 0.9, "weights_neg_scale": 1.0})
     example_config["embedding_folder"] = str(
         ProjectPaths.logreg_embeddings_path() / "tfidf" / "tfidf_10k"
     )
     return example_config
+
+
+def create_example_config_tfidf_temporal(example_config: dict) -> dict:
+    example_config_tfidf = create_example_config_tfidf(example_config)
+    example_config_tfidf.update({"evaluation": "session_based", "train_size": 1.0})
+    return example_config_tfidf
 
 
 def check_config(config: dict) -> bool:

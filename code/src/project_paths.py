@@ -41,11 +41,15 @@ class ProjectPaths:
     @staticmethod
     def data_finetuning_users_path():
         return ProjectPaths.data_path() / "finetuning_users.pkl"
-    
+
+    @staticmethod
+    def data_users_significant_categories_path():
+        return ProjectPaths.data_path() / "users_significant_categories.parquet"
+
     @staticmethod
     def data_val_users_temporal_ratings_path():
         return ProjectPaths.data_path() / "val_users_temporal_ratings.parquet"
-    
+
     @staticmethod
     def data_test_users_temporal_ratings_path():
         return ProjectPaths.data_path() / "test_users_temporal_ratings.parquet"
@@ -57,7 +61,7 @@ class ProjectPaths:
     @staticmethod
     def finetuning_data_path():
         return ProjectPaths.finetuning_path() / "data"
-    
+
     @staticmethod
     def finetuning_data_checkpoints_path():
         return ProjectPaths.finetuning_data_path() / "checkpoints"
