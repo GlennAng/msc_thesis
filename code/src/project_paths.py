@@ -41,6 +41,10 @@ class ProjectPaths:
     @staticmethod
     def data_finetuning_users_path():
         return ProjectPaths.data_path() / "finetuning_users.pkl"
+    
+    @staticmethod
+    def data_finetuning_users_no_cs_path():
+        return ProjectPaths.data_path() / "finetuning_users_no_cs.pkl"
 
     @staticmethod
     def data_users_significant_categories_path():
@@ -65,6 +69,10 @@ class ProjectPaths:
     @staticmethod
     def finetuning_data_checkpoints_path():
         return ProjectPaths.finetuning_data_path() / "checkpoints"
+    
+    @staticmethod
+    def finetuning_data_experiments_path():
+        return ProjectPaths.finetuning_data_path() / "experiments"
 
     @staticmethod
     def finetuning_data_model_path():
@@ -95,16 +103,12 @@ class ProjectPaths:
         return ProjectPaths.finetuning_data_model_path() / "datasets"
 
     @staticmethod
-    def finetuning_data_experiments_path():
-        return ProjectPaths.finetuning_data_path() / "experiments"
-
-    @staticmethod
-    def finetuning_data_model_datasets_negative_samples_for_seeds_path():
-        return ProjectPaths.finetuning_data_model_datasets_path() / "negative_samples_for_seeds.pkl"
-
-    @staticmethod
     def finetuning_data_model_datasets_val_negative_samples_path():
         return ProjectPaths.finetuning_data_model_datasets_path() / "val_negative_samples.pt"
+    
+    @staticmethod
+    def finetuning_data_model_datasets_val_negative_samples_matrix_path():
+        return ProjectPaths.finetuning_data_model_datasets_path() / "val_negative_samples_matrix.pt"
 
     @staticmethod
     def finetuning_data_model_datasets_test_papers_path():
@@ -117,6 +121,10 @@ class ProjectPaths:
     @staticmethod
     def finetuning_data_model_datasets_val_dataset_path():
         return ProjectPaths.finetuning_data_model_datasets_path() / "val_dataset.pt"
+    
+    @staticmethod
+    def finetuning_data_train_negative_samples_ids_path():
+        return ProjectPaths.finetuning_data_path() / "train_negative_samples_ids.pkl"
 
     @staticmethod
     def logreg_path():

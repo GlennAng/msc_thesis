@@ -1,10 +1,13 @@
 import json
 import os
 
+from pathlib import Path
 from ..src.load_files import ProjectPaths
 
 
-def create_example_config() -> dict:
+def create_example_config(embeddings_folder: Path = None) -> dict:
+    if embeddings_folder is None:
+        embeddings_folder = ProjectPaths.logreg_embeddings_path() / "after_pca" / "gte_large_256_categories_l2_unit_100"
     example_config = {}
     example_config.update(
         {
@@ -66,34 +69,29 @@ def create_example_config() -> dict:
     )
     example_config.update(
         {
-            "embedding_folder": str(
-                ProjectPaths.logreg_embeddings_path()
-                / "after_pca"
-                / "gte_large_256_categories_l2_unit_100"
-            ),
+            "embedding_folder": str(embeddings_folder),   
             "embedding_float_precision": None,
         }
     )
     return example_config
 
 
-def create_example_config_temporal() -> dict:
-    example_config = create_example_config()
+def create_example_config_temporal(embeddings_folder: Path = None) -> dict:
+    example_config = create_example_config(embeddings_folder)
     example_config.update({"evaluation": "session_based", "train_size": 1.0})
     return example_config
 
 
-def create_example_config_tfidf(example_config: dict) -> dict:
-    example_config = create_example_config().copy()
+def create_example_config_tfidf(embeddings_folder: Path = None) -> dict:
+    if embeddings_folder is None:
+        embeddings_folder = ProjectPaths.logreg_embeddings_path() / "tfidf" / "tfidf_10k"
+    example_config = create_example_config(embeddings_folder).copy()
     example_config.update({"clf_C": 0.4, "weights_cache_v": 0.9, "weights_neg_scale": 1.0})
-    example_config["embedding_folder"] = str(
-        ProjectPaths.logreg_embeddings_path() / "tfidf" / "tfidf_10k"
-    )
     return example_config
 
 
-def create_example_config_tfidf_temporal(example_config: dict) -> dict:
-    example_config_tfidf = create_example_config_tfidf(example_config)
+def create_example_config_tfidf_temporal(embeddings_folder: Path = None) -> dict:
+    example_config_tfidf = create_example_config_tfidf(embeddings_folder)
     example_config_tfidf.update({"evaluation": "session_based", "train_size": 1.0})
     return example_config_tfidf
 

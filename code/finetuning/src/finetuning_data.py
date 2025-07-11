@@ -13,7 +13,9 @@ from .finetuning_preprocessing import (
     load_categories_to_idxs,
     load_finetuning_dataset,
     load_finetuning_papers,
-    load_negative_samples_ids_for_seeds,
+    load_finetuning_users,
+    load_train_negative_samples_ids,
+    load_users_coefs_ids_to_idxs,
     load_val_users_embeddings_idxs,
 )
 
@@ -40,6 +42,21 @@ def print_train_ratings_batch(batch: dict) -> str:
     return s
 
 
+def get_no_cs_users_selection(
+    unique_users_idxs: torch.Tensor, no_cs_users_selection: str
+) -> torch.Tensor:
+    assert len(unique_users_idxs) == len(torch.unique(unique_users_idxs))
+    assert torch.all(unique_users_idxs[:-1] <= unique_users_idxs[1:])
+    no_cs_users = load_finetuning_users(selection=no_cs_users_selection)
+    users_ids_to_idxs = load_users_coefs_ids_to_idxs()
+    no_cs_users_idxs = [users_ids_to_idxs[user_id] for user_id in no_cs_users]
+    no_cs_users_idxs = torch.tensor(no_cs_users_idxs, dtype=torch.int64)
+    assert torch.all(no_cs_users_idxs[:-1] <= no_cs_users_idxs[1:])
+    assert torch.all(torch.isin(no_cs_users_idxs, unique_users_idxs))
+    indices = torch.searchsorted(unique_users_idxs, no_cs_users_idxs)
+    return indices
+
+
 class FinetuningDataset(Dataset):
     def __init__(
         self,
@@ -51,6 +68,7 @@ class FinetuningDataset(Dataset):
         category_l1_tensor: torch.Tensor,
         category_l2_tensor: torch.Tensor,
         time_tensor: torch.Tensor,
+        no_cs_users_selection: str = None,
     ) -> None:
         n_samples = len(user_idx_tensor)
         assert (
@@ -75,10 +93,14 @@ class FinetuningDataset(Dataset):
             category_l2_tensor,
             time_tensor,
         )
-        self.n_users = len(user_idx_tensor.unique())
-        assert self.user_idx_tensor.unique().tolist() == sorted(
-            self.user_idx_tensor.unique().tolist()
-        )
+        unique_users_idxs = self.user_idx_tensor.unique()
+        assert unique_users_idxs.tolist() == sorted(unique_users_idxs.tolist())
+        self.n_users = len(unique_users_idxs)
+
+        if no_cs_users_selection is not None:
+            self.no_cs_users_selection = get_no_cs_users_selection(
+                unique_users_idxs, no_cs_users_selection
+            )
         self.get_users_data()
 
     def __len__(self) -> int:
@@ -129,7 +151,9 @@ class FinetuningDataset(Dataset):
         }
 
 
-def create_finetuning_dataset(dataset: dict) -> FinetuningDataset:
+def create_finetuning_dataset(
+    dataset: dict, no_cs_users_selection: bool = None
+) -> FinetuningDataset:
     user_idx_tensor, paper_id_tensor, rating_tensor = (
         dataset["user_idx"],
         dataset["paper_id"],
@@ -153,6 +177,7 @@ def create_finetuning_dataset(dataset: dict) -> FinetuningDataset:
         category_l1_tensor=category_l1_tensor,
         category_l2_tensor=category_l2_tensor,
         time_tensor=time_tensor,
+        no_cs_users_selection=no_cs_users_selection,
     )
 
 
@@ -568,7 +593,7 @@ def get_train_negative_samples_dataloader(
     assert n_train_negative_samples == sum(n_papers_per_category_l1.values())
 
     papers = load_papers()
-    negative_samples_ids_for_seeds = load_negative_samples_ids_for_seeds()
+    negative_samples_ids_for_seeds = load_train_negative_samples_ids()
     all_negative_samples_ids = [
         item for sublist in negative_samples_ids_for_seeds.values() for item in sublist
     ]
@@ -613,6 +638,12 @@ def get_train_negative_samples_dataloader(
 def load_val_data() -> dict:
     val_data = {}
     val_data["val_users_embeddings_idxs"] = load_val_users_embeddings_idxs()
-    val_data["val_dataset"] = create_finetuning_dataset(load_finetuning_dataset("val"))
+    val_data["val_dataset"] = create_finetuning_dataset(
+        load_finetuning_dataset("val"), no_cs_users_selection="val_no_cs"
+    )
     val_data["val_negative_samples"] = load_finetuning_papers("val_negative_samples")
     return val_data
+
+
+def get_n_samples_per_category_for_user_idxs() -> None:
+    pass

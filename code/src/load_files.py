@@ -87,33 +87,6 @@ def load_relevant_papers_ids(
     return relevant_papers_ids
 
 
-def load_finetuning_users(
-    path: Path = ProjectPaths.data_finetuning_users_path(), selection: str = "all"
-) -> dict:
-    assert selection in ["all", "train", "val", "test"]
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Finetuning users file not found at {path}. Run 'get_users_ratings.py' to create it."
-        )
-    with open(path, "rb") as f:
-        finetuning_users = pickle.load(f)
-    assert isinstance(finetuning_users, dict)
-    assert set(finetuning_users.keys()) == {"train", "val", "test"}
-    assert all(isinstance(users, list) for users in finetuning_users.values())
-    assert all(users == sorted(users) for users in finetuning_users.values())
-    assert all(len(users) == len(set(users)) for users in finetuning_users.values())
-    assert (
-        set(finetuning_users["train"])
-        & set(finetuning_users["val"])
-        & set(finetuning_users["test"])
-        == set()
-    )
-    if selection == "all":
-        return finetuning_users
-    else:
-        return finetuning_users[selection]
-
-
 def load_users_significant_categories(
     path: Path = ProjectPaths.data_users_significant_categories_path(),
     relevant_users_ids: list = None,
@@ -142,6 +115,37 @@ def load_users_significant_categories(
     return users_significant_categories
 
 
+def load_finetuning_users(selection: str = "all") -> dict:
+    assert selection in (
+        ["all", "train", "val", "test", "all_no_cs", "train_no_cs", "val_no_cs", "test_no_cs"])
+    if selection.endswith("_no_cs"):
+        path = ProjectPaths.data_finetuning_users_no_cs_path()
+        selection = selection[:-6] # remove "_no_cs" suffix
+    else:
+        path = ProjectPaths.data_finetuning_users_path()
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Finetuning users file not found at {path}. Run 'get_users_ratings.py' to create it."
+        )
+    with open(path, "rb") as f:
+        finetuning_users = pickle.load(f)
+    assert isinstance(finetuning_users, dict)
+    assert set(finetuning_users.keys()) == {"train", "val", "test"}
+    assert all(isinstance(users, list) for users in finetuning_users.values())
+    assert all(users == sorted(users) for users in finetuning_users.values())
+    assert all(len(users) == len(set(users)) for users in finetuning_users.values())
+    assert (
+        set(finetuning_users["train"])
+        & set(finetuning_users["val"])
+        & set(finetuning_users["test"])
+        == set()
+    )
+    if selection == "all":
+        return finetuning_users
+    else:
+        return finetuning_users[selection]
+
+
 if __name__ == "__main__":
     papers_texts = load_papers_texts()
     papers = load_papers()
@@ -162,5 +166,7 @@ if __name__ == "__main__":
         unique_users_ids_before_mapping = users_ratings_before_mapping["user_id"].unique()
         assert len(unique_users_ids_before_mapping) == len(unique_users_ids)
 
-    finetuning_users = load_finetuning_users()
     users_significant_categories = load_users_significant_categories()
+
+    finetuning_users = load_finetuning_users()
+    finetuning_users_no_cs = load_finetuning_users("all_no_cs")

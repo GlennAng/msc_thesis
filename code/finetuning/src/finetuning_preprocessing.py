@@ -13,7 +13,7 @@ from ...logreg.src.training.algorithm import Evaluation
 from ...logreg.src.training.get_users_ratings import get_users_ratings
 from ...logreg.src.training.training_data import (
     get_filtered_cache_papers_ids_for_user,
-    get_negative_samples_ids,
+    get_val_cache_attached_negative_samples_ids,
 )
 from ...src.load_files import (
     load_finetuning_users,
@@ -173,42 +173,61 @@ def load_categories_to_idxs(level: str = "l1") -> dict:
     return categories_to_idxs
 
 
-def save_negative_samples_ids_for_seeds(
-    n_negative_samples: int = 100, random_states: list = None
+def save_train_negative_samples_ids(
+    n_negative_samples: int = 100,
+    n_cache_attached: int = 5000,
+    val_random_state: int = VAL_RANDOM_STATE,
+    test_random_states: list = TEST_RANDOM_STATES,
 ) -> None:
-    path = ProjectPaths.finetuning_data_model_datasets_negative_samples_for_seeds_path()
+    path = ProjectPaths.finetuning_data_train_negative_samples_ids_path()
     if path.exists():
-        print("Negative samples IDs for seeds already exist - skipping saving.")
+        print("Train negative samples IDs already exist - skipping saving.")
         return
-    if random_states is None:
-        random_states = [VAL_RANDOM_STATE] + TEST_RANDOM_STATES
-    random_states = sorted(random_states)
     papers = load_papers(relevant_columns=["paper_id", "in_ratings", "in_cache", "l1"])
-    negative_samples_ids_for_seeds = {}
-    for random_state in random_states:
-        negative_samples_ids = get_negative_samples_ids(
-            papers,
-            n_negative_samples,
-            random_state,
-            exclude_in_ratings=True,
-            exclude_in_cache=True,
-        )
-        assert len(negative_samples_ids) == n_negative_samples and len(negative_samples_ids) == len(
-            set(negative_samples_ids)
-        )
-        negative_samples_ids_for_seeds[random_state] = negative_samples_ids
+    papers_ids = set()
+    val_users_ids = load_finetuning_users(selection="val")
+    val_negative_samples_ids = get_val_cache_attached_negative_samples_ids(
+        users_ids=val_users_ids,
+        papers=papers,
+        n_val_negative_samples=n_negative_samples,
+        ranking_random_state=val_random_state,
+        n_cache_attached=n_cache_attached,
+        cache_random_state=val_random_state,
+        cache_attached_user_specific=True,
+        return_all_papers_ids=True,
+    )[2]
+    papers_ids.update(val_negative_samples_ids)
+
+    test_users_ids = load_finetuning_users(selection="test")
+    for random_state in test_random_states:
+        test_negative_samples_ids = get_val_cache_attached_negative_samples_ids(
+            users_ids=test_users_ids,
+            papers=papers,
+            n_val_negative_samples=n_negative_samples,
+            ranking_random_state=random_state,
+            n_cache_attached=n_cache_attached,
+            cache_random_state=random_state,
+            cache_attached_user_specific=True,
+            return_all_papers_ids=True,
+        )[2]
+        papers_ids.update(test_negative_samples_ids)
+    papers = papers[papers["l1"].notna()]
+    papers = papers[~(papers["in_ratings"] | papers["in_cache"])]
+    papers = papers[~papers["paper_id"].isin(papers_ids)]
+    papers_ids = sorted(list(papers["paper_id"].unique()))
     with open(path, "wb") as f:
-        pickle.dump(negative_samples_ids_for_seeds, f)
-    print(f"Negative samples IDs for seeds saved to {path}.")
+        pickle.dump(papers_ids, f)
 
 
-def load_negative_samples_ids_for_seeds() -> dict:
-    with open(
-        ProjectPaths.finetuning_data_model_datasets_negative_samples_for_seeds_path(),
-        "rb",
-    ) as f:
-        negative_samples_ids_for_seeds = pickle.load(f)
-    return negative_samples_ids_for_seeds
+def load_train_negative_samples_ids() -> list:
+    path = ProjectPaths.finetuning_data_train_negative_samples_ids_path()
+    if not path.exists():
+        raise FileNotFoundError(f"Train negative samples IDs file not found: {path}.")
+    with open(path, "rb") as f:
+        papers_ids = pickle.load(f)
+    assert isinstance(papers_ids, list) and len(papers_ids) == len(set(papers_ids))
+    assert papers_ids == sorted(papers_ids)
+    return papers_ids
 
 
 def finetuning_tokenize_papers(
@@ -258,24 +277,53 @@ def save_val_negative_samples(
     n_negative_samples: int = 100,
     random_state: int = VAL_RANDOM_STATE,
 ) -> None:
-    tensor_path = ProjectPaths.finetuning_data_model_datasets_val_negative_samples_path()
-    if tensor_path.exists():
-        print("Validation negative samples already exist - skipping saving.")
+    val_negative_samples_path = (
+        ProjectPaths.finetuning_data_model_datasets_val_negative_samples_path()
+    )
+    val_negative_samples_matrix_path = (
+        ProjectPaths.finetuning_data_model_datasets_val_negative_samples_matrix_path()
+    )
+    if val_negative_samples_path.exists() and val_negative_samples_matrix_path.exists():
+        print("Validation negative samples tensor and matrix already exist - skipping saving.")
         return
     papers = load_papers(relevant_columns=["paper_id", "in_ratings", "in_cache", "l1"])
-    negative_samples_ids = get_negative_samples_ids(
-        papers,
-        n_negative_samples,
-        random_state,
-        exclude_in_ratings=True,
-        exclude_in_cache=True,
+    val_users_ids = load_finetuning_users(selection="val")
+    val_negative_samples_matrix, _, val_negative_samples_ids = (
+        get_val_cache_attached_negative_samples_ids(
+            users_ids=val_users_ids,
+            papers=papers,
+            n_val_negative_samples=n_negative_samples,
+            ranking_random_state=random_state,
+            n_cache_attached=0,
+            cache_random_state=random_state,
+            cache_attached_user_specific=True,
+            return_all_papers_ids=True,
+        )
     )
-    negative_samples_ids = sorted(list(negative_samples_ids))
-    negative_samples = finetuning_tokenize_papers(
-        negative_samples_ids, tokenizer, max_sequence_length
-    )[0]
-    torch.save(negative_samples, tensor_path)
-    print(f"Validation negative samples tensor saved to {tensor_path}.")
+    val_negative_samples, val_negative_samples_ids_to_idxs = finetuning_tokenize_papers(
+        val_negative_samples_ids, tokenizer, max_sequence_length
+    )
+    matrix_map = np.vectorize(val_negative_samples_ids_to_idxs.get)
+    val_negative_samples_matrix = matrix_map(val_negative_samples_matrix)
+    val_negative_samples_matrix = torch.from_numpy(val_negative_samples_matrix).to(torch.int64)
+    torch.save(val_negative_samples, val_negative_samples_path)
+    print(f"Validation negative samples tensor saved to {val_negative_samples_path}.")
+    torch.save(val_negative_samples_matrix, val_negative_samples_matrix_path)
+    print(f"Validation negative samples matrix tensor saved to {val_negative_samples_matrix_path}.")
+
+
+def load_val_negative_samples_matrix() -> torch.Tensor:
+    val_negative_samples_matrix_path = (
+        ProjectPaths.finetuning_data_model_datasets_val_negative_samples_matrix_path()
+    )
+    if not val_negative_samples_matrix_path.exists():
+        raise FileNotFoundError(
+            f"Validation negative samples matrix tensor not found: {val_negative_samples_matrix_path}."
+        )
+    val_negative_samples_matrix = torch.load(val_negative_samples_matrix_path, weights_only=True)
+    assert val_negative_samples_matrix.dtype == torch.int64
+    assert val_negative_samples_matrix.shape == (500, 100)
+    return val_negative_samples_matrix
 
 
 def finetuning_get_cache_papers_ids_for_user(
@@ -305,9 +353,8 @@ def save_test_papers(
     test_random_states: list = TEST_RANDOM_STATES,
 ) -> None:
     assert val_random_state not in test_random_states
-    assert len(test_random_states) == len(set(test_random_states)) and test_random_states == sorted(
-        test_random_states
-    )
+    assert len(test_random_states) == len(set(test_random_states))
+    assert test_random_states == sorted(test_random_states)
     tensor_path = ProjectPaths.finetuning_data_model_datasets_test_papers_path()
     if tensor_path.exists():
         print("Test papers already exist - skipping saving.")
@@ -315,50 +362,57 @@ def save_test_papers(
     papers = load_papers(relevant_columns=["paper_id", "in_ratings", "in_cache", "l1"])
     cache_ids = papers[papers["in_cache"]]["paper_id"].tolist()
     assert len(cache_ids) == len(set(cache_ids)) and cache_ids == sorted(cache_ids)
-    full_random_states = sorted(set([val_random_state] + test_random_states))
-    negative_samples_ids_for_seeds = load_negative_samples_ids_for_seeds()
-    assert list(negative_samples_ids_for_seeds.keys()) == full_random_states
     papers_ids = set()
-    for random_state in full_random_states:
-        negative_samples_ids = negative_samples_ids_for_seeds[random_state]
-        assert negative_samples_ids == get_negative_samples_ids(
-            papers,
-            n_negative_samples,
-            random_state,
-            exclude_in_ratings=True,
-            exclude_in_cache=True,
-        )
-        cache_attached_papers_ids = get_negative_samples_ids(
-            papers,
-            n_cache_attached,
-            random_state,
-            papers_to_exclude=negative_samples_ids,
-        )
-        papers_ids.update(negative_samples_ids + cache_attached_papers_ids)
+
     val_users_ids = load_finetuning_users(selection="val")
-    test_users_ids = load_finetuning_users(selection="test")
-    users_ratings = load_users_ratings(
-        relevant_columns=["user_id", "paper_id", "rating"],
-        relevant_users_ids=val_users_ids + test_users_ids,
+    val_users_ratings = load_users_ratings(relevant_users_ids=val_users_ids)
+    papers_ids.update(val_users_ratings["paper_id"].unique().tolist())
+    papers_ids.update(
+        get_val_cache_attached_negative_samples_ids(
+            users_ids=val_users_ids,
+            papers=papers,
+            n_val_negative_samples=n_negative_samples,
+            ranking_random_state=val_random_state,
+            n_cache_attached=n_cache_attached,
+            cache_random_state=val_random_state,
+            cache_attached_user_specific=True,
+            return_all_papers_ids=True,
+        )[2]
     )
-    papers_ids.update(users_ratings["paper_id"].unique())
     for val_user_id in tqdm(
         val_users_ids, desc="Getting Cache Papers for Val Users", unit="Val User"
     ):
         papers_ids.update(
             finetuning_get_cache_papers_ids_for_user(
-                users_ratings, val_user_id, cache_ids, n_cache, val_random_state
+                val_users_ratings, val_user_id, cache_ids, n_cache, val_random_state
             )
         )
+
+    test_users_ids = load_finetuning_users(selection="test")
+    test_users_ratings = load_users_ratings(relevant_users_ids=test_users_ids)
+    papers_ids.update(test_users_ratings["paper_id"].unique().tolist())
+    for random_state in test_random_states:
+        all_papers_ids = get_val_cache_attached_negative_samples_ids(
+            users_ratings=test_users_ratings,
+            papers=papers,
+            n_val_negative_samples=100,
+            ranking_random_state=random_state,
+            n_cache_attached=5000,
+            cache_random_state=random_state,
+            cache_attached_user_specific=True,
+            return_all_papers_ids=True,
+        )[2]
+        papers_ids.update(all_papers_ids)
     for test_user_id in tqdm(
         test_users_ids, desc="Getting Cache Papers for Test Users", unit="Test User"
     ):
         for random_state in test_random_states:
             papers_ids.update(
                 finetuning_get_cache_papers_ids_for_user(
-                    users_ratings, test_user_id, cache_ids, n_cache, random_state
+                    test_users_ratings, test_user_id, cache_ids, n_cache, random_state
                 )
             )
+
     papers_ids = sorted(list(papers_ids))
     papers_tokenized = finetuning_tokenize_papers(papers_ids, tokenizer, max_sequence_length)[0]
     torch.save(papers_tokenized, tensor_path)
@@ -696,6 +750,8 @@ def test_loading() -> None:
     print(f"Loaded {len(categories_to_idxs_l1)} categories for L1.")
     categories_to_idxs_l2 = load_categories_to_idxs("l2")
     print(f"Loaded {len(categories_to_idxs_l2)} categories for L2.")
+    train_negative_samples_ids = load_train_negative_samples_ids()
+    print(f"Loaded {len(train_negative_samples_ids)} train negative samples IDs.")
     test_papers = load_finetuning_papers("test", attach_l1=True, attach_l2=True)
     print(f"Loaded {len(test_papers['paper_id'])} test papers with L1 and L2 categories.")
     train_dataset = load_finetuning_dataset("train", check=True)
@@ -733,7 +789,7 @@ if __name__ == "__main__":
     save_users_embeddings_tensor()
     save_projection_tensor()
     save_categories_embeddings_tensor()
-    save_negative_samples_ids_for_seeds()
+    save_train_negative_samples_ids()
     save_finetuning_papers()
     save_finetuning_datasets()
     save_finetuning_model()

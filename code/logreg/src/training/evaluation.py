@@ -110,9 +110,14 @@ class Evaluator:
                 self.cache_papers_ids = papers[papers["in_cache"]]["paper_id"].tolist()
                 assert self.cache_papers_ids == sorted(self.cache_papers_ids)
 
+        users_ids = users_ratings["user_id"].unique().tolist()
+        users_ratings = users_ratings.merge(
+            papers[["paper_id", "l1", "l2"]], on="paper_id", how="left"
+        )
+        
         val_negative_samples_ids, cache_attached_papers_ids, _ = (
             get_val_cache_attached_negative_samples_ids(
-                users_ratings=users_ratings,
+                users_ids=users_ids,
                 papers=papers,
                 n_val_negative_samples=self.config["n_negative_samples"],
                 ranking_random_state=self.config["ranking_random_state"],
@@ -122,10 +127,7 @@ class Evaluator:
                 return_all_papers_ids=False,
             )
         )
-        users_ids = users_ratings["user_id"].unique().tolist()
-        users_ratings = users_ratings.merge(
-            papers[["paper_id", "l1", "l2"]], on="paper_id", how="left"
-        )
+
         if self.config["n_jobs"] == 1:
             for i, user_id in enumerate(users_ids):
                 user_ratings = users_ratings[users_ratings["user_id"] == user_id].reset_index(

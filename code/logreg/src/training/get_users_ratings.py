@@ -8,6 +8,7 @@ import pandas as pd
 from ....src.load_files import (
     load_finetuning_users,
     load_users_ratings,
+    load_users_significant_categories,
 )
 from ....src.project_paths import ProjectPaths
 from .algorithm import Evaluation
@@ -377,11 +378,35 @@ def save_finetuning_users(path: Path, random_state: int = 42) -> None:
         pickle.dump({"test": test_users_ids, "val": val_users_ids, "train": train_users_ids}, f)
 
 
+def save_finetuning_users_no_cs(path: Path) -> None:
+    finetuning_users = load_finetuning_users(selection="all")
+    users_significant_categories = load_users_significant_categories()
+    users_significant_categories = users_significant_categories[
+        users_significant_categories["rank"] == 1
+    ].reset_index(drop=True)
+    users_significant_categories_no_cs = users_significant_categories[
+        users_significant_categories["category"] != "Computer Science"
+    ].reset_index(drop=True)
+    finetuning_users_no_cs = {}
+    for split in finetuning_users:
+        finetuning_users_split = finetuning_users[split]
+        finetuning_users_split_no_cs = users_significant_categories_no_cs[
+            users_significant_categories_no_cs["user_id"].isin(finetuning_users_split)
+        ]["user_id"].tolist()
+        finetuning_users_no_cs[split] = sorted(finetuning_users_split_no_cs)
+    with open(path, "wb") as f:
+        pickle.dump(finetuning_users_no_cs, f)
+
+
 if __name__ == "__main__":
+    print("Saving finetuning users...")
     save_finetuning_users(ProjectPaths.data_finetuning_users_path(), random_state=42)
-    val_users = load_finetuning_users(selection="val")
+    print("Saving finetuning users no CS...")
+    save_finetuning_users_no_cs(ProjectPaths.data_finetuning_users_no_cs_path())
+
+    print("Getting val users temporal ratings...")
     val_users_temporal_ratings = get_users_ratings(
-        users_selection=val_users,
+        users_selection="finetuning_val",
         evaluation=Evaluation.SESSION_BASED,
         train_size=1.0,
         min_n_posrated_train=16,
@@ -392,9 +417,10 @@ if __name__ == "__main__":
     val_users_temporal_ratings.to_parquet(
         ProjectPaths.data_val_users_temporal_ratings_path(), index=False
     )
-    test_users = load_finetuning_users(selection="test")
+
+    print("Getting test users temporal ratings...")
     test_users_temporal_ratings = get_users_ratings(
-        users_selection=test_users,
+        users_selection="finetuning_test",
         evaluation=Evaluation.SESSION_BASED,
         train_size=1.0,
         min_n_posrated_train=16,
@@ -405,4 +431,3 @@ if __name__ == "__main__":
     test_users_temporal_ratings.to_parquet(
         ProjectPaths.data_test_users_temporal_ratings_path(), index=False
     )
-    print("Saved val and test users temporal ratings.")

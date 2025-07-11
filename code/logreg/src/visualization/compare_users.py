@@ -8,25 +8,26 @@ from ....logreg.src.visualization.visualization_tools import (
 from ....logreg.src.visualization.visualize_globally import Global_Visualizer
 from ....src.project_paths import ProjectPaths
 
+
+og_path = ProjectPaths.logreg_outputs_path() / "example_config_temporal"
+new_path = (
+    ProjectPaths.finetuning_data_checkpoints_path() /
+    "best_batch_125" / "embeddings" / "outputs" / "no_overlap_session_based" / 
+    "no_overlap_session_based_s75"
+)
+
 (
     config_og,
     users_info_og,
     hyperparameters_combinations_og,
     results_before_averaging_over_folds_og,
-) = load_outputs_files(ProjectPaths.logreg_outputs_path() / "example_config_temporal")
+) = load_outputs_files(og_path)
 (
     config_new,
     users_info_new,
     hyperparameters_combinations_new,
     results_before_averaging_over_folds_new,
-) = load_outputs_files(
-    ProjectPaths.finetuning_data_checkpoints_path()
-    / "best_batch_125"
-    / "embeddings"
-    / "outputs"
-    / "no_overlap_session_based"
-    / "no_overlap_session_based_s75"
-)
+) = load_outputs_files(new_path)
 
 gv_og = Global_Visualizer(
     config=config_og,
@@ -44,6 +45,7 @@ gv_new = Global_Visualizer(
     score=Score.NDCG_ALL,
     folder=None,
 )
+
 val_columns = [f"val_{score.name.lower()}_mean" for score in SCORES_DICT.keys()]
 scores_og = {}
 scores_new = {}
@@ -115,9 +117,10 @@ print("---------------------")
 
 user_results_og = gv_og.results_after_averaging_over_folds[f"val_{gv_og.score.name.lower()}"]
 user_results_new = gv_new.results_after_averaging_over_folds[f"val_{gv_new.score.name.lower()}"]
-assert (gv_og.results_after_averaging_over_folds["user_id"] == gv_new.results_after_averaging_over_folds["user_id"]).all(), (
-    "User IDs do not match between original and new results."
-)
+assert (
+    gv_og.results_after_averaging_over_folds["user_id"]
+    == gv_new.results_after_averaging_over_folds["user_id"]
+).all(), "User IDs do not match between original and new results."
 inc_better = SCORES_DICT[gv_og.score]["increase_better"]
 n_users = len(user_results_og)
 
@@ -129,14 +132,18 @@ else:
 n_users_improved = sum(1 for i in range(n_users) if user_results_improvements[i] > 0)
 n_users_same = sum(1 for i in range(n_users) if user_results_improvements[i] == 0)
 n_users_worsened = sum(1 for i in range(n_users) if user_results_improvements[i] < 0)
-users_ids = gv_og.results_after_averaging_over_folds["user_id"].tolist()  # Convert to list for easier indexing
+users_ids = gv_og.results_after_averaging_over_folds[
+    "user_id"
+].tolist()  # Convert to list for easier indexing
 
 print(
     f"Users Total: {n_users}, Improved: {n_users_improved}, Same: {n_users_same}, Worsened: {n_users_worsened}, "
     f"Average Change: {np.mean(user_results_improvements):.4f}"
 )
 
-user_improvement_pairs = [(user_results_improvements[i], i) for i in range(len(user_results_improvements))]
+user_improvement_pairs = [
+    (user_results_improvements[i], i) for i in range(len(user_results_improvements))
+]
 print("5 Users with Best Changes:")
 top_5_pairs = sorted(user_improvement_pairs, reverse=True)[:5]
 for improvement, user_index in top_5_pairs:
@@ -147,7 +154,7 @@ for improvement, user_index in top_5_pairs:
     else:
         improv_sign = "-" if improv else "+"
     improv_string = "(BETTER)" if improv else "(WORSE)"
-    
+
     print(
         f"User {user_id:<3}: {user_results_og[user_index]:>7.4f} (OG) "
         f"{user_results_new[user_index]:>7.4f} (NEW) "
@@ -179,7 +186,9 @@ print("---------------------")
 print("10 Users with Worst Changes:")
 
 # Get the 10 worst improvements (lowest values)
-worst_10_pairs = sorted(user_improvement_pairs, reverse=False)[:10]  # Sort ascending to get worst first
+worst_10_pairs = sorted(user_improvement_pairs, reverse=False)[
+    :10
+]  # Sort ascending to get worst first
 
 for improvement, user_index in worst_10_pairs:
     user_id = users_ids[user_index]  # Get the actual user ID
@@ -195,7 +204,7 @@ for improvement, user_index in worst_10_pairs:
         f"{user_results_new[user_index]:>7.4f} (NEW) "
         f"{improv_sign}{np.abs(improvement):.4f} {improv_string}"
     )
-    
+
     recall_c = (
         gv_new.results_after_averaging_over_folds["val_recall"][user_index]
         - gv_og.results_after_averaging_over_folds["val_recall"][user_index]
@@ -231,20 +240,20 @@ for user_id in users_ids:
     og_score = user_results_og[user_index]
     new_score = user_results_new[user_index]
     improvement = user_results_improvements[user_index]
-    
+
     improv = improvement >= 0
     if inc_better:
         improv_sign = "+" if improv else "-"
     else:
         improv_sign = "-" if improv else "+"
     improv_string = "(BETTER)" if improv else "(WORSE)"
-    
+
     print(
         f"User {user_id:<5}: {og_score:>7.4f} (OG) "
         f"{new_score:>7.4f} (NEW) "
         f"{improv_sign}{np.abs(improvement):.4f} {improv_string}"
     )
-    
+
     recall_c = (
         gv_new.results_after_averaging_over_folds["val_recall"][user_index]
         - gv_og.results_after_averaging_over_folds["val_recall"][user_index]
@@ -261,7 +270,7 @@ for user_id in users_ids:
         gv_new.results_after_averaging_over_folds["val_ndcg_samples"][user_index]
         - gv_og.results_after_averaging_over_folds["val_ndcg_samples"][user_index]
     )
-    
+
     print(
         f"Recall Change: {recall_c:.4f}, Specificity Change: {spec_c:.4f}, "
         f"nDCG Change: {ndcg_c:.4f}, nDCG Samples Change: {ndcg_s_c:.4f}\n"

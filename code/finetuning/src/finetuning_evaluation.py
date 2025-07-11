@@ -27,6 +27,7 @@ from .finetuning_preprocessing import (
     load_finetuning_dataset,
     load_finetuning_papers,
     load_users_coefs_ids_to_idxs,
+    load_val_negative_samples_matrix,
     load_val_users_embeddings_idxs,
 )
 from .finetuning_visualization import visualize_testing
@@ -118,7 +119,7 @@ def compute_test_embeddings(
 def save_finetuning_config(
     file_path: Path,
     embeddings_folder: Path,
-    users_ids: list,
+    users_ids: str,
     evaluation: str,
     random_state: int,
     tfidf: bool = False,
@@ -138,11 +139,10 @@ def save_finetuning_config(
         )
     else:
         example_config = (
-            create_example_config()
+            create_example_config(embeddings_folder)
             if evaluation == "cross_validation"
-            else create_example_config_temporal()
+            else create_example_config_temporal(embeddings_folder)
         )
-    example_config["embedding_folder"] = str(embeddings_folder)
     example_config["users_selection"] = users_ids
     example_config["model_random_state"] = random_state
     example_config["cache_random_state"] = random_state
@@ -159,7 +159,7 @@ def run_testing_single(
     embeddings_folder: Path,
     configs_folder: Path,
     outputs_folder: Path,
-    users_ids: list,
+    users_ids: str,
     evaluation: str,
     random_states: list,
     tfidf: bool = False,
@@ -217,8 +217,8 @@ def run_testing(
     embeddings_folder: Path,
     configs_folder: Path,
     outputs_folder: Path,
-    val_users_ids: list,
-    test_users_no_overlap_ids: list,
+    val_users_ids: str,
+    test_users_no_overlap_ids: str,
     cross_validation: bool,
     session_based: bool,
     tfidf: bool = False,
@@ -405,6 +405,7 @@ def compute_user_ranking_metrics(
         user_ranking_metrics_all,
     )
 
+
 def get_metric_strings() -> dict:
     return {
         "bcel": "BCEL",
@@ -454,6 +455,9 @@ def print_validation(scores_dict: dict) -> str:
     validation_str += "\nRanking (All):   " + print_metrics(
         scores_dict, [f"val_{metric}_all" for metric in FINETUNING_RANKING_METRICS]
     )
+    validation_str += "\nRanking (All) No CS:   " + print_metrics(
+        scores_dict, [f"val_{metric}_all_no_cs" for metric in FINETUNING_RANKING_METRICS]
+    )
     metric_strings = get_metric_strings()
     validation_str += "\nWorst nDCG:   "
     for i, ndcg_str in enumerate(["worst_10_ndcg", "worst_3_ndcg", "worst_ndcg"]):
@@ -485,6 +489,7 @@ def run_validation(
     finetuning_model: FinetuningModel,
     val_dataset: FinetuningDataset,
     val_negative_samples: dict,
+    val_negative_samples_matrix: torch.Tensor,
     print_results: bool = True,
     original_ndcg_scores: torch.Tensor = None,
 ) -> tuple:
@@ -508,6 +513,9 @@ def run_validation(
         val_negative_samples["l1"],
         val_negative_samples["l2"],
     )
+    val_negative_samples_scores = torch.gather(
+        val_negative_samples_scores, dim=1, index=val_negative_samples_matrix
+    )
     val_classification_metrics = torch.zeros(
         size=(val_dataset.n_users, len(FINETUNING_CLASSIFICATION_METRICS)),
         dtype=torch.float32,
@@ -519,6 +527,9 @@ def run_validation(
         size=(val_dataset.n_users, len(FINETUNING_RANKING_METRICS)), dtype=torch.float32
     )
     val_ranking_metrics_all = torch.zeros(
+        size=(val_dataset.n_users, len(FINETUNING_RANKING_METRICS)), dtype=torch.float32
+    )
+    val_ranking_metrics_all_no_cs = torch.zeros(
         size=(val_dataset.n_users, len(FINETUNING_RANKING_METRICS)), dtype=torch.float32
     )
 
@@ -561,6 +572,9 @@ def run_validation(
         val_ranking_metrics_explicit_negatives, dim=0
     )
     val_ranking_metrics_negative_samples = torch.mean(val_ranking_metrics_negative_samples, dim=0)
+    val_ranking_metrics_all_no_cs = torch.mean(
+        val_ranking_metrics_all[val_dataset.no_cs_users_selection], dim=0
+    )
     val_ranking_metrics_all = torch.mean(val_ranking_metrics_all, dim=0)
 
     for i, metric in enumerate(FINETUNING_CLASSIFICATION_METRICS):
@@ -573,6 +587,7 @@ def run_validation(
             i
         ].item()
         scores_dict[f"val_{metric}_all"] = val_ranking_metrics_all[i].item()
+        scores_dict[f"val_{metric}_all_no_cs"] = val_ranking_metrics_all_no_cs[i].item()
     validation_str = print_validation(scores_dict)
     if print_results:
         print(validation_str)
@@ -582,19 +597,27 @@ def run_validation(
 
 
 def test_validation(finetuning_model: FinetuningModel) -> None:
-    val_dataset = create_finetuning_dataset(load_finetuning_dataset("val"))
+    val_dataset = create_finetuning_dataset(
+        load_finetuning_dataset("val"), no_cs_users_selection="val_no_cs"
+    )
     val_negative_samples = load_finetuning_papers("val_negative_samples")
-    run_validation(finetuning_model, val_dataset, val_negative_samples, print_results=True)
+    val_negative_samples_matrix = load_val_negative_samples_matrix()
+    run_validation(
+        finetuning_model,
+        val_dataset,
+        val_negative_samples,
+        val_negative_samples_matrix,
+    )
 
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     evaluation_config = parse_arguments()
     finetuning_users = load_finetuning_users()
-    val_users_ids = finetuning_users["val"] if evaluation_config["overlap"] else None
-    test_users_no_overlap_ids = finetuning_users["test"]
+    val_users_ids = "finetuning_val" if evaluation_config["overlap"] else None
+    test_users_no_overlap_ids = "finetuning_test"
 
-    if not evaluation_config["embeddings_path"]:
+    if not evaluation_config["embeddings_path"] and evaluation_config["perform_evaluation"]:
         users_embeddings_ids_to_idxs = load_users_coefs_ids_to_idxs()
         test_papers = load_finetuning_papers("test")
         val_users_embeddings_idxs = load_val_users_embeddings_idxs()

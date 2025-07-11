@@ -24,14 +24,13 @@ def save_relevant_papers(seeds: list = TEST_RANDOM_STATES) -> list:
     for random_state in tqdm(seeds):
         negative_samples_ids = (
             get_val_cache_attached_negative_samples_ids(
-                users_ratings=users_ratings,
+                users_ids=users_ids,
                 papers=papers,
                 n_val_negative_samples=100,
                 ranking_random_state=random_state,
                 n_cache_attached=5000,
                 cache_random_state=random_state,
                 cache_attached_user_specific=True,
-                users_significant_categories_path=None,
                 return_all_papers_ids=True,
             )[2]
         )

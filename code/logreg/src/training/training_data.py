@@ -315,8 +315,12 @@ def get_negative_samples_ids(
     return negative_samples_ids
 
 
+def extract_papers_ids(papers_ids: np.ndarray) -> list:
+    return sorted(list(set(papers_ids.flatten().tolist())))
+
+
 def get_val_cache_attached_negative_samples_ids(
-    users_ratings: pd.DataFrame,
+    users_ids: list,
     papers: pd.DataFrame,
     n_val_negative_samples: int,
     ranking_random_state: int,
@@ -325,7 +329,8 @@ def get_val_cache_attached_negative_samples_ids(
     cache_attached_user_specific: bool = True,
     return_all_papers_ids: bool = False,
 ) -> tuple:
-    users_ids = users_ratings["user_id"].unique().tolist()
+    assert len(users_ids) == len(set(users_ids)), "Users IDs must be unique."
+    assert users_ids == sorted(users_ids), "Users IDs must be sorted."
     n_users = len(users_ids)
     users_significant_categories = load_users_significant_categories(
         relevant_users_ids=users_ids,
@@ -350,7 +355,7 @@ def get_val_cache_attached_negative_samples_ids(
     assert val_negative_samples_ids.shape == (n_users, n_val_negative_samples)
     cache_attached_papers_ids = None
     if n_cache_attached > 0:
-        cache_attached_papers_ids_per_category, cache_attached_papers_ids_list = (
+        cache_attached_papers_ids_per_category = (
             get_negative_samples_ids_per_category(
                 papers=papers,
                 n_negative_samples=n_cache_attached,
@@ -358,7 +363,7 @@ def get_val_cache_attached_negative_samples_ids(
                 papers_to_exclude=val_negative_samples_ids_list,
                 categories_ratios=None,
                 scalar_factor=(2.0 if cache_attached_user_specific else 1.0),
-            )
+            )[0]
         )
         cache_attached_papers_ids = get_negative_samples_ids(
             negative_samples_ids_per_category=cache_attached_papers_ids_per_category,
@@ -370,9 +375,9 @@ def get_val_cache_attached_negative_samples_ids(
         assert cache_attached_papers_ids.shape == (n_users, n_cache_attached)
     all_papers_ids = None
     if return_all_papers_ids:
-        all_papers_ids = val_negative_samples_ids_list
+        all_papers_ids = extract_papers_ids(val_negative_samples_ids)
         if cache_attached_papers_ids is not None:
-            all_papers_ids.extend(cache_attached_papers_ids_list)
+            all_papers_ids.extend(extract_papers_ids(cache_attached_papers_ids))
         all_papers_ids = sorted(all_papers_ids)
     return val_negative_samples_ids, cache_attached_papers_ids, all_papers_ids
 
