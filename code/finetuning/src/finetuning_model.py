@@ -201,6 +201,8 @@ class FinetuningModel(nn.Module):
         if self.unfreeze_word_embeddings:
             for param in self.transformer_model.embeddings.parameters():
                 param.requires_grad = True
+        #for param in self.categories_embeddings_l1.parameters():
+        #    param.requires_grad = False
 
     def count_transformer_layers(self) -> int:
         return len(self.transformer_model.encoder.layer)

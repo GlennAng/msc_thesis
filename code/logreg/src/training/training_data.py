@@ -251,9 +251,58 @@ def fill_n_samples_per_category(
     n_samples_total = sum(n_samples_per_category.values())
     while n_samples_total < n_negative_samples:
         category = rng.choice(list(user_categories_ratios.keys()))
-        if n_samples_per_category[category] < len(negative_samples_ids_per_category[category]):
-            n_samples_per_category[category] += 1
-            n_samples_total += 1
+        if isinstance(negative_samples_ids_per_category[category], int):
+            if n_samples_per_category[category] < negative_samples_ids_per_category[category]:
+                n_samples_per_category[category] += 1
+                n_samples_total += 1
+        else:
+            if n_samples_per_category[category] < len(negative_samples_ids_per_category[category]):
+                n_samples_per_category[category] += 1
+                n_samples_total += 1
+    return n_samples_per_category
+
+
+def get_n_samples_per_category_for_user(
+    negative_samples_ids_per_category: dict,
+    n_negative_samples: int,
+    rng: random.Random,
+    user_specific: bool = True,
+    user_id: int = None,
+    categories_ratios: dict = None,
+    users_significant_categories: pd.DataFrame = None,
+) -> dict:
+    if categories_ratios is None:
+        categories_ratios = get_categories_ratios()
+    if user_specific:
+        assert user_id is not None and users_significant_categories is not None
+        significant_categories_for_user = users_significant_categories[
+            users_significant_categories["user_id"] == user_id
+        ]["category"]
+        if isinstance(significant_categories_for_user, str):
+            significant_categories_for_user = [significant_categories_for_user]
+        else:
+            significant_categories_for_user = significant_categories_for_user.tolist()
+        user_categories_ratios = {
+            cat: ratio
+            for cat, ratio in categories_ratios.items()
+            if cat not in significant_categories_for_user
+        }
+        total_ratio = sum(user_categories_ratios.values())
+        user_categories_ratios = {
+            cat: ratio / total_ratio for cat, ratio in user_categories_ratios.items()
+        }
+    else:
+        user_categories_ratios = categories_ratios
+    n_samples_per_category = {
+        cat: floor(n_negative_samples * ratio) for cat, ratio in user_categories_ratios.items()
+    }
+    n_samples_per_category = fill_n_samples_per_category(
+        negative_samples_ids_per_category=negative_samples_ids_per_category,
+        n_samples_per_category=n_samples_per_category,
+        user_categories_ratios=user_categories_ratios,
+        n_negative_samples=n_negative_samples,
+        rng=rng,
+    )
     return n_samples_per_category
 
 
@@ -275,34 +324,14 @@ def get_negative_samples_ids(
     for category, samples in negative_samples_ids_per_category.items():
         rng.shuffle(samples)
     for i, user_id in enumerate(users_ids):
-        if user_specific:
-            significant_categories_for_user = users_significant_categories[
-                users_significant_categories["user_id"] == user_id
-            ]["category"]
-            if isinstance(significant_categories_for_user, str):
-                significant_categories_for_user = [significant_categories_for_user]
-            else:
-                significant_categories_for_user = significant_categories_for_user.tolist()
-            user_categories_ratios = {
-                cat: ratio
-                for cat, ratio in categories_ratios.items()
-                if cat not in significant_categories_for_user
-            }
-            total_ratio = sum(user_categories_ratios.values())
-            user_categories_ratios = {
-                cat: ratio / total_ratio for cat, ratio in user_categories_ratios.items()
-            }
-        else:
-            user_categories_ratios = categories_ratios
-        n_samples_per_category = {
-            cat: floor(n_negative_samples * ratio) for cat, ratio in user_categories_ratios.items()
-        }
-        n_samples_per_category = fill_n_samples_per_category(
+        n_samples_per_category = get_n_samples_per_category_for_user(
             negative_samples_ids_per_category=negative_samples_ids_per_category,
-            n_samples_per_category=n_samples_per_category,
-            user_categories_ratios=user_categories_ratios,
             n_negative_samples=n_negative_samples,
             rng=rng,
+            user_specific=user_specific,
+            user_id=user_id,
+            categories_ratios=categories_ratios,
+            users_significant_categories=users_significant_categories,
         )
         user_negative_samples_ids = []
         for category, n_samples_category in n_samples_per_category.items():
@@ -355,16 +384,14 @@ def get_val_cache_attached_negative_samples_ids(
     assert val_negative_samples_ids.shape == (n_users, n_val_negative_samples)
     cache_attached_papers_ids = None
     if n_cache_attached > 0:
-        cache_attached_papers_ids_per_category = (
-            get_negative_samples_ids_per_category(
-                papers=papers,
-                n_negative_samples=n_cache_attached,
-                random_state=cache_random_state,
-                papers_to_exclude=val_negative_samples_ids_list,
-                categories_ratios=None,
-                scalar_factor=(2.0 if cache_attached_user_specific else 1.0),
-            )[0]
-        )
+        cache_attached_papers_ids_per_category = get_negative_samples_ids_per_category(
+            papers=papers,
+            n_negative_samples=n_cache_attached,
+            random_state=cache_random_state,
+            papers_to_exclude=val_negative_samples_ids_list,
+            categories_ratios=None,
+            scalar_factor=(2.0 if cache_attached_user_specific else 1.0),
+        )[0]
         cache_attached_papers_ids = get_negative_samples_ids(
             negative_samples_ids_per_category=cache_attached_papers_ids_per_category,
             users_significant_categories=users_significant_categories,
@@ -444,7 +471,6 @@ def get_categories_distribution_val_negative_samples(
     papers: pd.DataFrame,
     users_ratings: pd.DataFrame,
     level: str = "l1",
-    print_results: bool = True,
 ) -> dict:
     if level not in ["l1", "l2", "l3"]:
         raise ValueError(f"Invalid level '{level}'. Must be one of 'l1', 'l2', or 'l3'.")

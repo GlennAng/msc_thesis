@@ -161,14 +161,21 @@ def get_finetuning_dataloaders(args_dict: dict) -> tuple:
     train_dataset_dataloader = get_train_dataset_dataloader(args_dict)
     assert len(train_dataset_dataloader) == args_dict["n_batches_total"]
     train_negative_samples_dataloader = None
+    n_samples_per_category_for_users_idxs = None
     if args_dict["n_train_negative_samples"] > 0:
-        train_negative_samples_dataloader = get_train_negative_samples_dataloader(
-            n_train_negative_samples=args_dict["n_train_negative_samples"],
-            n_batches_total=args_dict["n_batches_total"],
-            seed=args_dict["seed"],
+        train_negative_samples_dataloader, n_samples_per_category_for_users_idxs = (
+            get_train_negative_samples_dataloader(
+                n_train_negative_samples=args_dict["n_train_negative_samples"],
+                n_batches_total=args_dict["n_batches_total"],
+                seed=args_dict["seed"],
+            )
         )
         assert len(train_negative_samples_dataloader) == len(train_dataset_dataloader)
-    return train_dataset_dataloader, train_negative_samples_dataloader
+    return (
+        train_dataset_dataloader,
+        train_negative_samples_dataloader,
+        n_samples_per_category_for_users_idxs,
+    )
 
 
 def load_optimizer(
@@ -361,6 +368,7 @@ def process_val(
         finetuning_model,
         val_data["val_dataset"],
         val_data["val_negative_samples"],
+        val_data["val_negative_samples_matrix"],
         print_results=False,
         original_ndcg_scores=original_ndcg_scores,
     )
@@ -398,6 +406,44 @@ def process_val(
     return val_scores_batch, baseline_metric, early_stopping_counter, ndcg_scores
 
 
+def extract_negative_samples_scores(
+        negative_samples_scores: torch.Tensor,
+        sorted_unique_user_idx_tensor: torch.Tensor,
+        category_l1_tensor: torch.Tensor,
+        n_samples_per_category_for_users_idxs: torch.Tensor,
+) -> torch.Tensor:
+    device = negative_samples_scores.device
+    category_l1_tensor = category_l1_tensor.to(device)
+    n_samples_per_category_for_users_idxs = n_samples_per_category_for_users_idxs.to(device)
+    n_samples_per_category_for_users_idxs = n_samples_per_category_for_users_idxs[
+        sorted_unique_user_idx_tensor
+    ]
+    n_users = sorted_unique_user_idx_tensor.shape[0]
+    n_scores_to_extract = n_samples_per_category_for_users_idxs[0].sum().item()
+    n_categories = n_samples_per_category_for_users_idxs.shape[1]
+    result = torch.zeros(
+        (n_users, n_scores_to_extract), dtype=negative_samples_scores.dtype, device=negative_samples_scores.device
+    )
+    for i, user_idx in enumerate(sorted_unique_user_idx_tensor):
+        user_scores = negative_samples_scores[i]
+        user_n_categories = n_samples_per_category_for_users_idxs[i]
+        selected_scores = []
+        for j in range(n_categories):
+            n_needed = user_n_categories[j].item()
+            if n_needed > 0:
+                category_scores = user_scores[category_l1_tensor == j]
+                if len(category_scores) < n_needed:
+                    raise ValueError(
+                        f"Not enough negative samples for user {user_idx.item()} in category {j}. "
+                        f"Required: {n_needed}, Available: {len(category_scores)}."
+                    )
+                selected_scores.append(category_scores[:n_needed])
+        selected_scores = torch.cat(selected_scores, dim=0)
+        assert len(selected_scores) == n_scores_to_extract
+        result[i] = selected_scores
+    return result
+
+
 def process_batch(
     finetuning_model: FinetuningModel,
     args_dict: dict,
@@ -405,6 +451,7 @@ def process_batch(
     scheduler: torch.optim.lr_scheduler,
     train_dataset_batch: dict,
     train_negative_samples_batch: dict,
+    n_samples_per_category_for_users_idxs: torch.Tensor,
     i: int,
 ) -> float:
     user_idx_tensor = train_dataset_batch["user_idx"].to(finetuning_model.device)
@@ -441,6 +488,12 @@ def process_batch(
                 category_l1_tensor=train_negative_samples_batch["category_l1"],
                 category_l2_tensor=train_negative_samples_batch["category_l2"],
             )
+            train_negative_samples_scores = extract_negative_samples_scores(
+                train_negative_samples_scores,
+                sorted_unique_user_idx_tensor,
+                train_negative_samples_batch["category_l1"],
+                n_samples_per_category_for_users_idxs,
+            )
         if args_dict["loss_function"] == "bcel":
             rating_tensor = train_dataset_batch["rating"].float().to(finetuning_model.device)
             pos_weight = torch.tensor(2.0).to(finetuning_model.device)
@@ -471,6 +524,7 @@ def run_training(
     scheduler: torch.optim.lr_scheduler,
     train_dataset_dataloader: DataLoader,
     train_negative_samples_dataloader: DataLoader,
+    n_samples_per_category_for_users_idxs: torch.Tensor,
     args_dict: dict,
     val_data: dict,
     logger: logging.Logger,
@@ -499,6 +553,7 @@ def run_training(
             scheduler,
             train_dataset_batch,
             train_negative_samples_batch,
+            n_samples_per_category_for_users_idxs,
             i,
         )
         train_losses.append((i, train_loss))
@@ -521,8 +576,7 @@ def run_training(
                 loss for _, loss in train_losses[-args_dict["n_batches_per_val"] :]
             ]
             log_string(logger, f"AVERAGED TRAIN LOSS: {round_number(np.mean(train_losses_chunk))}.")
-            log_string(logger,
-                       f"LEARNING RATE: {optimizer.param_groups[0]['lr']}\n")
+            log_string(logger, f"LEARNING RATE: {optimizer.param_groups[0]['lr']}\n")
             val_scores_batch, baseline_metric, early_stopping_counter, _ = process_val(
                 finetuning_model,
                 args_dict,
@@ -539,8 +593,6 @@ def run_training(
                 and early_stopping_counter >= args_dict["early_stopping_patience"]
             ):
                 log_string(logger, f"\nEarly stopping after {n_batches_processed_so_far} Batches.")
-                break
-            if i >= 20000:
                 break
     args_dict["time_elapsed"] = time.time() - start_time
     return train_losses, val_scores
@@ -573,9 +625,12 @@ if __name__ == "__main__":
         finetuning_model.count_transformer_parameters()
     )
 
-    train_dataset_dataloader, train_negative_samples_dataloader = get_finetuning_dataloaders(
-        args_dict
-    )
+    (
+        train_dataset_dataloader,
+        train_negative_samples_dataloader,
+        n_samples_per_category_for_users_idxs,
+    ) = get_finetuning_dataloaders(args_dict)
+
     optimizer, scheduler = load_optimizer(
         finetuning_model=finetuning_model,
         lr_transformer_model=args_dict["lr_transformer_model"],
@@ -602,6 +657,7 @@ if __name__ == "__main__":
             scheduler=scheduler,
             train_dataset_dataloader=train_dataset_dataloader,
             train_negative_samples_dataloader=train_negative_samples_dataloader,
+            n_samples_per_category_for_users_idxs=n_samples_per_category_for_users_idxs,
             args_dict=args_dict,
             val_data=val_data,
             logger=logger,

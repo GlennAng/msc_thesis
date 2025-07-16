@@ -1,4 +1,5 @@
 import os
+import random
 
 import numpy as np
 import pandas as pd
@@ -6,8 +7,15 @@ import torch
 from torch.utils.data import BatchSampler, DataLoader, Dataset
 from transformers import AutoTokenizer
 
-from ...logreg.src.training.training_data import get_categories_ratios
-from ...src.load_files import load_papers, load_papers_texts
+from ...logreg.src.training.training_data import (
+    get_categories_ratios,
+    get_n_samples_per_category_for_user,
+)
+from ...src.load_files import (
+    load_papers,
+    load_papers_texts,
+    load_users_significant_categories,
+)
 from ...src.project_paths import ProjectPaths
 from .finetuning_preprocessing import (
     load_categories_to_idxs,
@@ -16,6 +24,7 @@ from .finetuning_preprocessing import (
     load_finetuning_users,
     load_train_negative_samples_ids,
     load_users_coefs_ids_to_idxs,
+    load_val_negative_samples_matrix,
     load_val_users_embeddings_idxs,
 )
 
@@ -573,7 +582,7 @@ def get_train_negative_samples_dataloader(
     categories_ratios: dict = None,
     categories_to_idxs_l1: dict = None,
     categories_to_idxs_l2: dict = None,
-) -> DataLoader:
+) -> tuple:
     if categories_to_idxs_l1 is None:
         categories_to_idxs_l1 = load_categories_to_idxs("l1")
     if categories_to_idxs_l2 is None:
@@ -583,27 +592,18 @@ def get_train_negative_samples_dataloader(
     assert set(categories_ratios.keys()) <= set(categories_to_idxs_l1.keys())
     tokenizer = AutoTokenizer.from_pretrained(ProjectPaths.finetuning_data_model_hf())
 
-    n_papers_per_category_l1, non_zero_categories = {}, []
+    n_papers_per_category_l1 = {}
     for category, idx in categories_to_idxs_l1.items():
         if category in categories_ratios:
             ratio = categories_ratios[category]
             if ratio > 0:
-                n_papers_per_category_l1[idx] = round(ratio * n_train_negative_samples)
-                non_zero_categories.append(category)
-    assert n_train_negative_samples == sum(n_papers_per_category_l1.values())
+                n_papers_per_category_l1[idx] = round(2.0 * ratio * n_train_negative_samples)
+    assert 2 * n_train_negative_samples == sum(n_papers_per_category_l1.values())
 
-    papers = load_papers()
-    negative_samples_ids_for_seeds = load_train_negative_samples_ids()
-    all_negative_samples_ids = [
-        item for sublist in negative_samples_ids_for_seeds.values() for item in sublist
-    ]
-    all_negative_samples_ids = sorted(list(set(all_negative_samples_ids)))
-    mask = ~papers["in_ratings"] & ~papers["in_cache"]
-    if all_negative_samples_ids:
-        mask &= ~papers["paper_id"].isin(all_negative_samples_ids)
-    if non_zero_categories:
-        mask &= papers["l1"].isin(non_zero_categories)
-    potential_papers = papers.loc[mask, ["paper_id", "l1", "l2"]]
+    potential_papers = load_papers(
+        relevant_columns=["paper_id", "l1", "l2"],
+        relevant_papers_ids=load_train_negative_samples_ids(),
+    )
     paper_id_tensor = potential_papers["paper_id"].values.tolist()
     papers_texts = load_papers_texts(
         relevant_papers_ids=paper_id_tensor,
@@ -632,7 +632,10 @@ def get_train_negative_samples_dataloader(
     )
     first_batch = next(iter(train_negative_samples_dataloader))
     train_negative_samples_batch_sampler.run_test(first_batch)
-    return train_negative_samples_dataloader
+    n_samples_per_category_for_users_idxs = get_n_samples_per_category_for_users_idxs(
+        first_batch, n_train_negative_samples, seed
+    )
+    return train_negative_samples_dataloader, n_samples_per_category_for_users_idxs
 
 
 def load_val_data() -> dict:
@@ -642,8 +645,57 @@ def load_val_data() -> dict:
         load_finetuning_dataset("val"), no_cs_users_selection="val_no_cs"
     )
     val_data["val_negative_samples"] = load_finetuning_papers("val_negative_samples")
+    val_data["val_negative_samples_matrix"] = load_val_negative_samples_matrix()
     return val_data
 
 
-def get_n_samples_per_category_for_user_idxs() -> None:
-    pass
+def turn_n_samples_per_category_for_user_to_tensor(
+    n_samples_per_category_for_user: dict, n_categories: int
+) -> torch.Tensor:
+    n_samples_per_category_for_user_tensor = torch.zeros(n_categories, dtype=torch.int64)
+    for category, n_samples in n_samples_per_category_for_user.items():
+        n_samples_per_category_for_user_tensor[category] = n_samples
+    return n_samples_per_category_for_user_tensor
+
+
+def get_n_samples_per_category_for_users_idxs(
+    batch: dict, n_train_negative_samples: int, random_state: int
+) -> torch.Tensor:
+    users_ids_to_idxs = load_users_coefs_ids_to_idxs()
+    users_significant_categories = load_users_significant_categories(
+        relevant_users_ids=list(users_ids_to_idxs.keys())
+    )
+
+    categories_tensor, categories_counts = torch.unique(batch["category_l1"], return_counts=True)
+    negative_samples_ids_per_category = dict(
+        zip(categories_tensor.tolist(), categories_counts.tolist())
+    )
+    categories_to_idxs_l1 = load_categories_to_idxs("l1")
+    users_significant_categories["category"] = users_significant_categories["category"].map(
+        categories_to_idxs_l1
+    )
+    categories_ratios = get_categories_ratios()
+    categories_ratios = {
+        categories_to_idxs_l1[category]: ratio for category, ratio in categories_ratios.items()
+    }
+    n_samples_per_category_for_users_idxs = torch.zeros(
+        size=(len(users_ids_to_idxs), len(categories_to_idxs_l1)),
+        dtype=torch.int64,
+    )
+    rng = random.Random(random_state)
+    for user_id, user_idx in users_ids_to_idxs.items():
+        n_samples_per_category_for_user = get_n_samples_per_category_for_user(
+            negative_samples_ids_per_category=negative_samples_ids_per_category,
+            n_negative_samples=n_train_negative_samples,
+            rng=rng,
+            user_specific=True,
+            user_id=user_id,
+            categories_ratios=categories_ratios,
+            users_significant_categories=users_significant_categories,
+        )
+        n_samples_per_category_for_users_idxs[user_idx] = (
+            turn_n_samples_per_category_for_user_to_tensor(
+                n_samples_per_category_for_user, len(categories_to_idxs_l1)
+            )
+        )
+    return n_samples_per_category_for_users_idxs
