@@ -48,6 +48,7 @@ for random_state in TEST_RANDOM_STATES:
         ],
         check=True,
     )
+shutil.rmtree(configs_folder, ignore_errors=True)
 
 results = []
 for random_state in TEST_RANDOM_STATES:
@@ -70,6 +71,8 @@ if outputs_folder.exists():
     shutil.rmtree(outputs_folder)
 shutil.copytree(source_folder, outputs_folder)
 averaged_results_file = outputs_folder / "users_results.csv"
+if averaged_results_file.exists():
+    averaged_results_file.unlink()
 averaged_df.to_csv(averaged_results_file, index=False)
 
 subprocess.run(

@@ -1,4 +1,5 @@
 import argparse
+import shutil
 import subprocess
 import sys
 
@@ -14,6 +15,7 @@ MODEL_CHOICES = [
 ]
 EMBEDDINGS_FOLDER = ProjectPaths.logreg_embeddings_path() / "before_pca"
 MAX_SEQUENCE_LENGTH = 512
+PCA_DIM = 256
 
 
 def parse_args() -> dict:
@@ -43,7 +45,7 @@ elif model_name == "specter2_base":
     if batch_size is None:
         batch_size = 1000
 elif model_name == "Qwen3-Embedding-0.6B":
-    model_abbreviation = "qwen3_06B"
+    model_abbreviation = "qwen3_0p6B"
     model_path = f"Qwen/{model_name}"
     if batch_size is None:
         batch_size = 175
@@ -88,3 +90,33 @@ subprocess.run(
     ],
     check=True,
 )
+
+subprocess.run(
+    [
+        sys.executable,
+        "-m",
+        "code.logreg.src.embeddings.apply_pca",
+        "--embeddings_input_folder",
+        str(embeddings_folder),
+        "--pca_dim",
+        str(PCA_DIM),
+    ],
+    check=True,
+)
+
+embeddings_folder_after_pca = (
+    ProjectPaths.logreg_embeddings_path() / "after_pca" / f"{model_abbreviation}_{PCA_DIM}"
+)
+
+subprocess.run(
+    [
+        sys.executable,
+        "-m",
+        "code.logreg.src.embeddings.papers_categories",
+        "--embeddings_input_folder",
+        str(embeddings_folder_after_pca),
+    ],
+    check=True,
+)
+
+shutil.rmtree(embeddings_folder_after_pca, ignore_errors=True)

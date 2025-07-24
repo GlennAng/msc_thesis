@@ -482,13 +482,23 @@ class TrainNegativeSamplesBatchSampler(BatchSampler):
     def __init__(
         self,
         dataset: TrainNegativeSamplesDataset,
-        n_papers_per_category_l1: dict,
+        n_train_negative_samples: int,
         n_batches_total: int,
         seed: int,
+        categories_ratios: dict = None,
     ) -> None:
         self.tensor_idxs_per_category_l1 = dataset.tensor_idxs_per_category_l1
-        self.n_papers_per_category_l1 = n_papers_per_category_l1
-        self.n_batches_total, self.seed = n_batches_total, seed
+        if categories_ratios is None:
+            self.categories_ratios = get_categories_ratios()
+        else:
+            self.categories_ratios = categories_ratios
+        self.users_ids_to_idxs = load_users_coefs_ids_to_idxs()
+        self.users_significant_categories = load_users_significant_categories()
+        self.n_train_negative_samples, self.n_batches_total, self.seed = (
+            n_train_negative_samples,
+            n_batches_total,
+            seed,
+        )
 
     def __len__(self) -> int:
         return self.n_batches_total
@@ -592,14 +602,6 @@ def get_train_negative_samples_dataloader(
     assert set(categories_ratios.keys()) <= set(categories_to_idxs_l1.keys())
     tokenizer = AutoTokenizer.from_pretrained(ProjectPaths.finetuning_data_model_hf())
 
-    n_papers_per_category_l1 = {}
-    for category, idx in categories_to_idxs_l1.items():
-        if category in categories_ratios:
-            ratio = categories_ratios[category]
-            if ratio > 0:
-                n_papers_per_category_l1[idx] = round(2.0 * ratio * n_train_negative_samples)
-    assert 2 * n_train_negative_samples == sum(n_papers_per_category_l1.values())
-
     potential_papers = load_papers(
         relevant_columns=["paper_id", "l1", "l2"],
         relevant_papers_ids=load_train_negative_samples_ids(),
@@ -621,7 +623,11 @@ def get_train_negative_samples_dataloader(
         paper_id_tensor, category_l1_tensor, category_l2_tensor
     )
     train_negative_samples_batch_sampler = TrainNegativeSamplesBatchSampler(
-        train_negative_samples_dataset, n_papers_per_category_l1, n_batches_total, seed
+        dataset=train_negative_samples_dataset,
+        n_train_negative_samples=n_train_negative_samples,
+        n_batches_total=n_batches_total,
+        seed=seed,
+        categories_ratios=categories_ratios,
     )
     train_negative_samples_dataloader = DataLoader(
         train_negative_samples_dataset,

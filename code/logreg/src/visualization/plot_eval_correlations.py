@@ -65,8 +65,8 @@ def plot_correlation(
 
 
 models = ["SPECTER2", "GTE-Base", "GTE-Large", "Qwen3-0.6B", "Qwen3-4B", "Qwen3-8B"]
-cross_val_ndcg = [84.19, 84.24, 84.52, 84.70, 86.04, 86.29]
-session_based_ndcg = [80.89, 80.25, 80.84, 80.69, 82.67, 83.17]
-v_measure = [0.5849, 0.5836, 0.6028, 0.6027, 0.60, 0.6125]
+cross_val_ndcg = [84.19, 84.24, 84.52, 84.66, 86.03, 86.12]
+session_based_ndcg = [80.89, 80.25, 80.84, 80.55, 82.70, 83.34]
+v_measure = [0.5849, 0.5836, 0.6028, 0.5943, 0.6029, 0.6138]
 
 plot_correlation(models, cross_val_ndcg, session_based_ndcg)

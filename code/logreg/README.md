@@ -18,9 +18,9 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 | specter2_base | 77.02 | 84.19 | 78.87 | 0.9626 |
 | gte-base-en-v1.5 | 77.31 | 84.24 | 78.94 | 0.9660 |
 | gte-large-en-v1.5 | 77.50 | 84.52 | 79.31 | 0.9542 |
-| Qwen3-Embedding-0.6B | 77.70 | 84.70 | 79.55 | 0.9322 |
-| Qwen3-Embedding-4B | 78.96 | 86.04 | 81.32 | 0.8660 |
-| Qwen3-Embedding-8B | 79.10 | **86.29** | **81.66** | **0.8485** |
+| Qwen3-Embedding-0.6B | 77.63 | 84.66 | 79.48 | 0.9346 |
+| Qwen3-Embedding-4B | 78.98 | 86.03 | 81.31 | 0.8632 |
+| Qwen3-Embedding-8B | **78.99** | **86.12** | **81.43** | **0.8553** |
 
 ## Session-based Evaluation
 
@@ -30,9 +30,9 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 | specter2_base | 72.15 | 80.89 | 74.53 | 1.1607 |
 | gte-base-en-v1.5 | 71.47 | 80.25 |73.68 | 1.2077 |
 | gte-large-en-v1.5 | 71.68 | 80.84 | 74.46 | 1.1719 |
-| Qwen3-Embedding-0.6B | 72.28 | 80.69 | 74.25 | 1.1513 |
-| Qwen3-Embedding-4B | 73.87 | 82.67 | 76.89 | 1.0664 |
-| Qwen3-Embedding-8B | **75.06** | **83.17** | **77.55** | **1.0228** |
+| Qwen3-Embedding-0.6B | 72.20 | 80.55 | 74.06 | 1.1591 |
+| Qwen3-Embedding-4B | 74.10 | 82.70 | 76.93 | 1.0581 |
+| Qwen3-Embedding-8B | **74.96** | **83.34** | **77.76** | **1.0193** |
 
 
 # II. Experiment Setup

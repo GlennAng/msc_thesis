@@ -42,6 +42,7 @@ class CustomEmbeddingWrapper:
                 model_choice, trust_remote_code=True, torch_dtype="auto"
             ).to(device)
             self.tokenizer = AutoTokenizer.from_pretrained(model_choice, padding_side="left")
+
         else:
             raise ValueError(f"Unsupported model type: {model}")
 
@@ -117,7 +118,7 @@ MODELS_CHOICES = [
     "Qwen/Qwen3-Embedding-0.6B",
     "Qwen/Qwen3-Embedding-4B",
     "Qwen/Qwen3-Embedding-8B",
-    ProjectPaths.finetuning_data_path() / "checkpoints" / "best_batch_125",
+    ProjectPaths.finetuning_data_experiments_path() / "gte_large_256_2025-07-12-06-44"
 ]
 MODELS_TO_LOAD = ["gte-large-en-v1.5", "gte-large-en-v1.5_no_projection"]
 MODELS_TO_LOAD += [model for model in MODELS_CHOICES if isinstance(model, Path)]
@@ -151,7 +152,7 @@ for i, model_choice in enumerate(MODELS_CHOICES):
         model=embedding_wrapper,
         output_folder=ProjectPaths.data_path(),
         overwrite_results=True,
-        encode_kwargs={"batch_size": 5, "max_length": 512},
+        encode_kwargs={"batch_size": 1, "max_length": 512},
     )
 
     model_results = extract_results(

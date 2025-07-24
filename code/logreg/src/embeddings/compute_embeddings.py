@@ -15,6 +15,10 @@ from ....src.load_files import load_papers_texts, load_relevant_papers_ids
 
 MAX_TRIES = 20
 
+QWEN_TASK_INSTRUCTION = (
+    "Given a scientific paper, retrieve relevant papers based on title and abstract."
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Embeddings Computation Parameters")
@@ -26,8 +30,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def is_qwen_instruct(model_path: str) -> bool:
+    return model_path.startswith("Qwen/")
+
+
 def load_model_and_tokenizer(model_path: str) -> tuple:
-    if model_path.startswith("Qwen/"):
+    if is_qwen_instruct(model_path):
         tokenizer = AutoTokenizer.from_pretrained(model_path, padding_side="left")
         model = AutoModel.from_pretrained(
             model_path, trust_remote_code=True, torch_dtype="auto"
@@ -76,7 +84,7 @@ def get_detailed_instruct(task_description: str, query: str) -> str:
 def tokenize_papers(
     batch_papers: list, tokenizer: AutoTokenizer, max_sequence_length: int, model_path: str
 ) -> dict:
-    is_qwen_model = model_path.startswith("Qwen/")
+    is_qwen_model = is_qwen_instruct(model_path)
     batch_papers_ids, batch_papers_titles, batch_papers_abstracts = zip(*batch_papers)
     batch_papers_ids, batch_papers_titles, batch_papers_abstracts = (
         list(batch_papers_ids),
@@ -84,15 +92,12 @@ def tokenize_papers(
         list(batch_papers_abstracts),
     )
     if is_qwen_model:
-        task_instruction = (
-            "Given a scientific paper, retrieve relevant papers based on title and abstract content"
-        )
         batch_papers_texts = [
-            f"Title: {title}\nAbstract: {abstract}"
+            f"Title: {title}. Abstract: {abstract}"
             for title, abstract in zip(batch_papers_titles, batch_papers_abstracts)
         ]
         batch_papers_texts = [
-            get_detailed_instruct(task_instruction, text) for text in batch_papers_texts
+            get_detailed_instruct(QWEN_TASK_INSTRUCTION, text) for text in batch_papers_texts
         ]
     else:
         sep_token = tokenizer.sep_token
@@ -113,7 +118,7 @@ def tokenize_papers(
 def extract_embeddings(
     batch_outputs: dict, attention_mask: torch.Tensor, model_path: str
 ) -> torch.Tensor:
-    if model_path.startswith("Qwen/"):
+    if is_qwen_instruct(model_path):
         embeddings = last_token_pool(batch_outputs.last_hidden_state, attention_mask)
         embeddings = F.normalize(embeddings, p=2, dim=1)
         return embeddings
@@ -216,9 +221,7 @@ if __name__ == "__main__":
         papers_texts = papers_texts[papers_texts["paper_id"].isin(relevant_papers_ids)]
         print(f"Found {len(papers_texts)} relevant papers.")
     papers_texts = papers_texts[["paper_id", "title", "abstract"]].values.tolist()
-    max_sequence_length = args.max_sequence_length + (
-        20 if args.model_path.startswith("Qwen/") else 0
-    )
+    max_sequence_length = args.max_sequence_length + (20 if is_qwen_instruct else 0)
     tokenize_and_encode_papers_in_batches(
         embeddings_folder,
         papers_texts,
