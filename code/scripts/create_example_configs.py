@@ -48,7 +48,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
         }
     )
     example_config.update(
-        {"evaluation": "cross_validation", "train_size": 0.8, "stratified": True, "k_folds": 5}
+        {"evaluation": "session_based", "train_size": 1.0, "stratified": True, "k_folds": 5}
     )
     example_config.update(
         {
@@ -76,9 +76,9 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
     return example_config
 
 
-def create_example_config_temporal(embeddings_folder: Path = None) -> dict:
+def create_example_config_cross_val(embeddings_folder: Path = None) -> dict:
     example_config = create_example_config(embeddings_folder)
-    example_config.update({"evaluation": "session_based", "train_size": 1.0})
+    example_config.update({"evaluation": "cross_validation", "train_size": 0.8})
     return example_config
 
 
@@ -90,9 +90,9 @@ def create_example_config_tfidf(embeddings_folder: Path = None) -> dict:
     return example_config
 
 
-def create_example_config_tfidf_temporal(embeddings_folder: Path = None) -> dict:
+def create_example_config_tfidf_cross_val(embeddings_folder: Path = None) -> dict:
     example_config_tfidf = create_example_config_tfidf(embeddings_folder)
-    example_config_tfidf.update({"evaluation": "session_based", "train_size": 1.0})
+    example_config_tfidf.update({"evaluation": "cross_validation", "train_size": 0.8})
     return example_config_tfidf
 
 
@@ -110,6 +110,6 @@ if __name__ == "__main__":
     example_config = create_example_config()
     with open(logreg_experiments_path / "example_config.json", "w") as f:
         json.dump(example_config, f, indent=4)
-    example_config_temporal = create_example_config_temporal()
-    with open(logreg_experiments_path / "example_config_temporal.json", "w") as f:
-        json.dump(example_config_temporal, f, indent=4)
+    example_config_cross_val = create_example_config_cross_val()
+    with open(logreg_experiments_path / "example_config_cross_val.json", "w") as f:
+        json.dump(example_config_cross_val, f, indent=4)

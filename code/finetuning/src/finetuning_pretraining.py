@@ -30,13 +30,8 @@ def create_finetuning_config_val(example_config: dict, val_users: list) -> dict:
     finetuning_config_val = example_config.copy()
     finetuning_config_val.update(
         {
-            "users_selection": val_users,
-            "min_n_posrated_train": 16,
-            "min_n_negrated_train": 16,
-            "min_n_posrated_val": 4,
-            "min_n_negrated_val": 4,
+            "users_selection": "finetuning_val",
             "evaluation": "session_based",
-            "train_size": 1.0,
             "save_users_coefs": True,
         }
     )

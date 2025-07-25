@@ -27,6 +27,21 @@ VAL_RANDOM_STATE = 42
 TEST_RANDOM_STATES = [1, 25, 75, 100, 150]
 
 
+def save_transformer_model() -> None:
+    model_path = ProjectPaths.finetuning_data_model_path() / "state_dicts" / "transformer_model"
+    if model_path.exists():
+        print("Transformer model already exists - skipping saving.")
+        return
+    transformer_model = AutoModel.from_pretrained(
+        ProjectPaths.finetuning_data_model_hf(),
+        trust_remote_code=True,
+        unpad_inputs=True,
+        torch_dtype="auto",
+    )
+    transformer_model.save_pretrained(model_path)
+    print(f"Transformer model saved to {model_path}.")
+
+
 def load_users_coefs_ids_to_idxs() -> dict:
     users_coefs_ids_to_idxs_path = (
         ProjectPaths.finetuning_data_model_state_dicts_path() / "users_coefs_ids_to_idxs.pkl"
@@ -173,7 +188,218 @@ def load_categories_to_idxs(level: str = "l1") -> dict:
     return categories_to_idxs
 
 
-def save_train_negative_samples_ids(
+def finetuning_tokenize_papers(
+    papers_ids: list, tokenizer: AutoTokenizer, max_sequence_length: int
+) -> tuple:
+    assert isinstance(papers_ids, list), "papers_ids should be a list of paper IDs."
+    assert len(papers_ids) == len(set(papers_ids)) and papers_ids == sorted(papers_ids)
+    papers_texts = load_papers_texts(
+        relevant_papers_ids=papers_ids,
+        relevant_columns=["paper_id", "title", "abstract"],
+    )
+    papers_texts = papers_texts[["paper_id", "title", "abstract"]].values.tolist()
+    papers_ids, papers_titles, papers_abstracts = zip(*papers_texts)
+    papers_ids, papers_titles, papers_abstracts = (
+        list(papers_ids),
+        list(papers_titles),
+        list(papers_abstracts),
+    )
+    assert papers_ids == sorted(papers_ids) and len(papers_ids) == len(set(papers_ids))
+    papers = [
+        f"{title} {tokenizer.sep_token} {abstract}"
+        for title, abstract in zip(papers_titles, papers_abstracts)
+    ]
+    input_ids_list, attention_mask_list = [], []
+    for i in tqdm(range(len(papers)), desc="Tokenizing Papers", unit="Paper"):
+        encoding = tokenizer(
+            papers[i],
+            max_length=max_sequence_length,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt",
+        )
+        input_ids_list.append(encoding["input_ids"].squeeze(0))
+        attention_mask_list.append(encoding["attention_mask"].squeeze(0))
+    papers_dict = {
+        "paper_id": torch.tensor(papers_ids),
+        "input_ids": torch.stack(input_ids_list),
+        "attention_mask": torch.stack(attention_mask_list),
+    }
+    papers_ids_to_idxs = {paper_id: idx for idx, paper_id in enumerate(papers_ids)}
+    return papers_dict, papers_ids_to_idxs
+
+
+def finetuning_get_cache_papers_ids_for_user(
+    user_ratings: pd.DataFrame,
+    cache_ids: list,
+    max_cache: int,
+    random_state: int,
+) -> set:
+    posrated_ids = user_ratings[user_ratings["rating"] == 1]["paper_id"].tolist()
+    negrated_ids = user_ratings[user_ratings["rating"] == 0]["paper_id"].tolist()
+    rated_ids = posrated_ids + negrated_ids
+    user_cache_ids = get_filtered_cache_papers_ids_for_user(
+        cache_ids, rated_ids, max_cache, random_state
+    )
+    return set(user_cache_ids)
+
+
+def get_eval_papers_ids(users_ratings: pd.DataFrame, random_states: list) -> list:
+    papers = load_papers(relevant_columns=["paper_id", "in_ratings", "in_cache", "l1"])
+    cache_ids = papers[papers["in_cache"]]["paper_id"].tolist()
+    assert len(cache_ids) == len(set(cache_ids)) and cache_ids == sorted(cache_ids)
+    eval_papers_ids = set()
+    eval_papers_ids.update(users_ratings["paper_id"].unique().tolist())
+    users_ids = users_ratings["user_id"].unique().tolist()
+
+    for random_state in random_states:
+        all_papers_ids = get_val_cache_attached_negative_samples_ids(
+            users_ids=users_ids,
+            papers=papers,
+            n_val_negative_samples=100,
+            ranking_random_state=random_state,
+            n_cache_attached=5000,
+            cache_random_state=random_state,
+            cache_attached_user_specific=True,
+            return_all_papers_ids=True,
+        )[2]
+        eval_papers_ids.update(all_papers_ids)
+
+    for user_id in tqdm(users_ids, desc="Getting Cache Papers for Users", unit="User"):
+        user_ratings = users_ratings[users_ratings["user_id"] == user_id]
+        for random_state in random_states:
+            eval_papers_ids.update(
+                finetuning_get_cache_papers_ids_for_user(
+                    user_ratings=user_ratings,
+                    cache_ids=cache_ids,
+                    max_cache=5000,
+                    random_state=random_state,
+                )
+            )
+    return sorted(list(eval_papers_ids))
+
+
+def get_eval_papers_ids_val_users() -> list:
+    random_states = [VAL_RANDOM_STATE]
+    val_users = load_finetuning_users(selection="val")
+    users_ratings = load_users_ratings(relevant_users_ids=val_users)
+    return get_eval_papers_ids(users_ratings, random_states)
+
+
+def get_eval_papers_ids_test_users() -> list:
+    random_states = sorted(TEST_RANDOM_STATES)
+    test_users = load_finetuning_users(selection="test")
+    users_ratings = load_users_ratings(relevant_users_ids=test_users)
+    return get_eval_papers_ids(users_ratings, random_states)
+
+
+def save_eval_papers_tokenized(
+    tokenizer: AutoTokenizer = None,
+    max_sequence_length: int = 512,
+) -> None:
+    if tokenizer is None:
+        tokenizer = AutoTokenizer.from_pretrained(ProjectPaths.finetuning_data_model_hf())
+
+    eval_papers_tokenized_val_users_path = (
+        ProjectPaths.finetuning_data_model_datasets_eval_papers_tokenized_val_users_path()
+    )
+    if eval_papers_tokenized_val_users_path.exists():
+        print("Eval papers tokenized for val users already exist - skipping saving.")
+    else:
+        eval_papers_ids_val_users = get_eval_papers_ids_val_users()
+        eval_papers_tokenized_val_users = finetuning_tokenize_papers(
+            papers_ids=eval_papers_ids_val_users,
+            tokenizer=tokenizer,
+            max_sequence_length=max_sequence_length,
+        )[0]
+        torch.save(eval_papers_tokenized_val_users, eval_papers_tokenized_val_users_path)
+        print("Eval papers tokenized for val users saved.")
+
+    eval_papers_tokenized_test_users_path = (
+        ProjectPaths.finetuning_data_model_datasets_eval_papers_tokenized_test_users_path()
+    )
+    if eval_papers_tokenized_test_users_path.exists():
+        print("Eval papers tokenized for test users already exist - skipping saving.")
+    else:
+        eval_papers_ids_test_users = get_eval_papers_ids_test_users()
+        eval_papers_tokenized_test_users = finetuning_tokenize_papers(
+            papers_ids=eval_papers_ids_test_users,
+            tokenizer=tokenizer,
+            max_sequence_length=max_sequence_length,
+        )[0]
+        torch.save(eval_papers_tokenized_test_users, eval_papers_tokenized_test_users_path)
+        print("Eval papers tokenized for test users saved.")
+
+
+def load_finetuning_papers_tokenized(
+    papers_type: str, attach_l1: bool = True, attach_l2: bool = True
+) -> dict:
+    papers_types = ["eval_val_users", "eval_test_users"]
+    if papers_type not in papers_types:
+        raise ValueError(f"Invalid papers type: {papers_type}. Choose from {papers_types}.")
+    if papers_type == "eval_val_users":
+        tensor_path = (
+            ProjectPaths.finetuning_data_model_datasets_eval_papers_tokenized_val_users_path()
+        )
+    elif papers_type == "eval_test_users":
+        tensor_path = (
+            ProjectPaths.finetuning_data_model_datasets_eval_papers_tokenized_test_users_path()
+        )
+    else:
+        tensor_path = (
+            ProjectPaths.finetuning_data_model_datasets_path()
+            / f"{papers_type}_papers_tokenized.pt"
+        )
+    papers_tensor = torch.load(tensor_path, weights_only=True)
+    if attach_l1 or attach_l2:
+        papers = load_papers(
+            relevant_columns=["paper_id", "l1", "l2"],
+            relevant_papers_ids=papers_tensor["paper_id"].tolist(),
+        )
+        assert papers_tensor["paper_id"].tolist() == papers["paper_id"].tolist()
+        if attach_l1:
+            categories_to_idxs_l1 = load_categories_to_idxs("l1")
+            categories_l1 = papers["l1"].tolist()
+            categories_l1 = [
+                category if category in categories_to_idxs_l1 else None
+                for category in categories_l1
+            ]
+            papers_tensor["l1"] = torch.tensor(
+                [categories_to_idxs_l1[category] for category in categories_l1]
+            )
+        if attach_l2:
+            categories_to_idxs_l2 = load_categories_to_idxs("l2")
+            categories_l2 = papers["l2"].tolist()
+            categories_l2 = [
+                category if category in categories_to_idxs_l2 else None
+                for category in categories_l2
+            ]
+            papers_tensor["l2"] = torch.tensor(
+                [categories_to_idxs_l2[category] for category in categories_l2]
+            )
+    assert papers_tensor["paper_id"].tolist() == sorted(papers_tensor["paper_id"].tolist())
+    assert len(papers_tensor["paper_id"].tolist()) == len(set(papers_tensor["paper_id"].tolist()))
+    return papers_tensor
+
+
+def test_loading() -> None:
+    val_users_embeddings_idxs = load_val_users_embeddings_idxs()
+    print(f"Loaded {len(val_users_embeddings_idxs)} validation users embeddings indices.")
+    categories_to_idxs_l1 = load_categories_to_idxs("l1")
+    print(f"Loaded {len(categories_to_idxs_l1)} categories for L1.")
+    categories_to_idxs_l2 = load_categories_to_idxs("l2")
+    print(f"Loaded {len(categories_to_idxs_l2)} categories for L2.")
+
+    eval_papers_tokenized_val_users = load_finetuning_papers_tokenized("eval_val_users")
+    n_eval_papers_val_users = len(eval_papers_tokenized_val_users["paper_id"])
+    print(f"Loaded eval papers tokenized for val users with {n_eval_papers_val_users} entries.")
+    eval_papers_tokenized_test_users = load_finetuning_papers_tokenized("eval_test_users")
+    n_eval_papers_test_users = len(eval_papers_tokenized_test_users["paper_id"])
+    print(f"Loaded eval papers tokenized for test users with {n_eval_papers_test_users} entries.")
+
+
+"""
+def get_train_negative_samples_ids(
     n_negative_samples: int = 100,
     n_cache_attached: int = 5000,
     val_random_state: int = VAL_RANDOM_STATE,
@@ -228,47 +454,6 @@ def load_train_negative_samples_ids() -> list:
     assert isinstance(papers_ids, list) and len(papers_ids) == len(set(papers_ids))
     assert papers_ids == sorted(papers_ids)
     return papers_ids
-
-
-def finetuning_tokenize_papers(
-    papers_ids: list, tokenizer: AutoTokenizer, max_sequence_length: int
-) -> tuple:
-    assert isinstance(papers_ids, list), "papers_ids should be a list of paper IDs."
-    assert len(papers_ids) == len(set(papers_ids)) and papers_ids == sorted(papers_ids)
-    papers_texts = load_papers_texts(
-        relevant_papers_ids=papers_ids,
-        relevant_columns=["paper_id", "title", "abstract"],
-    )
-    papers_texts = papers_texts[["paper_id", "title", "abstract"]].values.tolist()
-    papers_ids, papers_titles, papers_abstracts = zip(*papers_texts)
-    papers_ids, papers_titles, papers_abstracts = (
-        list(papers_ids),
-        list(papers_titles),
-        list(papers_abstracts),
-    )
-    assert papers_ids == sorted(papers_ids) and len(papers_ids) == len(set(papers_ids))
-    papers = [
-        f"{title} {tokenizer.sep_token} {abstract}"
-        for title, abstract in zip(papers_titles, papers_abstracts)
-    ]
-    input_ids_list, attention_mask_list = [], []
-    for i in tqdm(range(len(papers)), desc="Tokenizing Papers", unit="Paper"):
-        encoding = tokenizer(
-            papers[i],
-            max_length=max_sequence_length,
-            padding="max_length",
-            truncation=True,
-            return_tensors="pt",
-        )
-        input_ids_list.append(encoding["input_ids"].squeeze(0))
-        attention_mask_list.append(encoding["attention_mask"].squeeze(0))
-    papers_dict = {
-        "paper_id": torch.tensor(papers_ids),
-        "input_ids": torch.stack(input_ids_list),
-        "attention_mask": torch.stack(attention_mask_list),
-    }
-    papers_ids_to_idxs = {paper_id: idx for idx, paper_id in enumerate(papers_ids)}
-    return papers_dict, papers_ids_to_idxs
 
 
 def save_val_negative_samples(
@@ -326,98 +511,6 @@ def load_val_negative_samples_matrix() -> torch.Tensor:
     return val_negative_samples_matrix
 
 
-def finetuning_get_cache_papers_ids_for_user(
-    users_ratings: pd.DataFrame,
-    user_id: int,
-    cache_ids: list,
-    max_cache: int,
-    random_state: int,
-) -> set:
-    user_ratings = users_ratings[users_ratings["user_id"] == user_id]
-    posrated_ids = user_ratings[user_ratings["rating"] == 1]["paper_id"].tolist()
-    negrated_ids = user_ratings[user_ratings["rating"] == 0]["paper_id"].tolist()
-    rated_ids = posrated_ids + negrated_ids
-    user_cache_ids = get_filtered_cache_papers_ids_for_user(
-        cache_ids, rated_ids, max_cache, random_state
-    )
-    return set(user_cache_ids)
-
-
-def save_test_papers(
-    tokenizer: AutoTokenizer,
-    max_sequence_length: int,
-    n_cache: int = 5000,
-    n_cache_attached: int = 5000,
-    n_negative_samples: int = 100,
-    val_random_state: int = VAL_RANDOM_STATE,
-    test_random_states: list = TEST_RANDOM_STATES,
-) -> None:
-    assert val_random_state not in test_random_states
-    assert len(test_random_states) == len(set(test_random_states))
-    assert test_random_states == sorted(test_random_states)
-    tensor_path = ProjectPaths.finetuning_data_model_datasets_test_papers_path()
-    if tensor_path.exists():
-        print("Test papers already exist - skipping saving.")
-        return
-    papers = load_papers(relevant_columns=["paper_id", "in_ratings", "in_cache", "l1"])
-    cache_ids = papers[papers["in_cache"]]["paper_id"].tolist()
-    assert len(cache_ids) == len(set(cache_ids)) and cache_ids == sorted(cache_ids)
-    papers_ids = set()
-
-    val_users_ids = load_finetuning_users(selection="val")
-    val_users_ratings = load_users_ratings(relevant_users_ids=val_users_ids)
-    papers_ids.update(val_users_ratings["paper_id"].unique().tolist())
-    papers_ids.update(
-        get_val_cache_attached_negative_samples_ids(
-            users_ids=val_users_ids,
-            papers=papers,
-            n_val_negative_samples=n_negative_samples,
-            ranking_random_state=val_random_state,
-            n_cache_attached=n_cache_attached,
-            cache_random_state=val_random_state,
-            cache_attached_user_specific=True,
-            return_all_papers_ids=True,
-        )[2]
-    )
-    for val_user_id in tqdm(
-        val_users_ids, desc="Getting Cache Papers for Val Users", unit="Val User"
-    ):
-        papers_ids.update(
-            finetuning_get_cache_papers_ids_for_user(
-                val_users_ratings, val_user_id, cache_ids, n_cache, val_random_state
-            )
-        )
-
-    test_users_ids = load_finetuning_users(selection="test")
-    test_users_ratings = load_users_ratings(relevant_users_ids=test_users_ids)
-    papers_ids.update(test_users_ratings["paper_id"].unique().tolist())
-    for random_state in test_random_states:
-        all_papers_ids = get_val_cache_attached_negative_samples_ids(
-            users_ratings=test_users_ratings,
-            papers=papers,
-            n_val_negative_samples=100,
-            ranking_random_state=random_state,
-            n_cache_attached=5000,
-            cache_random_state=random_state,
-            cache_attached_user_specific=True,
-            return_all_papers_ids=True,
-        )[2]
-        papers_ids.update(all_papers_ids)
-    for test_user_id in tqdm(
-        test_users_ids, desc="Getting Cache Papers for Test Users", unit="Test User"
-    ):
-        for random_state in test_random_states:
-            papers_ids.update(
-                finetuning_get_cache_papers_ids_for_user(
-                    test_users_ratings, test_user_id, cache_ids, n_cache, random_state
-                )
-            )
-
-    papers_ids = sorted(list(papers_ids))
-    papers_tokenized = finetuning_tokenize_papers(papers_ids, tokenizer, max_sequence_length)[0]
-    torch.save(papers_tokenized, tensor_path)
-    print(f"Test papers tensor saved to {tensor_path}.")
-
 
 def save_train_val_users_papers(
     papers_type: str, tokenizer: AutoTokenizer, max_sequence_length: int
@@ -461,8 +554,6 @@ def save_finetuning_papers_type(
         tokenizer = AutoTokenizer.from_pretrained(ProjectPaths.finetuning_data_model_hf())
     if papers_type == "val_negative_samples":
         save_val_negative_samples(tokenizer, max_sequence_length)
-    elif papers_type == "test":
-        save_test_papers(tokenizer, max_sequence_length)
     elif papers_type in ["train_users", "val_users"]:
         save_train_val_users_papers(papers_type, tokenizer, max_sequence_length)
     else:
@@ -781,16 +872,21 @@ def test_loading() -> None:
             torch.diff(time_tensor_neg) >= 0
         )
 
-
+"""
 if __name__ == "__main__":
     os.makedirs(ProjectPaths.finetuning_data_model_path(), exist_ok=True)
     os.makedirs(ProjectPaths.finetuning_data_model_state_dicts_path(), exist_ok=True)
     os.makedirs(ProjectPaths.finetuning_data_model_datasets_path(), exist_ok=True)
+    save_transformer_model()
     save_users_embeddings_tensor()
     save_projection_tensor()
     save_categories_embeddings_tensor()
+    save_eval_papers_tokenized()
+    test_loading()
+    """
     save_train_negative_samples_ids()
     save_finetuning_papers()
     save_finetuning_datasets()
     save_finetuning_model()
     test_loading()
+    """

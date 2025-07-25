@@ -101,6 +101,13 @@ class ProjectPaths:
     @staticmethod
     def finetuning_data_model_datasets_path():
         return ProjectPaths.finetuning_data_model_path() / "datasets"
+    
+    @staticmethod
+    def finetuning_data_model_datasets_eval_papers_tokenized_val_users_path():
+        return ProjectPaths.finetuning_data_model_datasets_path() / "eval_papers_tokenized_val_users.pt"
+    
+    def finetuning_data_model_datasets_eval_papers_tokenized_test_users_path():
+        return ProjectPaths.finetuning_data_model_datasets_path() / "eval_papers_tokenized_test_users.pt"
 
     @staticmethod
     def finetuning_data_model_datasets_val_negative_samples_path():
@@ -109,10 +116,6 @@ class ProjectPaths:
     @staticmethod
     def finetuning_data_model_datasets_val_negative_samples_matrix_path():
         return ProjectPaths.finetuning_data_model_datasets_path() / "val_negative_samples_matrix.pt"
-
-    @staticmethod
-    def finetuning_data_model_datasets_test_papers_path():
-        return ProjectPaths.finetuning_data_model_datasets_path() / "test_papers.pt"
 
     @staticmethod
     def finetuning_data_model_datasets_train_dataset_path():
