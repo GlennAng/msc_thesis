@@ -354,7 +354,7 @@ def get_val_cache_attached_negative_samples_ids(
     n_val_negative_samples: int,
     ranking_random_state: int,
     n_cache_attached: int,
-    cache_random_state: int,
+    cache_random_state: int = None,
     cache_attached_user_specific: bool = True,
     return_all_papers_ids: bool = False,
 ) -> tuple:
@@ -384,6 +384,7 @@ def get_val_cache_attached_negative_samples_ids(
     assert val_negative_samples_ids.shape == (n_users, n_val_negative_samples)
     cache_attached_papers_ids = None
     if n_cache_attached > 0:
+        assert cache_random_state is not None, "cache_random_state must be provided."
         cache_attached_papers_ids_per_category = get_negative_samples_ids_per_category(
             papers=papers,
             n_negative_samples=n_cache_attached,

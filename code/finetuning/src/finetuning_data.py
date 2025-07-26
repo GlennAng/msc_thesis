@@ -20,11 +20,10 @@ from ...src.project_paths import ProjectPaths
 from .finetuning_preprocessing import (
     load_categories_to_idxs,
     load_finetuning_dataset,
-    load_finetuning_papers,
+    load_finetuning_papers_tokenized,
     load_finetuning_users,
-    load_train_negative_samples_ids,
     load_users_coefs_ids_to_idxs,
-    load_val_negative_samples_matrix,
+    load_negative_samples_matrix_val,
     load_val_users_embeddings_idxs,
 )
 
@@ -584,7 +583,7 @@ class TrainNegativeSamplesBatchProcesser:
             "attention_mask": batch_tokenized_papers["attention_mask"],
         }
 
-
+"""
 def get_train_negative_samples_dataloader(
     n_train_negative_samples: int,
     n_batches_total: int,
@@ -653,7 +652,7 @@ def load_val_data() -> dict:
     val_data["val_negative_samples"] = load_finetuning_papers("val_negative_samples")
     val_data["val_negative_samples_matrix"] = load_val_negative_samples_matrix()
     return val_data
-
+"""
 
 def turn_n_samples_per_category_for_user_to_tensor(
     n_samples_per_category_for_user: dict, n_categories: int

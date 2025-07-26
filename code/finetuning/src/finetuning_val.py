@@ -1,280 +1,21 @@
-import argparse
-import json
-import os
-import pickle
-import shutil
-import subprocess
 import sys
-from pathlib import Path
 
 import numpy as np
 import torch
 
 from ...logreg.src.visualization.visualization_tools import format_number
-from ...scripts.create_example_configs import (
-    create_example_config,
-    create_example_config_temporal,
-    create_example_config_tfidf,
-    create_example_config_tfidf_temporal,
-)
-from ...src.load_files import load_finetuning_users
-from ...src.project_paths import ProjectPaths
 from .finetuning_data import FinetuningDataset, create_finetuning_dataset
 from .finetuning_model import FinetuningModel, load_finetuning_model
 from .finetuning_preprocessing import (
-    TEST_RANDOM_STATES,
-    VAL_RANDOM_STATE,
     load_finetuning_dataset,
-    load_finetuning_papers,
-    load_users_coefs_ids_to_idxs,
-    load_val_negative_samples_matrix,
+    load_finetuning_papers_tokenized,
+    load_negative_samples_matrix_val,
     load_val_users_embeddings_idxs,
 )
-from .finetuning_visualization import visualize_testing
 
 FINETUNING_CLASSIFICATION_METRICS = ["bcel", "recall", "specificity", "balacc"]
 FINETUNING_RANKING_METRICS = ["ndcg", "mrr", "hr@1", "infonce"]
 FINETUNING_INFO_NCE_TEMPERATURE = 1.0
-
-
-def parse_arguments() -> dict:
-    parser = argparse.ArgumentParser(description="Evaluation script.")
-    parser.add_argument("--embeddings_path", type=str, default=None)
-    parser.add_argument("--model_path", type=str, default=None)
-    parser.add_argument("--no_overlap", action="store_false", dest="overlap")
-    parser.add_argument("--not_perform_evaluation", action="store_false", dest="perform_evaluation")
-    parser.add_argument("--allow_configs", action="store_true", default=False)
-    parser.add_argument("--allow_outputs", action="store_true", default=False)
-    parser.add_argument("--cross_validation", action="store_true", default=False)
-    parser.add_argument("--session_based", action="store_true", default=False)
-    parser.add_argument("--tfidf", action="store_true", default=False)
-    args_dict = vars(parser.parse_args())
-
-    if args_dict["embeddings_path"] is not None:
-        args_dict["embeddings_path"] = Path(args_dict["embeddings_path"]).resolve()
-        args_dict["configs_folder"] = args_dict["embeddings_path"] / "configs"
-        args_dict["outputs_folder"] = args_dict["embeddings_path"] / "outputs"
-        if args_dict["model_path"] is not None:
-            raise ValueError(
-                "Both --embeddings_path and --model_path are provided. Please provide only one."
-            )
-    else:
-        if args_dict["model_path"] is not None:
-            args_dict["model_path"] = Path(args_dict["model_path"]).resolve()
-            args_dict["configs_folder"] = args_dict["model_path"].parent / "configs"
-            args_dict["outputs_folder"] = args_dict["model_path"].parent / "outputs"
-        else:
-            raise ValueError("Either --embeddings_path or --model_path must be provided.")
-    os.makedirs(args_dict["configs_folder"], exist_ok=True)
-    os.makedirs(args_dict["outputs_folder"], exist_ok=True)
-    if len(os.listdir(args_dict["configs_folder"])) and not args_dict["allow_configs"]:
-        raise ValueError(
-            f"Folder {args_dict['configs_folder']} is not empty. Please remove the files inside it."
-        )
-    if len(os.listdir(args_dict["outputs_folder"])) and not args_dict["allow_outputs"]:
-        raise ValueError(
-            f"Folder {args_dict['outputs_folder']} is not empty. Please remove the files inside it."
-        )
-    return args_dict
-
-
-def save_users_coefs(
-    finetuning_model: FinetuningModel,
-    embeddings_folder: Path,
-    users_embeddings_ids_to_idxs: dict,
-) -> None:
-    if not isinstance(embeddings_folder, Path):
-        embeddings_folder = Path(embeddings_folder).resolve()
-    users_coefs = finetuning_model.users_embeddings.weight.detach().cpu().numpy().astype(np.float64)
-    np.save(embeddings_folder / "users_coefs.npy", users_coefs)
-    with open(embeddings_folder / "users_coefs_ids_to_idxs.pkl", "wb") as f:
-        pickle.dump(users_embeddings_ids_to_idxs, f)
-
-
-def compute_test_embeddings(
-    finetuning_model: FinetuningModel,
-    test_papers: dict,
-    embeddings_folder: Path,
-    users_embeddings_ids_to_idxs: dict,
-) -> None:
-    training_mode = finetuning_model.training
-    finetuning_model.eval()
-    papers_ids_to_idxs = {
-        paper_id.item(): idx for idx, paper_id in enumerate(test_papers["paper_id"])
-    }
-    embeddings = finetuning_model.compute_papers_embeddings(
-        input_ids_tensor=test_papers["input_ids"],
-        attention_mask_tensor=test_papers["attention_mask"],
-        category_l1_tensor=test_papers["l1"],
-        category_l2_tensor=test_papers["l2"],
-    )
-    np.save(f"{embeddings_folder / 'abs_X.npy'}", embeddings)
-    with open(f"{embeddings_folder / 'abs_paper_ids_to_idx.pkl'}", "wb") as f:
-        pickle.dump(papers_ids_to_idxs, f)
-    save_users_coefs(finetuning_model, embeddings_folder, users_embeddings_ids_to_idxs)
-    if training_mode:
-        finetuning_model.train()
-
-
-def save_finetuning_config(
-    file_path: Path,
-    embeddings_folder: Path,
-    users_ids: str,
-    evaluation: str,
-    random_state: int,
-    tfidf: bool = False,
-    users_coefs_path: Path = None,
-) -> None:
-    if not isinstance(file_path, Path):
-        file_path = Path(file_path).resolve()
-    if not isinstance(embeddings_folder, Path):
-        embeddings_folder = Path(embeddings_folder).resolve()
-    if users_coefs_path is not None and not isinstance(users_coefs_path, Path):
-        users_coefs_path = Path(users_coefs_path).resolve()
-    if tfidf:
-        example_config = (
-            create_example_config_tfidf(embeddings_folder)
-            if evaluation == "cross_validation"
-            else create_example_config_tfidf_temporal(embeddings_folder)
-        )
-    else:
-        example_config = (
-            create_example_config(embeddings_folder)
-            if evaluation == "cross_validation"
-            else create_example_config_temporal(embeddings_folder)
-        )
-    example_config["users_selection"] = users_ids
-    example_config["model_random_state"] = random_state
-    example_config["cache_random_state"] = random_state
-    example_config["ranking_random_state"] = random_state
-    if users_coefs_path is not None:
-        example_config["users_coefs_path"] = str(users_coefs_path)
-        example_config["load_users_coefs"] = True
-    with open(file_path, "w") as config_file:
-        json.dump(example_config, config_file, indent=3)
-
-
-def run_testing_single(
-    name: str,
-    embeddings_folder: Path,
-    configs_folder: Path,
-    outputs_folder: Path,
-    users_ids: str,
-    evaluation: str,
-    random_states: list,
-    tfidf: bool = False,
-    users_coefs_path: Path = None,
-) -> None:
-    for folder in [embeddings_folder, configs_folder, outputs_folder]:
-        if not isinstance(folder, Path):
-            folder = Path(folder).resolve()
-    if users_coefs_path is not None and not isinstance(users_coefs_path, Path):
-        users_coefs_path = Path(users_coefs_path).resolve()
-    configs_names, configs_folder_single, outputs_folder_single = (
-        [],
-        configs_folder / name,
-        outputs_folder / name,
-    )
-    os.makedirs(configs_folder_single, exist_ok=True)
-    os.makedirs(outputs_folder_single, exist_ok=True)
-    for random_state in random_states:
-        config_name = f"{name}_s{random_state}"
-        file_path = configs_folder_single / f"{config_name}.json"
-        save_finetuning_config(
-            file_path,
-            embeddings_folder,
-            users_ids,
-            evaluation,
-            random_state,
-            tfidf=tfidf,
-            users_coefs_path=users_coefs_path,
-        )
-        configs_names.append(config_name)
-
-    try:
-        subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "code.scripts.logreg_run",
-                "--config_path",
-                str(configs_folder_single),
-                "--save_scores_tables",
-            ]
-        )
-    except subprocess.CalledProcessError as e:
-        print(f"Error running logreg_run: {e}")
-        raise
-
-    for config_name in configs_names:
-        src = ProjectPaths.logreg_outputs_path() / config_name
-        dst = outputs_folder_single / config_name
-        if not dst.exists():
-            shutil.move(str(src), str(dst))
-
-
-def run_testing(
-    embeddings_folder: Path,
-    configs_folder: Path,
-    outputs_folder: Path,
-    val_users_ids: str,
-    test_users_no_overlap_ids: str,
-    cross_validation: bool,
-    session_based: bool,
-    tfidf: bool = False,
-    val_random_state: int = VAL_RANDOM_STATE,
-    test_no_overlap_random_states: list = TEST_RANDOM_STATES,
-) -> None:
-    assert val_random_state not in test_no_overlap_random_states
-    for folder in [embeddings_folder, configs_folder, outputs_folder]:
-        if not isinstance(folder, Path):
-            folder = Path(folder).resolve()
-    if val_users_ids is not None:
-        run_testing_single(
-            "overlap",
-            embeddings_folder,
-            configs_folder,
-            outputs_folder,
-            val_users_ids,
-            "session_based",
-            [val_random_state],
-            tfidf=tfidf,
-        )
-        if (embeddings_folder / "users_coefs.npy").exists():
-            run_testing_single(
-                "overlap_users_coefs",
-                embeddings_folder,
-                configs_folder,
-                outputs_folder,
-                val_users_ids,
-                "session_based",
-                [val_random_state],
-                tfidf=tfidf,
-                users_coefs_path=embeddings_folder,
-            )
-    if test_users_no_overlap_ids is not None:
-        if session_based:
-            run_testing_single(
-                "no_overlap_session_based",
-                embeddings_folder,
-                configs_folder,
-                outputs_folder,
-                test_users_no_overlap_ids,
-                "session_based",
-                test_no_overlap_random_states,
-                tfidf=tfidf,
-            )
-        if cross_validation:
-            run_testing_single(
-                "no_overlap_cross_validation",
-                embeddings_folder,
-                configs_folder,
-                outputs_folder,
-                test_users_no_overlap_ids,
-                "cross_validation",
-                test_no_overlap_random_states,
-                tfidf=tfidf,
-            )
 
 
 def get_user_scores(dataset: FinetuningDataset, user_idx: int, users_scores: torch.Tensor) -> tuple:
@@ -500,13 +241,7 @@ def run_validation(
     )
     training_mode = finetuning_model.training
     finetuning_model.eval()
-    val_users_scores = finetuning_model.compute_val_dataset_scores(
-        val_dataset.input_ids_tensor,
-        val_dataset.attention_mask_tensor,
-        val_dataset.category_l1_tensor,
-        val_dataset.category_l2_tensor,
-        val_dataset.user_idx_tensor,
-    )
+    print(val_negative_samples_matrix.shape)
     val_negative_samples_scores = finetuning_model.compute_val_negative_samples_scores(
         val_negative_samples["input_ids"],
         val_negative_samples["attention_mask"],
@@ -515,6 +250,13 @@ def run_validation(
     )
     val_negative_samples_scores = torch.gather(
         val_negative_samples_scores, dim=1, index=val_negative_samples_matrix
+    )
+    val_users_scores = finetuning_model.compute_val_dataset_scores(
+        val_dataset.input_ids_tensor,
+        val_dataset.attention_mask_tensor,
+        val_dataset.category_l1_tensor,
+        val_dataset.category_l2_tensor,
+        val_dataset.user_idx_tensor,
     )
     val_classification_metrics = torch.zeros(
         size=(val_dataset.n_users, len(FINETUNING_CLASSIFICATION_METRICS)),
@@ -597,55 +339,30 @@ def run_validation(
 
 
 def test_validation(finetuning_model: FinetuningModel) -> None:
-    val_dataset = create_finetuning_dataset(
+    dataset = create_finetuning_dataset(
         load_finetuning_dataset("val"), no_cs_users_selection="val_no_cs"
     )
-    val_negative_samples = load_finetuning_papers("val_negative_samples")
-    val_negative_samples_matrix = load_val_negative_samples_matrix()
+    negative_samples = load_finetuning_papers_tokenized("negative_samples_val")
+    negative_samples_matrix = load_negative_samples_matrix_val()
     run_validation(
         finetuning_model,
-        val_dataset,
-        val_negative_samples,
-        val_negative_samples_matrix,
+        dataset,
+        negative_samples,
+        negative_samples_matrix,
     )
 
 
 if __name__ == "__main__":
+    assert len(sys.argv) == 2, "Usage: python finetuning_val.py <embeddings_folder>"
+    model_path = sys.argv[1]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    evaluation_config = parse_arguments()
-    finetuning_users = load_finetuning_users()
-    val_users_ids = "finetuning_val" if evaluation_config["overlap"] else None
-    test_users_no_overlap_ids = "finetuning_test"
 
-    if not evaluation_config["embeddings_path"] and evaluation_config["perform_evaluation"]:
-        users_embeddings_ids_to_idxs = load_users_coefs_ids_to_idxs()
-        test_papers = load_finetuning_papers("test")
-        val_users_embeddings_idxs = load_val_users_embeddings_idxs()
-        finetuning_model = load_finetuning_model(
-            evaluation_config["model_path"],
-            device=device,
-            mode="eval",
-            n_unfreeze_layers=0,
-            val_users_embeddings_idxs=val_users_embeddings_idxs,
-        )
-        evaluation_config["embeddings_path"] = evaluation_config["model_path"].parent / "embeddings"
-        os.makedirs(evaluation_config["embeddings_path"], exist_ok=True)
-        print("Computing test embeddings...")
-        compute_test_embeddings(
-            finetuning_model,
-            test_papers,
-            evaluation_config["embeddings_path"],
-            users_embeddings_ids_to_idxs,
-        )
-    if evaluation_config["perform_evaluation"]:
-        run_testing(
-            evaluation_config["embeddings_path"],
-            evaluation_config["configs_folder"],
-            evaluation_config["outputs_folder"],
-            val_users_ids,
-            test_users_no_overlap_ids,
-            evaluation_config["cross_validation"],
-            evaluation_config["session_based"],
-            evaluation_config["tfidf"],
-        )
-    visualize_testing(evaluation_config["model_path"], evaluation_config["outputs_folder"])
+    val_users_embeddings_idxs = load_val_users_embeddings_idxs()
+    finetuning_model = load_finetuning_model(
+        model_path,
+        device=device,
+        mode="eval",
+        n_unfreeze_layers=0,
+        val_users_embeddings_idxs=val_users_embeddings_idxs,
+    )
+    test_validation(finetuning_model)

@@ -103,27 +103,32 @@ class ProjectPaths:
         return ProjectPaths.finetuning_data_model_path() / "datasets"
     
     @staticmethod
+    def finetuning_data_model_datasets_dataset_train_path():
+        return ProjectPaths.finetuning_data_model_datasets_path() / "dataset_train.pt"
+
+    @staticmethod
+    def finetuning_data_model_datasets_dataset_val_path():
+        return ProjectPaths.finetuning_data_model_datasets_path() / "dataset_val.pt"
+    
+    @staticmethod
     def finetuning_data_model_datasets_eval_papers_tokenized_val_users_path():
         return ProjectPaths.finetuning_data_model_datasets_path() / "eval_papers_tokenized_val_users.pt"
     
+    @staticmethod
     def finetuning_data_model_datasets_eval_papers_tokenized_test_users_path():
         return ProjectPaths.finetuning_data_model_datasets_path() / "eval_papers_tokenized_test_users.pt"
-
-    @staticmethod
-    def finetuning_data_model_datasets_val_negative_samples_path():
-        return ProjectPaths.finetuning_data_model_datasets_path() / "val_negative_samples.pt"
     
     @staticmethod
-    def finetuning_data_model_datasets_val_negative_samples_matrix_path():
-        return ProjectPaths.finetuning_data_model_datasets_path() / "val_negative_samples_matrix.pt"
+    def finetuning_data_model_datasets_negative_samples_tokenized_train_path():
+        return ProjectPaths.finetuning_data_model_datasets_path() / "negative_samples_tokenized_train"
 
     @staticmethod
-    def finetuning_data_model_datasets_train_dataset_path():
-        return ProjectPaths.finetuning_data_model_datasets_path() / "train_dataset.pt"
-
+    def finetuning_data_model_datasets_negative_samples_tokenized_val_path():
+        return ProjectPaths.finetuning_data_model_datasets_path() / "negative_samples_tokenized_val.pt"
+    
     @staticmethod
-    def finetuning_data_model_datasets_val_dataset_path():
-        return ProjectPaths.finetuning_data_model_datasets_path() / "val_dataset.pt"
+    def finetuning_data_model_datasets_negative_samples_matrix_val_path():
+        return ProjectPaths.finetuning_data_model_datasets_path() / "negative_samples_matrix_val.pt"
     
     @staticmethod
     def finetuning_data_train_negative_samples_ids_path():
