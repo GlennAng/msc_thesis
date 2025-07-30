@@ -36,6 +36,7 @@ def config_assertions(config: Dict[str, Any]) -> None:
         "finetuning_test",
         "finetuning_train",
         "finetuning_val",
+        "session_based",
     ] or isinstance(config["users_selection"], list)
     if config["evaluation"] in ["cross_validation", "train_test_split"]:
         assert config["stratified"], "Config: stratified True for evaluation in "

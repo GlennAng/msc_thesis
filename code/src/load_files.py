@@ -111,62 +111,104 @@ def load_users_significant_categories(
         ]
         if existing_columns:
             users_significant_categories = users_significant_categories[existing_columns]
-    
+
     return users_significant_categories
 
 
-def load_finetuning_users(selection: str = "all") -> dict:
-    assert selection in (
-        ["all", "train", "val", "test", "all_no_cs", "train_no_cs", "val_no_cs", "test_no_cs"])
-    if selection.endswith("_no_cs"):
-        path = ProjectPaths.data_finetuning_users_no_cs_path()
-        selection = selection[:-6] # remove "_no_cs" suffix
-    else:
-        path = ProjectPaths.data_finetuning_users_path()
+def select_non_cs_users_ids(users_significant_categories: pd.DataFrame) -> list:
+    users_significant_categories = users_significant_categories[
+        users_significant_categories["rank"] == 1
+    ].reset_index(drop=True)
+    non_cs_users_ids = users_significant_categories[
+        users_significant_categories["category"] != "Computer Science"
+    ]["user_id"].tolist()
+    assert len(non_cs_users_ids) == len(set(non_cs_users_ids))
+    assert non_cs_users_ids == sorted(non_cs_users_ids)
+    return non_cs_users_ids
+
+
+def load_finetuning_users_ids(
+    selection: str = "all", select_non_cs_users_only: bool = False
+) -> dict:
+    path = ProjectPaths.data_finetuning_users_ids_path()
     if not path.exists():
         raise FileNotFoundError(
-            f"Finetuning users file not found at {path}. Run 'get_users_ratings.py' to create it."
+            f"Finetuning Users IDs file not found at {path}. Run 'get_users_ratings.py' to create it."
         )
     with open(path, "rb") as f:
-        finetuning_users = pickle.load(f)
-    assert isinstance(finetuning_users, dict)
-    assert set(finetuning_users.keys()) == {"train", "val", "test"}
-    assert all(isinstance(users, list) for users in finetuning_users.values())
-    assert all(users == sorted(users) for users in finetuning_users.values())
-    assert all(len(users) == len(set(users)) for users in finetuning_users.values())
+        finetuning_users_ids = pickle.load(f)
+    assert isinstance(finetuning_users_ids, dict)
+    assert selection == "all" or selection in finetuning_users_ids
+
+    assert all(isinstance(users_ids, list) for users_ids in finetuning_users_ids.values())
+    assert all(users_ids == sorted(users_ids) for users_ids in finetuning_users_ids.values())
+    assert all(len(users_ids) == len(set(users_ids)) for users_ids in finetuning_users_ids.values())
     assert (
-        set(finetuning_users["train"])
-        & set(finetuning_users["val"])
-        & set(finetuning_users["test"])
+        set(finetuning_users_ids["train"])
+        & set(finetuning_users_ids["val"])
+        & set(finetuning_users_ids["test"])
         == set()
     )
-    if selection == "all":
-        return finetuning_users
+
+    if select_non_cs_users_only:
+        if selection == "all":
+            finetuning_non_cs_users_ids = {}
+            users_significant_categories = load_users_significant_categories()
+            for split in finetuning_users_ids:
+                users_significant_categories_split = users_significant_categories[
+                    users_significant_categories["user_id"].isin(finetuning_users_ids[split])
+                ]
+                finetuning_non_cs_users_ids[split] = select_non_cs_users_ids(
+                    users_significant_categories_split
+                )
+            return finetuning_non_cs_users_ids
+        else:
+            users_significant_categories = load_users_significant_categories(
+                relevant_users_ids=finetuning_users_ids[selection]
+            )
+            return select_non_cs_users_ids(users_significant_categories)
     else:
-        return finetuning_users[selection]
+        if selection == "all":
+            return finetuning_users_ids
+        else:
+            return finetuning_users_ids[selection]
+
+
+def load_session_based_users_ids(select_non_cs_users_only: bool = False) -> list:
+    path = ProjectPaths.data_session_based_users_ids_path()
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Session-Based Users IDs file not found at {path}. Run 'get_users_ratings.py' to create it."
+        )
+    with open(path, "rb") as f:
+        session_based_users_ids = pickle.load(f)
+    assert isinstance(session_based_users_ids, list)
+    assert session_based_users_ids == sorted(session_based_users_ids)
+    assert len(session_based_users_ids) == len(set(session_based_users_ids))
+
+    if select_non_cs_users_only:
+        users_significant_categories = load_users_significant_categories(
+            relevant_users_ids=session_based_users_ids
+        )
+        return select_non_cs_users_ids(users_significant_categories)
+    else:
+        return session_based_users_ids
 
 
 if __name__ == "__main__":
     papers_texts = load_papers_texts()
     papers = load_papers()
     assert (papers["paper_id"] == papers_texts["paper_id"]).all()
-    relevant_papers_ids = load_relevant_papers_ids()
-    assert set(relevant_papers_ids) <= set(papers["paper_id"])
+
+    if ProjectPaths.data_relevant_papers_ids_path().exists():
+        relevant_papers_ids = load_relevant_papers_ids()
+        assert set(relevant_papers_ids) <= set(papers["paper_id"])
 
     users_ratings = load_users_ratings()
-    unique_users_ids = users_ratings["user_id"].unique()
-    assert list(unique_users_ids) == list(range(len(unique_users_ids)))
-
-    users_mapping_path = ProjectPaths.data_users_mapping_path()
-    if users_mapping_path.exists():
-        users_mapping = load_users_mapping(users_mapping_path)
-    users_ratings_before_mapping_path = ProjectPaths.data_users_ratings_before_mapping_path()
-    if users_ratings_before_mapping_path.exists():
-        users_ratings_before_mapping = load_users_ratings(users_ratings_before_mapping_path)
-        unique_users_ids_before_mapping = users_ratings_before_mapping["user_id"].unique()
-        assert len(unique_users_ids_before_mapping) == len(unique_users_ids)
-
     users_significant_categories = load_users_significant_categories()
 
-    finetuning_users = load_finetuning_users()
-    finetuning_users_no_cs = load_finetuning_users("all_no_cs")
+    if ProjectPaths.data_finetuning_users_ids_path().exists():
+        finetuning_users_ids = load_finetuning_users_ids()
+        
+    if ProjectPaths.data_session_based_users_ids_path().exists():
+        session_based_users_ids = load_session_based_users_ids()

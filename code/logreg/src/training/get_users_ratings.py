@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 
 from ....src.load_files import (
-    load_finetuning_users,
+    load_finetuning_users_ids,
+    load_session_based_users_ids,
     load_users_ratings,
-    load_users_significant_categories,
 )
 from ....src.project_paths import ProjectPaths
 from .algorithm import Evaluation
@@ -209,9 +209,9 @@ def select_users_explicit(
 
 def select_users_random(
     users_ids_with_sufficient_votes: np.ndarray,
-    max_users: int,
-    random_state: int,
-    take_complement: bool,
+    max_users: int = None,
+    random_state: int = None,
+    take_complement: bool = False,
 ) -> np.ndarray:
     if max_users is not None and max_users < len(users_ids_with_sufficient_votes):
         series = pd.Series(users_ids_with_sufficient_votes)
@@ -225,27 +225,33 @@ def select_users_random(
     )
 
 
-def get_users_ratings_val_test_temporal(users_selection: str) -> tuple:
+def get_session_based_users_ratings(users_selection: str) -> tuple:
     if users_selection == "finetuning_val":
-        users = load_finetuning_users(selection="val")
+        users_ids = load_finetuning_users_ids(selection="val")
         users_ratings = pd.read_parquet(
-            ProjectPaths.data_val_users_temporal_ratings_path(), engine="pyarrow"
+            ProjectPaths.data_session_based_ratings_val_users_path(), engine="pyarrow"
         )
-        assert np.all(users_ratings["user_id"].unique() == users)
-        print(f"{len(users)} Users selected for Validation Users session-based Evaluation.")
-        return users_ratings, users
+        assert np.all(users_ratings["user_id"].unique() == users_ids)
+        print(f"{len(users_ids)} Users selected for Validation Users Session-Based Evaluation.")
+        return users_ratings, users_ids
     elif users_selection == "finetuning_test":
-        users = load_finetuning_users(selection="test")
+        users_ids = load_finetuning_users_ids(selection="test")
         users_ratings = pd.read_parquet(
-            ProjectPaths.data_test_users_temporal_ratings_path(), engine="pyarrow"
+            ProjectPaths.data_session_based_ratings_test_users_path(), engine="pyarrow"
         )
-        assert np.all(users_ratings["user_id"].unique() == users)
-        print(f"{len(users)} Users selected for Test Users session-based Evaluation.")
-        return users_ratings, users
+        assert np.all(users_ratings["user_id"].unique() == users_ids)
+        print(f"{len(users_ids)} Users selected for Test Users Session-Based Evaluation.")
+        return users_ratings, users_ids
+    elif users_selection == "session_based":
+        users_ids = load_session_based_users_ids()
+        users_ratings = pd.read_parquet(
+            ProjectPaths.data_session_based_ratings_session_based_users_path(), engine="pyarrow"
+        )
+        assert np.all(users_ratings["user_id"].unique() == users_ids)
+        print(f"{len(users_ids)} Users selected for Session-Based Users Session-Based Evaluation.")
+        return users_ratings, users_ids
     else:
-        raise ValueError(
-            f"Invalid users_selection: {users_selection}. Expected 'finetuning_val' or 'finetuning_test'."
-        )
+        raise ValueError(f"Invalid users_selection: {users_selection}.")
 
 
 def get_users_ratings(
@@ -264,12 +270,17 @@ def get_users_ratings(
     min_n_posrated_val: int = 0,
     min_n_negrated_val: int = 0,
 ) -> tuple:
-    if users_selection == "finetuning_val" and evaluation == Evaluation.SESSION_BASED:
-        if ProjectPaths.data_val_users_temporal_ratings_path().exists():
-            return get_users_ratings_val_test_temporal(users_selection)
-    elif users_selection == "finetuning_test" and evaluation == Evaluation.SESSION_BASED:
-        if ProjectPaths.data_test_users_temporal_ratings_path().exists():
-            return get_users_ratings_val_test_temporal(users_selection)
+
+    if evaluation == Evaluation.SESSION_BASED:
+        path = None
+        if users_selection == "finetuning_val":
+            path = ProjectPaths.data_session_based_ratings_val_users_path()
+        elif users_selection == "finetuning_test":
+            path = ProjectPaths.data_session_based_ratings_test_users_path()
+        elif users_selection == "session_based":
+            path = ProjectPaths.data_session_based_ratings_session_based_users_path()
+        if path and path.exists():
+            return get_session_based_users_ratings(users_selection)
 
     test_size = 1.0 - train_size
     users_ratings = load_users_ratings()
@@ -309,21 +320,33 @@ def get_users_ratings(
 
 
 def convert_users_selection_string(users_selection: str) -> list:
-    if users_selection in ["finetuning_train", "finetuning_val", "finetuning_test"]:
-        if users_selection == "finetuning_train":
-            return load_finetuning_users(selection="train")
-        elif users_selection == "finetuning_val":
-            return load_finetuning_users(selection="val")
-        elif users_selection == "finetuning_test":
-            return load_finetuning_users(selection="test")
+    if users_selection == "finetuning_train":
+        return load_finetuning_users_ids(selection="train")
+    elif users_selection == "finetuning_val":
+        return load_finetuning_users_ids(selection="val")
+    elif users_selection == "finetuning_test":
+        return load_finetuning_users_ids(selection="test")
+    elif users_selection == "session_based":
+        return load_session_based_users_ids()
+    else:
+        raise ValueError(f"Invalid users_selection: {users_selection}.")
 
 
-def finetuning_users_query(take_complement: bool, random_state: int) -> list:
+def assert_sorted_and_unique(users_ids: list) -> None:
+    assert users_ids == sorted(users_ids), "Users IDs must be sorted."
+    assert len(users_ids) == len(set(users_ids)), "Users IDs must be unique."
+
+
+def users_query(
+    take_complement: bool,
+    max_users: int,
+    random_state: int,
+) -> list:
     _, users_ids = get_users_ratings(
         users_selection="random",
         evaluation=Evaluation.SESSION_BASED,
         train_size=1.0,
-        max_users=500,
+        max_users=max_users,
         users_random_state=random_state,
         min_n_posrated_train=16,
         min_n_negrated_train=16,
@@ -334,21 +357,25 @@ def finetuning_users_query(take_complement: bool, random_state: int) -> list:
     return users_ids
 
 
-def save_finetuning_users(path: Path, random_state: int = 42) -> None:
-    test_users_ids = finetuning_users_query(take_complement=False, random_state=random_state)
-    complement_users_ids = finetuning_users_query(take_complement=True, random_state=random_state)
-    assert test_users_ids == sorted(test_users_ids) and complement_users_ids == sorted(
-        complement_users_ids
+def save_finetuning_users_ids(path: Path, random_state: int) -> None:
+    test_users_ids = users_query(
+        take_complement=False,
+        max_users=500,
+        random_state=random_state,
     )
-    assert len(test_users_ids) == len(set(test_users_ids)) and len(complement_users_ids) == len(
-        set(complement_users_ids)
+    assert_sorted_and_unique(test_users_ids)
+    complement_users_ids = users_query(
+        take_complement=True,
+        max_users=500,
+        random_state=random_state,
     )
+    assert_sorted_and_unique(complement_users_ids)
     assert set(test_users_ids).isdisjoint(set(complement_users_ids))
     assert len(complement_users_ids) >= 500
     random.seed(random_state)
     val_users_ids = random.sample(complement_users_ids, k=500)
     val_users_ids = sorted(val_users_ids)
-    assert val_users_ids == sorted(val_users_ids) and len(val_users_ids) == len(set(val_users_ids))
+    assert_sorted_and_unique(val_users_ids)
     _, full_users_ids = get_users_ratings(
         users_selection="random",
         evaluation=Evaluation.CROSS_VALIDATION,
@@ -359,75 +386,85 @@ def save_finetuning_users(path: Path, random_state: int = 42) -> None:
         min_n_negrated=20,
         take_complement=False,
     )
-    assert full_users_ids == sorted(full_users_ids) and len(full_users_ids) == len(
-        set(full_users_ids)
-    )
+    assert_sorted_and_unique(full_users_ids)
     assert set(test_users_ids) <= set(full_users_ids) and set(val_users_ids) <= set(full_users_ids)
     train_users_ids = [
         user_id
         for user_id in full_users_ids
         if user_id not in test_users_ids and user_id not in val_users_ids
     ]
-    assert train_users_ids == sorted(train_users_ids) and len(train_users_ids) == len(
-        set(train_users_ids)
-    )
-    assert set(train_users_ids).isdisjoint(set(test_users_ids)) and set(train_users_ids).isdisjoint(
-        set(val_users_ids)
-    )
+    assert_sorted_and_unique(train_users_ids)
+    assert set(train_users_ids).isdisjoint(set(test_users_ids))
+    assert set(train_users_ids).isdisjoint(set(val_users_ids))
+    sets_joined = set(test_users_ids) | set(val_users_ids) | set(train_users_ids)
+    assert sets_joined == set(full_users_ids)
+    users_dict = {"test": test_users_ids, "val": val_users_ids, "train": train_users_ids}
     with open(path, "wb") as f:
-        pickle.dump({"test": test_users_ids, "val": val_users_ids, "train": train_users_ids}, f)
+        pickle.dump(users_dict, f)
 
 
-def save_finetuning_users_no_cs(path: Path) -> None:
-    finetuning_users = load_finetuning_users(selection="all")
-    users_significant_categories = load_users_significant_categories()
-    users_significant_categories = users_significant_categories[
-        users_significant_categories["rank"] == 1
-    ].reset_index(drop=True)
-    users_significant_categories_no_cs = users_significant_categories[
-        users_significant_categories["category"] != "Computer Science"
-    ].reset_index(drop=True)
-    finetuning_users_no_cs = {}
-    for split in finetuning_users:
-        finetuning_users_split = finetuning_users[split]
-        finetuning_users_split_no_cs = users_significant_categories_no_cs[
-            users_significant_categories_no_cs["user_id"].isin(finetuning_users_split)
-        ]["user_id"].tolist()
-        finetuning_users_no_cs[split] = sorted(finetuning_users_split_no_cs)
+def save_session_based_users_ids(path: Path) -> None:
+    session_based_users_ids = users_query(
+        take_complement=False,
+        max_users=None,
+        random_state=None,
+    )
+    assert_sorted_and_unique(session_based_users_ids)
+    finetuning_users_ids = load_finetuning_users_ids(selection="all")
+    assert set(finetuning_users_ids["test"]) <= set(session_based_users_ids)
+    assert set(finetuning_users_ids["val"]) <= set(session_based_users_ids)
     with open(path, "wb") as f:
-        pickle.dump(finetuning_users_no_cs, f)
+        pickle.dump(session_based_users_ids, f)
 
 
 if __name__ == "__main__":
-    print("Saving finetuning users...")
-    save_finetuning_users(ProjectPaths.data_finetuning_users_path(), random_state=42)
-    print("Saving finetuning users no CS...")
-    save_finetuning_users_no_cs(ProjectPaths.data_finetuning_users_no_cs_path())
+    random_state = 42
 
-    print("Getting val users temporal ratings...")
-    val_users_temporal_ratings = get_users_ratings(
-        users_selection="finetuning_val",
-        evaluation=Evaluation.SESSION_BASED,
-        train_size=1.0,
-        min_n_posrated_train=16,
-        min_n_negrated_train=16,
-        min_n_posrated_val=4,
-        min_n_negrated_val=4,
-    )[0]
-    val_users_temporal_ratings.to_parquet(
-        ProjectPaths.data_val_users_temporal_ratings_path(), index=False
-    )
+    finetuning_users_ids_path = ProjectPaths.data_finetuning_users_ids_path()
+    if not finetuning_users_ids_path.exists():
+        save_finetuning_users_ids(
+            path=ProjectPaths.data_finetuning_users_ids_path(),
+            random_state=random_state,
+        )
+        print(f"Finetuning Users IDs saved to {finetuning_users_ids_path}.")
+    else:
+        print("Finetuning Users IDs already exist. Skipping saving.")
 
-    print("Getting test users temporal ratings...")
-    test_users_temporal_ratings = get_users_ratings(
-        users_selection="finetuning_test",
-        evaluation=Evaluation.SESSION_BASED,
-        train_size=1.0,
-        min_n_posrated_train=16,
-        min_n_negrated_train=16,
-        min_n_posrated_val=4,
-        min_n_negrated_val=4,
-    )[0]
-    test_users_temporal_ratings.to_parquet(
-        ProjectPaths.data_test_users_temporal_ratings_path(), index=False
+    session_based_users_ids_path = ProjectPaths.data_session_based_users_ids_path()
+    if not session_based_users_ids_path.exists():
+        save_session_based_users_ids(path=session_based_users_ids_path)
+        print(f"Session-Based Users IDs saved to {session_based_users_ids_path}.")
+    else:
+        print("Session-Based Users IDs already exist. Skipping saving.")
+
+    users_types = ["finetuning_val", "finetuning_test", "session_based"]
+    for users_type in users_types:
+        users_type_string = users_type.replace("_", " ").title()
+        if users_type == "finetuning_val":
+            path = ProjectPaths.data_session_based_ratings_val_users_path()
+        elif users_type == "finetuning_test":
+            path = ProjectPaths.data_session_based_ratings_test_users_path()
+        elif users_type == "session_based":
+            path = ProjectPaths.data_session_based_ratings_session_based_users_path()
+        if not path.exists():
+            session_based_users_ratings = get_users_ratings(
+                users_selection=users_type,
+                evaluation=Evaluation.SESSION_BASED,
+                train_size=1.0,
+                min_n_posrated_train=16,
+                min_n_negrated_train=16,
+                min_n_posrated_val=4,
+                min_n_negrated_val=4,
+            )[0]
+            session_based_users_ratings.to_parquet(path, index=False, compression="gzip")
+            print(f"{users_type_string} Users Session-Based Ratings saved to {path}.")
+        else:
+            print(f"{users_type_string} Users Session-Based Ratings already exist. Skipping saving.")
+
+    users_ids = load_session_based_users_ids(select_non_cs_users_only=True)
+    print(users_ids)
+    from ....src.load_files import load_users_significant_categories
+    significant_categories = load_users_significant_categories(
+        relevant_users_ids=users_ids
     )
+    print(significant_categories)

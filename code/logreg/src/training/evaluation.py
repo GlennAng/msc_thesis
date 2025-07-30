@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 
-from ....src.load_files import load_papers
+from ....src.load_files import load_papers, load_users_significant_categories
 from ..embeddings.compute_tfidf import load_vectorizer
 from ..embeddings.embedding import Embedding
 from .algorithm import (
@@ -114,6 +114,9 @@ class Evaluator:
         users_ratings = users_ratings.merge(
             papers[["paper_id", "l1", "l2"]], on="paper_id", how="left"
         )
+        users_significant_categories = load_users_significant_categories(
+            relevant_users_ids=users_ids,
+        )
         
         val_negative_samples_ids, cache_attached_papers_ids, _ = (
             get_val_cache_attached_negative_samples_ids(
@@ -133,6 +136,9 @@ class Evaluator:
                 user_ratings = users_ratings[users_ratings["user_id"] == user_id].reset_index(
                     drop=True
                 )
+                user_significant_categories = users_significant_categories[
+                    users_significant_categories["user_id"] == user_id
+                ]["category"].tolist()
                 user_val_negative_samples_ids = val_negative_samples_ids[i]
                 user_cache_attached_papers_ids = None
                 if cache_attached_papers_ids is not None:
@@ -140,6 +146,7 @@ class Evaluator:
                 self.evaluate_user(
                     user_id,
                     user_ratings,
+                    user_significant_categories,
                     user_val_negative_samples_ids,
                     user_cache_attached_papers_ids,
                 )
@@ -150,6 +157,9 @@ class Evaluator:
                     (
                         user_id,
                         users_ratings[users_ratings["user_id"] == user_id].reset_index(drop=True),
+                        users_significant_categories[users_significant_categories["user_id"] == user_id][
+                            "category"
+                        ].tolist(),
                         val_negative_samples_ids[i],
                         (
                             cache_attached_papers_ids[i]
@@ -162,16 +172,18 @@ class Evaluator:
                 delayed(self.evaluate_user)(
                     user_id,
                     user_ratings,
+                    user_significant_categories,
                     user_val_negative_samples_ids,
                     user_cache_attached_papers_ids,
                 )
-                for user_id, user_ratings, user_val_negative_samples_ids, user_cache_attached_papers_ids in users_list
+                for user_id, user_ratings, user_significant_categories, user_val_negative_samples_ids, user_cache_attached_papers_ids in users_list
             )
 
     def evaluate_user(
         self,
         user_id: int,
         user_ratings: pd.DataFrame,
+        user_significant_categories: list,
         user_val_negative_samples_ids: np.ndarray = None,
         user_cache_attached_papers_ids: np.ndarray = None,
     ) -> None:

@@ -326,15 +326,8 @@ if __name__ == "__main__":
     papers_categories_old = pd.read_parquet(papers_categories_old_file, engine="pyarrow")
     papers = save_papers(ProjectPaths.data_papers_path(), papers_categories_old)
 
-    users_ratings_before_mapping = save_users_ratings(
-        ProjectPaths.data_users_ratings_before_mapping_path(), papers=papers
-    )
-
-    users_mapping = save_users_mapping(
-        ProjectPaths.data_users_mapping_path(), users_ratings_before_mapping
-    )
     users_ratings = save_users_ratings(
-        ProjectPaths.data_users_ratings_path(), users_mapping, papers=papers
+        ProjectPaths.data_users_ratings_path(), papers=papers
     )
 
     users_distributions = get_users_distributions(users_ratings, papers)
