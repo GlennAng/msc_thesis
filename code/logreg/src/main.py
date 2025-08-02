@@ -21,11 +21,11 @@ from .training.weights_handler import Weights_Handler, load_hyperparameter_range
 
 
 def config_assertions(config: Dict[str, Any]) -> None:
-    assert not config["save_tfidf_coefs"], "Config: save_tfidf_coefs must be False."
-    assert not config["include_base"], "Config: include_base must be False."
-    assert not config["include_zerorated"], "Config: include_zerorated must be False."
-    assert config["include_cache"], "Config: include_cache must be True."
-    assert config["cache_type"] in ["global", "user_filtered"]
+    assert config["cache_type"] in [
+        "categories_cache", 
+        "old_cache", 
+        "random_cache",
+    ]
     assert config["k_folds"] == 5, "Config: k_folds must be 5."
     assert config["algorithm"] == "logreg", "Config: algorithm must be 'logreg'."
     assert config["logreg_solver"] == "lbfgs", "Config: logreg_solver must be 'lbfgs'."

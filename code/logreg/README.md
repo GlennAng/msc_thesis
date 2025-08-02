@@ -29,7 +29,7 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 | tf-idf | 63.89 | 73.39 | 64.72 | 1.7614 |
 | specter2_base | 72.15 | 80.89 | 74.53 | 1.1607 |
 | gte-base-en-v1.5 | 71.47 | 80.25 |73.68 | 1.2077 |
-| gte-large-en-v1.5 | 71.68 | 80.84 | 74.46 | 1.1719 |
+| gte-large-en-v1.5 | 70.61 | 80.31 | 73.77 | 1.2071 |
 | Qwen3-Embedding-0.6B | 72.20 | 80.55 | 74.06 | 1.1591 |
 | Qwen3-Embedding-4B | 74.10 | 82.70 | 76.93 | 1.0581 |
 | Qwen3-Embedding-8B | **74.96** | **83.34** | **77.76** | **1.0193** |

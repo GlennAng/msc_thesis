@@ -201,16 +201,10 @@ class Weights_Handler:
             hyperparameters_global = {
                 "weights_neg_scale": load_hyperparameter_range(config["weights_neg_scale"])
             }
-            if config["include_zerorated"]:
-                return {
-                    **hyperparameters_global,
-                    "weights_cache_v1_v2": load_hyperparameter_range(config["weights_cache_v1_v2"]),
-                }
-            else:
-                return {
-                    **hyperparameters_global,
-                    "weights_cache_v": load_hyperparameter_range(config["weights_cache_v"]),
-                }
+            return {
+                **hyperparameters_global,
+                "weights_cache_v": load_hyperparameter_range(config["weights_cache_v"]),
+            }
         elif weights_scheme == Weights_Scheme.NO_V:
             hyperparameters_global = {
                 "cache_scale": load_hyperparameter_range(config["cache_scale"])
@@ -242,12 +236,12 @@ class Weights_Handler:
         self,
         hyperparameters: dict,
         hyperparameters_combination: tuple,
-        voting_weight: float,
         train_posrated_n: int,
         train_negrated_n: int,
-        base_n: int,
-        zerorated_n: int,
         cache_n: int,
+        base_n: int = 0,
+        zerorated_n: int = 0,
+        voting_weight: float = None,
     ) -> tuple:
         if self.global_weights_scheme is not None:
             w_p, w_n, w_b, w_z, w_c = self.load_weights_for_user_global(

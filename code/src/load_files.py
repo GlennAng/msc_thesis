@@ -7,6 +7,7 @@ from .project_paths import ProjectPaths
 
 FINETUNING_MODEL = "gte_large_256"
 FINETUNING_MODEL_HF = "Alibaba-NLP/gte-large-en-v1.5"
+TEST_RANDOM_STATES = [1, 25, 75, 100, 150]
 
 
 def load_users_mapping(path: Path) -> dict:

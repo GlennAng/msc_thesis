@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..finetuning.src.finetuning_preprocessing import TEST_RANDOM_STATES
+from ..src.load_files import TEST_RANDOM_STATES
 from ..src.project_paths import ProjectPaths
 
 

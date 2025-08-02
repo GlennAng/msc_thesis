@@ -167,19 +167,23 @@ def clean_users_info(
     return user_info
 
 
-def get_cache_type_str(cache_type: str, max_cache: int, n_cache_attached: int) -> str:
+def get_cache_type_str(cache_type: str, n_cache: int, n_categories_cache: int) -> str:
     s = "Cache Type: "
-    s_cache = str(max_cache // 1000) + "K" if max_cache % 1000 == 0 else str(max_cache)
-    s_cache_attached = (
-        str(n_cache_attached // 1000) + "K"
-        if n_cache_attached % 1000 == 0
-        else str(n_cache_attached)
+    s_cache = str(n_cache // 1000) + "K" if n_cache % 1000 == 0 else str(n_cache)
+    s_cache_categories = (
+        str(n_categories_cache // 1000) + "K"
+        if n_categories_cache % 1000 == 0
+        else str(n_categories_cache)
     )
-    if cache_type == "global":
-        s += "Global"
-    elif cache_type == "user_filtered":
-        s += "User-filtered"
-    s += f" ({s_cache} Papers, {s_cache_attached} Attached). "
+    if cache_type == "categories_cache":
+        s += "Categories Cache"
+    elif cache_type == "old_cache":
+        s += "Old Cache"
+    elif cache_type == "random_cache":
+        s += "Random Cache"
+    else:
+        s += "None"
+    s += f" ({s_cache} Papers, {s_cache_categories} Categories Papers)."
     return s
 
 
@@ -319,7 +323,18 @@ def print_third_page(
         ["", "Minimum", "Maximum", "Median", "Mean", "Standard Dev."],
         [0.6] + (5 * [0.175]),
     )
-    ax.text(0.5, 0.745, f"{users_ids}", fontsize=9, ha="center", va="top", wrap=True)
+    N_MAX_USERS = 950
+    prune_users = n_users > N_MAX_USERS
+    users_ids = users_ids[:N_MAX_USERS] if prune_users else users_ids
+    ax.text(
+        0.5,
+        0.745,
+        f"{users_ids[:N_MAX_USERS]} {'...' if prune_users else ''}",
+        fontsize=9,
+        ha="center",
+        va="top",
+        wrap=True,
+    )
     pdf.savefig(fig)
     plt.close(fig)
 
@@ -362,7 +377,7 @@ def get_best_global_hyperparameters_combination_tables(
     high_votes_users: np.ndarray,
     low_votes_users: np.ndarray,
     high_ratio_users: np.ndarray,
-    low_ratio_users: np.ndarray,
+    cs_users: np.ndarray,
     non_cs_users: np.ndarray,
 ) -> tuple:
     averaged_over_all_users = average_over_users(best_global_hyperparameters_combination_df)
@@ -381,9 +396,9 @@ def get_best_global_hyperparameters_combination_tables(
             best_global_hyperparameters_combination_df["user_id"].isin(high_ratio_users)
         ]
     )
-    averaged_over_low_ratio_users = average_over_users(
+    averaged_over_cs_users = average_over_users(
         best_global_hyperparameters_combination_df.loc[
-            best_global_hyperparameters_combination_df["user_id"].isin(low_ratio_users)
+            best_global_hyperparameters_combination_df["user_id"].isin(cs_users)
         ]
     )
     averaged_over_non_cs_users = average_over_users(
@@ -396,7 +411,7 @@ def get_best_global_hyperparameters_combination_tables(
         averaged_over_high_votes_users,
         averaged_over_low_votes_users,
         averaged_over_high_ratio_users,
-        averaged_over_low_ratio_users,
+        averaged_over_cs_users,
         averaged_over_non_cs_users,
     ]
     tables = [[] for _ in range(max([SCORES_DICT[score]["page"] for score in Score]) + 1)]
@@ -423,7 +438,7 @@ def print_fifth_page(
     fig, ax = plt.subplots(figsize=PLOT_CONSTANTS["FIG_SIZE"])
     ax.axis("off")
     ax.text(0.5, 1.12, title, fontsize=15, ha="center", va="center", fontweight="bold")
-    groups = ["All", "HiVote", "LoVote", "HiPosi", "LoPosi", "NonCS"]
+    groups = ["All", "HiVote", "LoVote", "HiPosi", "CS", "NonCS"]
     columns = ["Score"]
     for group in groups:
         columns.extend([group, f"{group}_T"])

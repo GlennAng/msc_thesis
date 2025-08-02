@@ -36,15 +36,12 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
         }
     )
     example_config.update(
-        {"include_base": False, "include_zerorated": False, "categories_scale": 1.0}
-    )
-    example_config.update(
         {
-            "include_cache": True,
-            "cache_type": "user_filtered",
-            "max_cache": 5000,
-            "n_cache_attached": 5000,
+            "cache_type": "categories_cache",
+            "n_cache": 5000,
+            "n_categories_cache": 0,
             "n_negative_samples": 100,
+            "categories_scale": 1.0,
         }
     )
     example_config.update(

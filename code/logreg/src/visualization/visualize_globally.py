@@ -82,7 +82,7 @@ class Global_Visualizer:
     ) -> None:
         self.config = config
         self.users_info = clean_users_info(
-            users_info, config["include_base"], config["include_cache"]
+            users_info, include_base=False, include_cache=True
         )
         self.hyperparameters_combinations = hyperparameters_combinations
         self.results_before_averaging_over_folds = results_before_averaging_over_folds
@@ -228,9 +228,10 @@ class Global_Visualizer:
             )
         self.tail_users = tail_df["user_id"].values
 
-        self.non_cs_users = self.users_significant_categories[
-            self.users_significant_categories["category"] != "Computer Science"
+        self.cs_users = self.users_significant_categories[
+            self.users_significant_categories["category"] == "Computer Science"
         ]["user_id"].values
+        self.non_cs_users = [user_id for user_id in self.users_ids if user_id not in self.cs_users]
 
 
     def extract_best_individual_hyperparameters_combination_data(self) -> None:
@@ -372,7 +373,7 @@ class Global_Visualizer:
         config_string.append("\n")
         config_string.append(
             get_cache_type_str(
-                self.config["cache_type"], self.config["max_cache"], self.config["n_cache_attached"]
+                self.config["cache_type"], self.config["n_cache"], self.config["n_categories_cache"]
             )
         )
         config_string.append(
@@ -449,15 +450,16 @@ class Global_Visualizer:
         legend_text += f"All: All {self.n_users} Users | HiVote/LoVote: The "
         legend_text += f"{len(self.high_votes_users)} Users with the highest/lowest number "
         legend_text += "of positively + negatively rated Papers\n"
-        legend_text += f"HiPosi/LoPosi: The {len(self.high_ratio_users)} Users with the "
-        legend_text += "highest/lowest ratio of positively to negatively rated Papers | "
-        legend_text += f"NonCS: The {len(self.non_cs_users)} Users whose main category is not Computer Science."
+        legend_text += f"HiPosi: The {len(self.high_ratio_users)} Users with the "
+        legend_text += "highest ratio of positively to negatively rated Papers | "
+        legend_text += f"CS/NonCS: The {len(self.cs_users)}/{len(self.non_cs_users)} "
+        legend_text += "Users whose main category is/isn't Computer Science."
         scores_tables = get_best_global_hyperparameters_combination_tables(
             self.best_global_hyperparameters_combination_df,
             self.high_votes_users,
             self.low_votes_users,
             self.high_ratio_users,
-            self.low_ratio_users,
+            self.cs_users,
             self.non_cs_users,
         )
         optimizer_page = SCORES_DICT[self.score]["page"]

@@ -1,12 +1,10 @@
 import random
-from math import ceil, floor
+from math import floor
 
 import numpy as np
 import pandas as pd
 
-from ....src.load_files import load_users_significant_categories
-from ..embeddings.embedding import Embedding
-
+FLOAT_PRECISION = 1e-10
 LABEL_DTYPE = np.int64
 
 
@@ -99,76 +97,7 @@ def load_negrated_ranking_idxs_for_user(
     return train_negrated_ranking_idxs, val_negrated_ranking_idxs
 
 
-def load_global_cache(
-    embedding: Embedding, papers: pd.DataFrame, max_cache: int = None, random_state: int = None
-) -> tuple:
-    global_cache_ids = get_global_cache_papers_ids(papers, max_cache, random_state)
-    global_cache_idxs = embedding.get_idxs(global_cache_ids)
-    global_cache_n = len(global_cache_idxs)
-    y_global_cache = np.zeros(global_cache_n, dtype=LABEL_DTYPE)
-    return global_cache_ids, global_cache_idxs, global_cache_n, y_global_cache
-
-
-def get_global_cache_papers_ids(
-    papers: pd.DataFrame, max_cache: int = None, random_state: int = None
-) -> list:
-    cache = papers[papers["in_cache"]]["paper_id"].tolist()
-    n_cache = len(cache)
-    max_cache = n_cache if max_cache is None else min(max_cache, n_cache)
-    if n_cache < max_cache:
-        raise ValueError(
-            f"Required cache size ({max_cache}) is greater than the number of valid cache papers ({n_cache})."
-        )
-    elif n_cache > max_cache:
-        cache = sorted(cache)
-        rng = random.Random(random_state)
-        cache = rng.sample(cache, max_cache)
-    return sorted(cache)
-
-
-def load_filtered_cache_for_user(
-    embedding: Embedding,
-    cache_papers_ids: list,
-    rated_ids: list,
-    max_cache: int = None,
-    random_state: int = None,
-) -> tuple:
-    user_filtered_cache_ids = get_filtered_cache_papers_ids_for_user(
-        cache_papers_ids, rated_ids, max_cache, random_state
-    )
-    user_filtered_cache_idxs = embedding.get_idxs(user_filtered_cache_ids)
-    user_filtered_cache_n = len(user_filtered_cache_idxs)
-    y_user_filtered_cache = np.zeros(user_filtered_cache_n, dtype=LABEL_DTYPE)
-    return (
-        user_filtered_cache_ids,
-        user_filtered_cache_idxs,
-        user_filtered_cache_n,
-        y_user_filtered_cache,
-    )
-
-
-def get_filtered_cache_papers_ids_for_user(
-    cache_papers_ids: list, rated_ids: list, max_cache: int = None, random_state: int = None
-) -> list:
-    user_filtered_cache_ids = [
-        paper_id for paper_id in cache_papers_ids if paper_id not in rated_ids
-    ]
-    n_user_filtered_cache = len(user_filtered_cache_ids)
-    max_cache = (
-        n_user_filtered_cache if max_cache is None else min(max_cache, n_user_filtered_cache)
-    )
-    if n_user_filtered_cache < max_cache:
-        raise ValueError(
-            f"Required cache size ({max_cache}) is greater than the number of valid cache papers ({n_user_filtered_cache})."
-        )
-    elif n_user_filtered_cache > max_cache:
-        user_filtered_cache_ids = sorted(user_filtered_cache_ids)
-        rng = random.Random(random_state)
-        user_filtered_cache_ids = rng.sample(user_filtered_cache_ids, max_cache)
-    return sorted(user_filtered_cache_ids)
-
-
-def get_categories_ratios() -> dict:
+def get_categories_ratios_for_validation() -> dict:
     categories_ratios = {
         "Computer Science": 0.15,
         "Physics": 0.15,
@@ -187,227 +116,288 @@ def get_categories_ratios() -> dict:
     return categories_ratios
 
 
-def get_papers_mask(
-    papers: pd.DataFrame,
-    exclude_in_ratings: bool = True,
-    exclude_in_cache: bool = True,
-    exclude_papers: list = None,
-) -> pd.Series:
-    mask = pd.Series(True, index=papers.index)
-    mask &= papers["l1"].notna()
-    if exclude_in_ratings:
-        mask &= ~papers["in_ratings"]
-    if exclude_in_cache:
-        mask &= ~papers["in_cache"]
-    if exclude_papers is not None:
-        mask &= ~papers["paper_id"].isin(exclude_papers)
-    return mask
+def get_remaining_categories_to_fill(
+    floored_categories: list,
+    n_remaining: int,
+    rng: np.random.RandomState,
+) -> list:
+    assert len(floored_categories) >= n_remaining
+    remaining_categories_to_fill = rng.choice(
+        floored_categories,
+        size=n_remaining,
+        replace=False,
+    ).tolist()
+    return remaining_categories_to_fill
 
 
-def get_negative_samples_ids_per_category(
+def get_categories_counts(
+    categories_ratios: dict,
+    n_total: int,
+    random_state: int = None,
+    assert_no_flooring: bool = False,
+) -> dict:
+    exact_floats = {cat: n_total * ratio for cat, ratio in categories_ratios.items()}
+    min_counts = {cat: floor(exact_float) for cat, exact_float in exact_floats.items()}
+    categories_counts = min_counts.copy()
+    floored_categories = [
+        cat
+        for cat in categories_ratios.keys()
+        if (exact_floats[cat] - min_counts[cat]) > FLOAT_PRECISION
+    ]
+    n_total_min_counts = sum(min_counts.values())
+    n_remaining = n_total - n_total_min_counts
+    assert n_remaining >= 0
+    if assert_no_flooring:
+        assert n_remaining <= 0 and len(floored_categories) == 0
+    if n_remaining > 0:
+        assert random_state is not None
+        rng = np.random.RandomState(random_state)
+        remaining_categories_to_fill = get_remaining_categories_to_fill(
+            floored_categories=floored_categories,
+            n_remaining=n_remaining,
+            rng=rng,
+        )
+        for cat in remaining_categories_to_fill:
+            categories_counts[cat] += 1
+    assert sum(categories_counts.values()) == n_total
+    assert all(categories_counts[cat] >= min_counts[cat] for cat in categories_ratios.keys())
+    assert all(categories_counts[cat] <= min_counts[cat] + 1 for cat in categories_ratios.keys())
+    return categories_counts
+
+
+def draw_categories_samples_ids(
     papers: pd.DataFrame,
-    n_negative_samples: int,
-    random_state: int,
-    papers_to_exclude: list = None,
-    categories_ratios: dict = None,
-    scalar_factor: float = 1.0,
+    categories_counts: dict,
+    random_state: int = 42,
+    sort_samples: bool = False,
+    papers_ids_to_exclude: list = None,
 ) -> tuple:
-    mask = get_papers_mask(papers, exclude_papers=papers_to_exclude)
-    potential_samples = papers[mask].reset_index(drop=True)
-    if categories_ratios is None:
-        categories_ratios = get_categories_ratios()
-    categories = list(categories_ratios.keys())
-    rng = random.Random(random_state)
-    negative_samples_ids_per_category = {}
-    for cat in categories:
-        potential_samples_ids_category = potential_samples[potential_samples["l1"] == cat][
+    papers = papers[papers["l1"].notna()].reset_index(drop=True)
+    if papers_ids_to_exclude is not None:
+        papers = papers[~papers["paper_id"].isin(papers_ids_to_exclude)].reset_index(drop=True)
+    rng = np.random.RandomState(random_state)
+    categories_samples_ids = {}
+    categories_samples_ids_flattened = []
+    for category, count in categories_counts.items():
+        category_papers = papers[papers["l1"] == category]
+        category_samples_ids = category_papers.sample(n=count, random_state=rng, replace=False)[
             "paper_id"
         ].tolist()
-        n_negative_samples_category = ceil(
-            scalar_factor * n_negative_samples * categories_ratios[cat]
-        )
-        if len(potential_samples_ids_category) < n_negative_samples_category:
-            raise ValueError(
-                f"Not enough potential papers in category '{cat}' to sample {n_negative_samples_category} negative samples."
-            )
-        negative_samples_ids_category = rng.sample(
-            potential_samples_ids_category, n_negative_samples_category
-        )
-        negative_samples_ids_per_category[cat] = sorted(negative_samples_ids_category)
-    negative_samples_ids_list = []
-    for negative_samples_ids_category in negative_samples_ids_per_category.values():
-        negative_samples_ids_list.extend(negative_samples_ids_category)
-    negative_samples_ids_list = sorted(negative_samples_ids_list)
-    return negative_samples_ids_per_category, negative_samples_ids_list
+        if sort_samples:
+            category_samples_ids = sorted(category_samples_ids)
+            assert category_samples_ids == sorted(category_samples_ids)
+        assert len(category_samples_ids) == count
+        categories_samples_ids[category] = category_samples_ids
+        categories_samples_ids_flattened.extend(category_samples_ids)
+    categories_samples_ids_flattened = sorted(categories_samples_ids_flattened)
+    return categories_samples_ids, categories_samples_ids_flattened
 
 
-def fill_n_samples_per_category(
-    negative_samples_ids_per_category: dict,
-    n_samples_per_category: dict,
-    user_categories_ratios: dict,
-    n_negative_samples: int,
-    rng: random.Random,
-) -> dict:
-    n_samples_total = sum(n_samples_per_category.values())
-    while n_samples_total < n_negative_samples:
-        category = rng.choice(list(user_categories_ratios.keys()))
-        if isinstance(negative_samples_ids_per_category[category], int):
-            if n_samples_per_category[category] < negative_samples_ids_per_category[category]:
-                n_samples_per_category[category] += 1
-                n_samples_total += 1
-        else:
-            if n_samples_per_category[category] < len(negative_samples_ids_per_category[category]):
-                n_samples_per_category[category] += 1
-                n_samples_total += 1
-    return n_samples_per_category
-
-
-def get_n_samples_per_category_for_user(
-    negative_samples_ids_per_category: dict,
-    n_negative_samples: int,
-    rng: random.Random,
-    user_specific: bool = True,
-    user_id: int = None,
-    categories_ratios: dict = None,
-    users_significant_categories: pd.DataFrame = None,
-) -> dict:
-    if categories_ratios is None:
-        categories_ratios = get_categories_ratios()
-    if user_specific:
-        assert user_id is not None and users_significant_categories is not None
-        significant_categories_for_user = users_significant_categories[
-            users_significant_categories["user_id"] == user_id
-        ]["category"]
-        if isinstance(significant_categories_for_user, str):
-            significant_categories_for_user = [significant_categories_for_user]
-        else:
-            significant_categories_for_user = significant_categories_for_user.tolist()
-        user_categories_ratios = {
-            cat: ratio
-            for cat, ratio in categories_ratios.items()
-            if cat not in significant_categories_for_user
-        }
-        total_ratio = sum(user_categories_ratios.values())
-        user_categories_ratios = {
-            cat: ratio / total_ratio for cat, ratio in user_categories_ratios.items()
-        }
-    else:
-        user_categories_ratios = categories_ratios
-    n_samples_per_category = {
-        cat: floor(n_negative_samples * ratio) for cat, ratio in user_categories_ratios.items()
-    }
-    n_samples_per_category = fill_n_samples_per_category(
-        negative_samples_ids_per_category=negative_samples_ids_per_category,
-        n_samples_per_category=n_samples_per_category,
-        user_categories_ratios=user_categories_ratios,
-        n_negative_samples=n_negative_samples,
-        rng=rng,
-    )
-    return n_samples_per_category
-
-
-def get_negative_samples_ids(
-    negative_samples_ids_per_category: dict,
-    users_significant_categories: pd.DataFrame,
-    n_negative_samples: int,
-    random_state: int,
-    user_specific: bool = True,
-    categories_ratios: dict = None,
-) -> np.ndarray:
-    if categories_ratios is None:
-        categories_ratios = get_categories_ratios()
-    users_ids = users_significant_categories["user_id"].unique().tolist()
-    assert users_ids == sorted(users_ids), "Users IDs must be sorted."
-    n_users = len(users_ids)
-    negative_samples_ids = np.zeros(shape=(n_users, n_negative_samples), dtype=np.int64)
-    rng = random.Random(random_state)
-    for category, samples in negative_samples_ids_per_category.items():
-        rng.shuffle(samples)
-    for i, user_id in enumerate(users_ids):
-        n_samples_per_category = get_n_samples_per_category_for_user(
-            negative_samples_ids_per_category=negative_samples_ids_per_category,
-            n_negative_samples=n_negative_samples,
-            rng=rng,
-            user_specific=user_specific,
-            user_id=user_id,
-            categories_ratios=categories_ratios,
-            users_significant_categories=users_significant_categories,
-        )
-        user_negative_samples_ids = []
-        for category, n_samples_category in n_samples_per_category.items():
-            if n_samples_category <= 0:
-                continue
-            user_negative_samples_ids.extend(
-                negative_samples_ids_per_category[category][:n_samples_category]
-            )
-        negative_samples_ids[i] = sorted(user_negative_samples_ids)
-    return negative_samples_ids
-
-
-def extract_papers_ids(papers_ids: np.ndarray) -> list:
-    return sorted(list(set(papers_ids.flatten().tolist())))
-
-
-def get_val_cache_attached_negative_samples_ids(
-    users_ids: list,
+def get_categories_samples_ids(
     papers: pd.DataFrame,
-    n_val_negative_samples: int,
-    ranking_random_state: int,
-    n_cache_attached: int,
-    cache_random_state: int = None,
-    cache_attached_user_specific: bool = True,
-    return_all_papers_ids: bool = False,
+    n_categories_samples: int,
+    random_state: int,
+    papers_ids_to_exclude: list = None,
 ) -> tuple:
-    assert len(users_ids) == len(set(users_ids)), "Users IDs must be unique."
-    assert users_ids == sorted(users_ids), "Users IDs must be sorted."
-    n_users = len(users_ids)
-    users_significant_categories = load_users_significant_categories(
-        relevant_users_ids=users_ids,
+    if n_categories_samples <= 0:
+        return {}, []
+    categories_ratios = get_categories_ratios_for_validation()
+    categories_counts = get_categories_counts(
+        categories_ratios=categories_ratios,
+        n_total=(n_categories_samples * 2),
+        random_state=None,
+        assert_no_flooring=True,
     )
-    val_negative_samples_ids_per_category, val_negative_samples_ids_list = (
-        get_negative_samples_ids_per_category(
-            papers=papers,
-            n_negative_samples=n_val_negative_samples,
-            random_state=ranking_random_state,
-            papers_to_exclude=None,
-            categories_ratios=None,
-            scalar_factor=2.0,
+    categories_samples_ids, categories_samples_ids_flattened = draw_categories_samples_ids(
+        papers=papers,
+        categories_counts=categories_counts,
+        random_state=random_state,
+        sort_samples=False,
+        papers_ids_to_exclude=papers_ids_to_exclude,
+    )
+    assert len(categories_samples_ids_flattened) == (n_categories_samples * 2)
+    return categories_samples_ids, categories_samples_ids_flattened
+
+
+def get_user_categories_ratios(
+    categories_ratios: dict = None, categories_to_exclude: list = []
+) -> dict:
+    if categories_ratios is None:
+        categories_ratios = get_categories_ratios_for_validation()
+    user_categories_ratios = {
+        cat: ratio for cat, ratio in categories_ratios.items() if cat not in categories_to_exclude
+    }
+    total_ratio = sum(user_categories_ratios.values())
+    user_categories_ratios = {
+        cat: ratio / total_ratio for cat, ratio in user_categories_ratios.items()
+    }
+    total_sum = sum(user_categories_ratios.values())
+    assert (
+        abs(total_sum - 1.0) < FLOAT_PRECISION
+    ), f"User Categories Ratios are {total_sum}, expected ~1.0"
+    return user_categories_ratios
+
+
+def select_user_categories_samples_ids(
+    categories_samples_ids: dict,
+    user_categories_counts: dict,
+    papers_ids_to_exclude: list = None,
+    sort_samples: bool = False,
+) -> list:
+    user_categories_samples_ids = []
+    for category, count in user_categories_counts.items():
+        category_samples_ids = categories_samples_ids[category]
+        if papers_ids_to_exclude is not None:
+            category_samples_ids = [
+                pid for pid in category_samples_ids if pid not in papers_ids_to_exclude
+            ]
+        assert count <= len(category_samples_ids)
+        user_categories_samples_ids.extend(category_samples_ids[:count])
+    if sort_samples:
+        user_categories_samples_ids = sorted(user_categories_samples_ids)
+    assert len(user_categories_samples_ids) == sum(user_categories_counts.values())
+    return user_categories_samples_ids
+
+
+def get_user_categories_samples_ids(
+    categories_samples_ids: dict,
+    n_categories_samples: int,
+    random_state: int,
+    user_significant_categories: list = None,
+    sort_samples: bool = False,
+    user_categories_ratios: dict = None,
+) -> list:
+    if n_categories_samples <= 0:
+        return []
+    if user_categories_ratios is None:
+        assert user_significant_categories is not None
+        user_categories_ratios = get_user_categories_ratios(
+            categories_to_exclude=user_significant_categories
         )
+    user_categories_counts = get_categories_counts(
+        categories_ratios=user_categories_ratios,
+        n_total=n_categories_samples,
+        random_state=random_state,
+        assert_no_flooring=False,
     )
-    val_negative_samples_ids = get_negative_samples_ids(
-        negative_samples_ids_per_category=val_negative_samples_ids_per_category,
-        users_significant_categories=users_significant_categories,
-        n_negative_samples=n_val_negative_samples,
-        random_state=ranking_random_state,
-        user_specific=True,
+    user_categories_samples_ids = select_user_categories_samples_ids(
+        categories_samples_ids=categories_samples_ids,
+        user_categories_counts=user_categories_counts,
+        papers_ids_to_exclude=None,
+        sort_samples=sort_samples,
     )
-    assert val_negative_samples_ids.shape == (n_users, n_val_negative_samples)
-    cache_attached_papers_ids = None
-    if n_cache_attached > 0:
-        assert cache_random_state is not None, "cache_random_state must be provided."
-        cache_attached_papers_ids_per_category = get_negative_samples_ids_per_category(
-            papers=papers,
-            n_negative_samples=n_cache_attached,
-            random_state=cache_random_state,
-            papers_to_exclude=val_negative_samples_ids_list,
-            categories_ratios=None,
-            scalar_factor=(2.0 if cache_attached_user_specific else 1.0),
-        )[0]
-        cache_attached_papers_ids = get_negative_samples_ids(
-            negative_samples_ids_per_category=cache_attached_papers_ids_per_category,
-            users_significant_categories=users_significant_categories,
-            n_negative_samples=n_cache_attached,
-            random_state=cache_random_state,
-            user_specific=cache_attached_user_specific,
-        )
-        assert cache_attached_papers_ids.shape == (n_users, n_cache_attached)
-    all_papers_ids = None
-    if return_all_papers_ids:
-        all_papers_ids = extract_papers_ids(val_negative_samples_ids)
-        if cache_attached_papers_ids is not None:
-            all_papers_ids.extend(extract_papers_ids(cache_attached_papers_ids))
-        all_papers_ids = sorted(all_papers_ids)
-    return val_negative_samples_ids, cache_attached_papers_ids, all_papers_ids
+    assert len(user_categories_samples_ids) == n_categories_samples
+    return user_categories_samples_ids
+
+
+def get_cache_papers_ids_categories_cache(
+    papers: pd.DataFrame,
+    n_cache: int,
+    random_state: int,
+    papers_ids_to_exclude: list = None,
+    categories_ratios: dict = None,
+) -> list:
+    if categories_ratios is None:
+        categories_ratios = get_categories_ratios_for_validation()
+    categories_counts = get_categories_counts(
+        categories_ratios=categories_ratios,
+        n_total=n_cache,
+        random_state=random_state,
+        assert_no_flooring=True,
+    )
+    _, cache_papers_ids_flattened = draw_categories_samples_ids(
+        papers=papers,
+        categories_counts=categories_counts,
+        random_state=random_state,
+        sort_samples=True,
+        papers_ids_to_exclude=papers_ids_to_exclude,
+    )
+    return cache_papers_ids_flattened
+
+
+def get_cache_papers_ids_old_cache(
+    papers: pd.DataFrame,
+    n_cache: int,
+    random_state: int,
+    papers_ids_to_exclude: list = None,
+) -> list:
+    papers_ids = papers[papers["in_cache"]]["paper_id"].tolist()
+    if papers_ids_to_exclude is not None:
+        papers_ids = [pid for pid in papers_ids if pid not in papers_ids_to_exclude]
+    assert papers_ids == sorted(papers_ids) and len(papers_ids) == len(set(papers_ids))
+    assert len(papers_ids) >= n_cache
+    if len(papers_ids) > n_cache:
+        rng = random.Random(random_state)
+        papers_ids = sorted(rng.sample(papers_ids, n_cache))
+    assert len(papers_ids) == n_cache
+    assert papers_ids == sorted(papers_ids) and len(papers_ids) == len(set(papers_ids))
+    return papers_ids
+
+
+def get_cache_papers_ids_random_cache(
+    papers: pd.DataFrame,
+    n_cache: int,
+    random_state: int,
+    papers_ids_to_exclude: list = None,
+) -> list:
+    papers_ids = papers["paper_id"].tolist()
+    if papers_ids_to_exclude is not None:
+        papers_ids = [pid for pid in papers_ids if pid not in papers_ids_to_exclude]
+    assert papers_ids == sorted(papers_ids) and len(papers_ids) == len(set(papers_ids))
+    assert len(papers_ids) >= n_cache
+    rng = random.Random(random_state)
+    papers_ids = sorted(rng.sample(papers_ids, n_cache))
+    assert len(papers_ids) == n_cache
+    assert papers_ids == sorted(papers_ids) and len(papers_ids) == len(set(papers_ids))
+    return papers_ids
+
+
+def get_cache_papers_ids(
+    cache_type: str,
+    papers: pd.DataFrame,
+    n_cache: int,
+    random_state: int,
+    papers_ids_to_exclude: list = None,
+) -> list:
+    if n_cache <= 0:
+        return []
+    if cache_type == "categories_cache":
+        func = get_cache_papers_ids_categories_cache
+    elif cache_type == "old_cache":
+        func = get_cache_papers_ids_old_cache
+    elif cache_type == "random_cache":
+        func = get_cache_papers_ids_random_cache
+    else:
+        raise ValueError(f"Invalid cache_type: {cache_type}.")
+    cache_papers_ids = func(
+        papers=papers,
+        n_cache=n_cache,
+        random_state=random_state,
+        papers_ids_to_exclude=papers_ids_to_exclude,
+    )
+    assert isinstance(cache_papers_ids, list)
+    assert cache_papers_ids == sorted(cache_papers_ids)
+    assert len(cache_papers_ids) == len(set(cache_papers_ids))
+    return cache_papers_ids
+
+
+def get_user_cache_papers_ids(
+    cache_type: str,
+    cache_papers_ids: list,
+    papers_ids_to_exclude: list = None,
+) -> list:
+    if cache_type in ["categories_cache", "old_cache", "random_cache"]:
+        if papers_ids_to_exclude is not None:
+            user_cache_papers_ids = [
+                pid for pid in cache_papers_ids if pid not in papers_ids_to_exclude
+            ]
+        else:
+            user_cache_papers_ids = cache_papers_ids
+    else:
+        raise ValueError(f"Invalid cache_type: {cache_type}.")
+    assert user_cache_papers_ids == sorted(user_cache_papers_ids)
+    assert len(user_cache_papers_ids) == len(set(user_cache_papers_ids))
+    return user_cache_papers_ids
 
 
 def count_to_str(count: int) -> str:
@@ -436,7 +426,7 @@ def get_categories_distribution(
     return categories_counts, n_total
 
 
-def get_categories_distribution_dataset(
+def get_categories_distribution_database(
     papers: pd.DataFrame, level: str = "l1", print_results: bool = True
 ) -> tuple:
     if level not in ["l1", "l2", "l3"]:
@@ -455,12 +445,17 @@ def get_categories_distribution_ratings(
     return get_categories_distribution(papers_ids_to_categories, print_results)
 
 
-def get_categories_distribution_cache(
+def get_categories_distribution_old_cache(
     papers: pd.DataFrame, level: str = "l1", print_results: bool = True
 ) -> tuple:
     if level not in ["l1", "l2", "l3"]:
         raise ValueError(f"Invalid level '{level}'. Must be one of 'l1', 'l2', or 'l3'.")
-    cache_papers_ids = get_global_cache_papers_ids(papers, max_cache=5000, random_state=42)
+    cache_papers_ids = get_cache_papers_ids_old_cache(
+        papers=papers,
+        n_cache=5000,
+        random_state=42,
+        papers_ids_to_exclude=None,
+    )
     papers = papers[papers["paper_id"].isin(cache_papers_ids)]
     if papers.empty:
         raise ValueError("No papers found in the cache.")
@@ -468,60 +463,87 @@ def get_categories_distribution_cache(
     return get_categories_distribution(papers_ids_to_categories, print_results)
 
 
-def get_categories_distribution_val_negative_samples(
-    papers: pd.DataFrame,
-    users_ratings: pd.DataFrame,
-    level: str = "l1",
-) -> dict:
+def get_categories_distribution_random_cache(
+    papers: pd.DataFrame, level: str = "l1", print_results: bool = True
+) -> tuple:
     if level not in ["l1", "l2", "l3"]:
         raise ValueError(f"Invalid level '{level}'. Must be one of 'l1', 'l2', or 'l3'.")
-    users_ids = users_ratings["user_id"].unique().tolist()
-    assert users_ids == sorted(users_ids), "Users IDs must be sorted."
-    val_negative_samples_ids, _ = get_val_cache_attached_negative_samples_ids(
-        users_ratings=users_ratings,
+    cache_papers_ids = get_cache_papers_ids_random_cache(
         papers=papers,
-        n_val_negative_samples=100,
-        ranking_random_state=42,
-        n_cache_attached=0,
-        cache_random_state=42,
-        cache_attached_user_specific=False,
+        n_cache=5000,
+        random_state=42,
+        papers_ids_to_exclude=None,
     )
-    categories_distributions_dict = {}
-    for i, user_id in enumerate(users_ids):
-        user_val_negative_samples_ids = val_negative_samples_ids[i].tolist()
-        assert user_val_negative_samples_ids == sorted(
-            user_val_negative_samples_ids
-        ), "User negative samples IDs must be sorted."
-        user_papers = papers[papers["paper_id"].isin(user_val_negative_samples_ids)]
-        if user_papers.empty:
-            raise ValueError(
-                f"No papers found for user {user_id} in the validation negative samples."
-            )
-        user_papers_ids_to_categories = user_papers.set_index("paper_id")[level].to_dict()
-        categories_distributions_dict[user_id] = get_categories_distribution(
-            user_papers_ids_to_categories, print_results=False
-        )[0]
-    return categories_distributions_dict
+    papers = papers[papers["paper_id"].isin(cache_papers_ids)]
+    if papers.empty:
+        raise ValueError("No papers found in the cache.")
+    papers_ids_to_categories = papers.set_index("paper_id")[level].to_dict()
+    return get_categories_distribution(papers_ids_to_categories, print_results)
+
+
+def get_categories_distribution_ratings_specific_users(
+    papers: pd.DataFrame,
+    users_ids: list,
+    users_ratings: pd.DataFrame,
+    level: str = "l1",
+    print_results: bool = True,
+) -> tuple:
+    if level not in ["l1", "l2", "l3"]:
+        raise ValueError(f"Invalid level '{level}'. Must be one of 'l1', 'l2', or 'l3'.")
+    users_ratings = users_ratings[users_ratings["user_id"].isin(users_ids)].reset_index(drop=True)
+    users_ratings = users_ratings[users_ratings["rating"] == 1]
+    papers_users_ratings_ids = papers[papers["paper_id"].isin(users_ratings["paper_id"])]
+    papers = papers[papers["paper_id"].isin(papers_users_ratings_ids["paper_id"])]
+    papers_ids_to_categories = papers.set_index("paper_id")[level].to_dict()
+    return get_categories_distribution(papers_ids_to_categories, print_results)
+
+
+def get_categories_distribution_relevant_papers(
+    papers: pd.DataFrame,
+    level: str = "l1",
+    print_results: bool = True,
+) -> tuple:
+    from ....src.load_files import load_relevant_papers_ids
+
+    if level not in ["l1", "l2", "l3"]:
+        raise ValueError(f"Invalid level '{level}'. Must be one of 'l1', 'l2', or 'l3'.")
+    relevant_papers_ids = load_relevant_papers_ids()
+    papers = papers[papers["paper_id"].isin(relevant_papers_ids)]
+    papers_ids_to_categories = papers.set_index("paper_id")[level].to_dict()
+    return get_categories_distribution(papers_ids_to_categories, print_results)
 
 
 if __name__ == "__main__":
+
     from ....src.load_files import (
-        load_finetuning_users,
         load_papers,
+        load_session_based_users_ids,
         load_users_ratings,
+        load_users_significant_categories,
     )
 
-    papers = load_papers()
-    get_categories_distribution_dataset(papers, level="l1", print_results=True)
-    get_categories_distribution_ratings(papers, level="l1", print_results=True)
-    get_categories_distribution_cache(papers, level="l1", print_results=True)
-    test_users = load_finetuning_users(selection="test")
-    users_ratings = load_users_ratings(relevant_users_ids=test_users)
-    categories_distributions_dict = get_categories_distribution_val_negative_samples(
-        papers=papers, users_ratings=users_ratings
+    users_ids = load_session_based_users_ids()
+    users_ids_non_cs = load_session_based_users_ids(
+        select_non_cs_users_only=True,
     )
-    for key, dist in categories_distributions_dict.items():
-        assert sum(dist.values()) == 1.0, "Categories distribution must sum to 1.0."
-        if "Computer Science" in dist:
-            print(f"User {key} - Computer Science: {dist['Computer Science']:.2%}")
-            print(dist)
+    users_ids_cs = sorted(list(set(users_ids) - set(users_ids_non_cs)))
+    papers = load_papers()
+    users_ratings = load_users_ratings(relevant_users_ids=users_ids)
+    users_significant_categories = load_users_significant_categories(relevant_users_ids=users_ids)
+
+    print("Categories Distribution for Database:")
+    get_categories_distribution_database(papers=papers, level="l1", print_results=True)
+    print("\nCategories Distribution for Ratings:")
+    get_categories_distribution_ratings(papers=papers, level="l1", print_results=True)
+    print("\nCategories Distribution for CS Users:")
+    get_categories_distribution_ratings_specific_users(
+        papers=papers, users_ids=users_ids_cs, users_ratings=users_ratings
+    )
+    print("\nCategories Distribution for Non-CS Users:")
+    get_categories_distribution_ratings_specific_users(
+        papers=papers, users_ids=users_ids_non_cs, users_ratings=users_ratings
+    )
+    print("\nCategories Distribution for Old Cache:")
+    get_categories_distribution_old_cache(papers=papers, level="l1", print_results=True)
+    print("\nCategories Distribution for Relevant Papers:")
+    get_categories_distribution_relevant_papers(papers=papers, level="l1", print_results=True)
