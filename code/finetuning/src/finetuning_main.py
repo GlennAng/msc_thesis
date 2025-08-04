@@ -14,12 +14,12 @@ from tqdm import tqdm
 from ...src.project_paths import ProjectPaths
 from .finetuning_data import (
     get_train_dataset_dataloader,
-    get_train_negative_samples_dataloader,
+    #Wget_train_negative_samples_dataloader,
     load_val_data,
     print_train_ratings_batch,
     round_number,
 )
-from .finetuning_evaluation import run_validation
+from .finetuning_val import run_validation
 from .finetuning_model import FinetuningModel, load_finetuning_model
 from .finetuning_preprocessing import (
     load_categories_to_idxs,
@@ -76,6 +76,7 @@ def parse_arguments() -> dict:
     parser.add_argument("--n_max_positive_samples_per_user", type=int, default=None)
     parser.add_argument("--n_max_negative_samples_per_user", type=int, default=4)
     parser.add_argument("--n_train_negative_samples", type=int, default=20)
+    parser.add_argument("--shared_train_negative_samples", action="store_true", default=False)
     parser.add_argument("--n_batch_negatives", type=int, default=0)
     parser.add_argument(
         "--not_closest_temporal_samples",
@@ -92,7 +93,6 @@ def parse_arguments() -> dict:
     parser.add_argument("--info_nce_temperature_explicit_negatives", type=float, default=2.5)
     parser.add_argument("--info_nce_temperature_batch_negatives", type=float, default=2.5)
     parser.add_argument("--info_nce_temperature_negative_samples", type=float, default=2.5)
-    parser.add_argument("--info_nce_log_q_correction", action="store_true", default=False)
     parser.add_argument("--n_batches_total", type=int, default=50000)
     parser.add_argument("--n_batches_per_val", type=int, default=2000)
     parser.add_argument("--val_metric", type=str, default="ndcg_all")
@@ -104,17 +104,17 @@ def parse_arguments() -> dict:
     parser.add_argument("--unfreeze_from_bottom", action="store_true", default=False)
     parser.add_argument("--n_unfreeze_layers", type=int, default=4)
     parser.add_argument(
-        "--not_pretrained_projection", action="store_false", dest="pretrained_projection"
+        "--not_projection_pretrained", action="store_false", dest="projection_pretrained"
     )
     parser.add_argument(
-        "--not_pretrained_users_embeddings",
+        "--not_users_embeddings_pretrained",
         action="store_false",
-        dest="pretrained_users_embeddings",
+        dest="users_embeddings_pretrained",
     )
     parser.add_argument(
-        "--not_pretrained_categories_embeddings_l1",
+        "--not_categories_embeddings_l1_pretrained",
         action="store_false",
-        dest="pretrained_categories_embeddings_l1",
+        dest="categories_embeddings_l1_pretrained",
     )
     parser.add_argument(
         "--not_include_l2_categories",
@@ -157,6 +157,22 @@ def set_all_seeds(seed: int) -> None:
     torch.backends.cudnn.benchmark = False
 
 
+def construct_model_parameters_dicts(args_dict: dict) -> tuple:
+    unfreeze_parameters_dict = {
+        "n_unfreeze_layers": args_dict["n_unfreeze_layers"],
+        "unfreeze_from_bottom": args_dict["unfreeze_from_bottom"],
+        "unfreeze_word_embeddings": args_dict["unfreeze_word_embeddings"],
+    }
+    tensors_parameters_dict = {
+        "projection_pretrained": args_dict["projection_pretrained"],
+        "users_embeddings_pretrained": args_dict["users_embeddings_pretrained"],
+        "categories_embeddings_l1_pretrained": args_dict["categories_embeddings_l1_pretrained"],
+        "include_l2_categories": args_dict["include_l2_categories"],
+        "categories_embeddings_l2_pretrained": False,
+    }
+    return unfreeze_parameters_dict, tensors_parameters_dict
+
+"""
 def get_finetuning_dataloaders(args_dict: dict) -> tuple:
     train_dataset_dataloader = get_train_dataset_dataloader(args_dict)
     assert len(train_dataset_dataloader) == args_dict["n_batches_total"]
@@ -176,6 +192,7 @@ def get_finetuning_dataloaders(args_dict: dict) -> tuple:
         train_negative_samples_dataloader,
         n_samples_per_category_for_users_idxs,
     )
+"""
 
 
 def load_optimizer(
@@ -604,20 +621,15 @@ if __name__ == "__main__":
     set_all_seeds(args_dict["seed"])
     val_data = load_val_data()
 
+    unfreeze_parameters_dict, tensors_parameters_dict = construct_model_parameters_dicts(args_dict)
     finetuning_model = load_finetuning_model(
         finetuning_model_path=args_dict["model_path"],
         device=device,
         mode="train",
-        n_unfreeze_layers=args_dict["n_unfreeze_layers"],
-        pretrained_projection=args_dict["pretrained_projection"],
-        pretrained_users_embeddings=args_dict["pretrained_users_embeddings"],
-        pretrained_categories_embeddings_l1=args_dict["pretrained_categories_embeddings_l1"],
-        n_categories_l2=(
-            len(load_categories_to_idxs("l2")) if args_dict["include_l2_categories"] else None
-        ),
+        unfreeze_parameters_dict=unfreeze_parameters_dict,
+        tensors_parameters_dict=tensors_parameters_dict,
+        include_categories_embeddings_l2=args_dict["include_l2_categories"],
         val_users_embeddings_idxs=load_val_users_embeddings_idxs(),
-        unfreeze_word_embeddings=args_dict["unfreeze_word_embeddings"],
-        unfreeze_from_bottom=args_dict["unfreeze_from_bottom"],
     )
     print(finetuning_model.get_memory_footprint())
     args_dict["n_transformer_layers"] = finetuning_model.count_transformer_layers()
@@ -625,11 +637,11 @@ if __name__ == "__main__":
         finetuning_model.count_transformer_parameters()
     )
 
-    (
-        train_dataset_dataloader,
-        train_negative_samples_dataloader,
-        n_samples_per_category_for_users_idxs,
-    ) = get_finetuning_dataloaders(args_dict)
+    #(
+    #    train_dataset_dataloader,
+    #    train_negative_samples_dataloader,
+    #    n_samples_per_category_for_users_idxs,
+    #) = get_finetuning_dataloaders(args_dict)
 
     optimizer, scheduler = load_optimizer(
         finetuning_model=finetuning_model,

@@ -119,11 +119,11 @@ class ProjectPaths:
             ProjectPaths.finetuning_data_model_datasets_path()
             / "eval_papers_tokenized_test_users.pt"
         )
-
+    
     @staticmethod
     def finetuning_data_model_datasets_negative_samples_tokenized_train_path():
         return (
-            ProjectPaths.finetuning_data_model_datasets_path() / "negative_samples_tokenized_train"
+            ProjectPaths.finetuning_data_model_datasets_path() / "negative_samples_tokenized_train.pt"
         )
 
     @staticmethod

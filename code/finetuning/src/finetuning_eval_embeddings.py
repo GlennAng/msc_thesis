@@ -1,12 +1,12 @@
 import argparse
 import os
+import pickle
 from pathlib import Path
 
 import numpy as np
-import pickle
 import torch
 
-from .finetuning_model import load_finetuning_model, FinetuningModel
+from .finetuning_model import FinetuningModel, load_finetuning_model
 from .finetuning_preprocessing import (
     load_finetuning_papers_tokenized,
     load_users_coefs_ids_to_idxs,
@@ -52,7 +52,7 @@ def get_eval_papers_tokenized(val_users: bool, test_users: bool) -> dict:
         for key in merged_dict.keys():
             merged_dict[key] = merged_dict[key][unique_mask]
         return merged_dict
-    
+
 
 def save_users_coefs(
     finetuning_model: FinetuningModel,
@@ -65,7 +65,7 @@ def save_users_coefs(
     np.save(embeddings_folder / "users_coefs.npy", users_coefs)
     with open(embeddings_folder / "users_coefs_ids_to_idxs.pkl", "wb") as f:
         pickle.dump(users_embeddings_ids_to_idxs, f)
-    
+
 
 def compute_eval_embeddings(
     finetuning_model: FinetuningModel,
@@ -102,7 +102,6 @@ if __name__ == "__main__":
         args["model_path"] / "state_dicts",
         device=device,
         mode="eval",
-        n_unfreeze_layers=0,
         val_users_embeddings_idxs=val_users_embeddings_idxs,
     )
     eval_papers_tokenized = get_eval_papers_tokenized(args["val_users"], args["test_users"])

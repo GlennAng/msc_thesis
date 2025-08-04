@@ -8,8 +8,7 @@ from torch.utils.data import BatchSampler, DataLoader, Dataset
 from transformers import AutoTokenizer
 
 from ...logreg.src.training.training_data import (
-    get_categories_ratios,
-    get_n_samples_per_category_for_user,
+    get_categories_ratios_for_validation,
 )
 from ...src.load_files import (
     load_papers,
@@ -21,7 +20,7 @@ from .finetuning_preprocessing import (
     load_categories_to_idxs,
     load_finetuning_dataset,
     load_finetuning_papers_tokenized,
-    load_finetuning_users,
+    load_finetuning_users_ids,
     load_users_coefs_ids_to_idxs,
     load_negative_samples_matrix_val,
     load_val_users_embeddings_idxs,
@@ -29,6 +28,7 @@ from .finetuning_preprocessing import (
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+N_SAMPLES_FOR_PRINTING_BATCH = 24
 
 def round_number(number: float, decimal_places: int = 4) -> float:
     return round(number, decimal_places)
@@ -36,11 +36,9 @@ def round_number(number: float, decimal_places: int = 4) -> float:
 
 def print_train_ratings_batch(batch: dict) -> str:
     s = ""
-    user_idx_list, paper_id_list, rating_list = (
-        batch["user_idx"][:24].tolist(),
-        batch["paper_id"][:24].tolist(),
-        batch["rating"][:24].tolist(),
-    )
+    user_idx_list = batch["user_idx"][:N_SAMPLES_FOR_PRINTING_BATCH].tolist()
+    paper_id_list = batch["paper_id"][:N_SAMPLES_FOR_PRINTING_BATCH].tolist()
+    rating_list = batch["rating"][:N_SAMPLES_FOR_PRINTING_BATCH].tolist()
     s += f"User IDXs: {user_idx_list}.\n"
     s += f"Paper IDs: {paper_id_list}.\n"
     s += f"Ratings: {rating_list}.\n"
@@ -50,14 +48,17 @@ def print_train_ratings_batch(batch: dict) -> str:
     return s
 
 
-def get_no_cs_users_selection(
+def get_no_cs_users_sorted_indices(
     unique_users_idxs: torch.Tensor, no_cs_users_selection: str
 ) -> torch.Tensor:
     assert len(unique_users_idxs) == len(torch.unique(unique_users_idxs))
     assert torch.all(unique_users_idxs[:-1] <= unique_users_idxs[1:])
-    no_cs_users = load_finetuning_users(selection=no_cs_users_selection)
+    no_cs_users_ids = load_finetuning_users_ids(
+        selection=no_cs_users_selection,
+        select_non_cs_users_only=True,
+    )
     users_ids_to_idxs = load_users_coefs_ids_to_idxs()
-    no_cs_users_idxs = [users_ids_to_idxs[user_id] for user_id in no_cs_users]
+    no_cs_users_idxs = [users_ids_to_idxs[user_id] for user_id in no_cs_users_ids]
     no_cs_users_idxs = torch.tensor(no_cs_users_idxs, dtype=torch.int64)
     assert torch.all(no_cs_users_idxs[:-1] <= no_cs_users_idxs[1:])
     assert torch.all(torch.isin(no_cs_users_idxs, unique_users_idxs))
@@ -68,48 +69,54 @@ def get_no_cs_users_selection(
 class FinetuningDataset(Dataset):
     def __init__(
         self,
-        user_idx_tensor: torch.Tensor,
-        paper_id_tensor: torch.Tensor,
-        rating_tensor: torch.Tensor,
-        input_ids_tensor: torch.Tensor,
-        attention_mask_tensor: torch.Tensor,
-        category_l1_tensor: torch.Tensor,
-        category_l2_tensor: torch.Tensor,
-        time_tensor: torch.Tensor,
+        dataset: dict,
         no_cs_users_selection: str = None,
     ) -> None:
-        n_samples = len(user_idx_tensor)
-        assert (
-            n_samples
-            == len(paper_id_tensor)
-            == len(rating_tensor)
-            == len(input_ids_tensor)
-            == len(attention_mask_tensor)
-        )
-        assert n_samples == len(category_l1_tensor) == len(category_l2_tensor) == len(time_tensor)
-        self.user_idx_tensor, self.paper_id_tensor, self.rating_tensor = (
-            user_idx_tensor,
-            paper_id_tensor,
-            rating_tensor,
-        )
-        self.input_ids_tensor, self.attention_mask_tensor = (
-            input_ids_tensor,
-            attention_mask_tensor,
-        )
-        self.category_l1_tensor, self.category_l2_tensor, self.time_tensor = (
-            category_l1_tensor,
-            category_l2_tensor,
-            time_tensor,
-        )
+        """
+        dataset: Dictionary containing the following keys:
+            - "user_idx"
+            - "paper_id"
+            - "rating"
+            - "input_ids"
+            - "attention_mask"
+            - "category_l1"
+            - "category_l2"
+            - "time"
+        """
+        self._setup(dataset)
+        self._assert_lengths()
         unique_users_idxs = self.user_idx_tensor.unique()
         assert unique_users_idxs.tolist() == sorted(unique_users_idxs.tolist())
         self.n_users = len(unique_users_idxs)
 
         if no_cs_users_selection is not None:
-            self.no_cs_users_selection = get_no_cs_users_selection(
+            self.no_cs_users_selection = get_no_cs_users_sorted_indices(
                 unique_users_idxs, no_cs_users_selection
             )
         self.get_users_data()
+
+    def _setup(self, dataset: dict) -> None:
+        self.user_idx_tensor = dataset["user_idx"]
+        self.paper_id_tensor = dataset["paper_id"]
+        self.rating_tensor = dataset["rating"]
+        self.input_ids_tensor = dataset["input_ids"]
+        self.attention_mask_tensor = dataset["attention_mask"]
+        self.category_l1_tensor = dataset["category_l1"]
+        self.category_l2_tensor = dataset["category_l2"]
+        self.time_tensor = dataset["time"]
+
+    def _assert_lengths(self) -> None:
+        n_samples = len(self.user_idx_tensor)
+        tensor_lengths = [
+            len(self.paper_id_tensor),
+            len(self.rating_tensor),
+            len(self.input_ids_tensor),
+            len(self.attention_mask_tensor),
+            len(self.category_l1_tensor),
+            len(self.category_l2_tensor),
+            len(self.time_tensor),
+        ]
+        assert all(length == n_samples for length in tensor_lengths)
 
     def __len__(self) -> int:
         return len(self.user_idx_tensor)
@@ -157,36 +164,6 @@ class FinetuningDataset(Dataset):
             user_id.item(): user_idx
             for user_id, user_idx in zip(self.user_idx_tensor.unique(), range(self.n_users))
         }
-
-
-def create_finetuning_dataset(
-    dataset: dict, no_cs_users_selection: bool = None
-) -> FinetuningDataset:
-    user_idx_tensor, paper_id_tensor, rating_tensor = (
-        dataset["user_idx"],
-        dataset["paper_id"],
-        dataset["rating"],
-    )
-    input_ids_tensor, attention_mask_tensor = (
-        dataset["input_ids"],
-        dataset["attention_mask"],
-    )
-    category_l1_tensor, category_l2_tensor, time_tensor = (
-        dataset["category_l1"],
-        dataset["category_l2"],
-        dataset["time"],
-    )
-    return FinetuningDataset(
-        user_idx_tensor=user_idx_tensor,
-        paper_id_tensor=paper_id_tensor,
-        rating_tensor=rating_tensor,
-        input_ids_tensor=input_ids_tensor,
-        attention_mask_tensor=attention_mask_tensor,
-        category_l1_tensor=category_l1_tensor,
-        category_l2_tensor=category_l2_tensor,
-        time_tensor=time_tensor,
-        no_cs_users_selection=no_cs_users_selection,
-    )
 
 
 class TrainDatasetBatchSampler(BatchSampler):
@@ -488,7 +465,7 @@ class TrainNegativeSamplesBatchSampler(BatchSampler):
     ) -> None:
         self.tensor_idxs_per_category_l1 = dataset.tensor_idxs_per_category_l1
         if categories_ratios is None:
-            self.categories_ratios = get_categories_ratios()
+            self.categories_ratios = get_categories_ratios_for_validation()
         else:
             self.categories_ratios = categories_ratios
         self.users_ids_to_idxs = load_users_coefs_ids_to_idxs()
@@ -642,18 +619,22 @@ def get_train_negative_samples_dataloader(
     )
     return train_negative_samples_dataloader, n_samples_per_category_for_users_idxs
 
-
+"""
 def load_val_data() -> dict:
     val_data = {}
     val_data["val_users_embeddings_idxs"] = load_val_users_embeddings_idxs()
-    val_data["val_dataset"] = create_finetuning_dataset(
-        load_finetuning_dataset("val"), no_cs_users_selection="val_no_cs"
+    val_data["val_dataset"] = FinetuningDataset(
+        dataset=load_finetuning_dataset("val"),
+        no_cs_users_selection="val",
     )
-    val_data["val_negative_samples"] = load_finetuning_papers("val_negative_samples")
-    val_data["val_negative_samples_matrix"] = load_val_negative_samples_matrix()
+    val_data["val_negative_samples"] = load_finetuning_papers_tokenized(
+        papers_type="negative_samples_val"
+    )
+    val_data["val_negative_samples_matrix"] = load_negative_samples_matrix_val()
     return val_data
-"""
 
+"""
+negative_samples_matrix = get_negative_samples_matrix_val(users_ids, negative_samples_ids)
 def turn_n_samples_per_category_for_user_to_tensor(
     n_samples_per_category_for_user: dict, n_categories: int
 ) -> torch.Tensor:
@@ -704,3 +685,4 @@ def get_n_samples_per_category_for_users_idxs(
             )
         )
     return n_samples_per_category_for_users_idxs
+"""

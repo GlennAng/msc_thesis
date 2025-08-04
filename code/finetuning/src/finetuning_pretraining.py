@@ -7,15 +7,15 @@ import sys
 import numpy as np
 
 from ...scripts.create_example_configs import create_example_config
-from ...src.load_files import load_finetuning_users
+from ...src.load_files import load_finetuning_users_ids
 from ...src.project_paths import ProjectPaths
 
 
-def create_finetuning_config_train(example_config: dict, train_users: list) -> dict:
+def create_finetuning_config_train(example_config: dict, train_users_ids: list) -> dict:
     finetuning_config_train = example_config.copy()
     finetuning_config_train.update(
         {
-            "users_selection": train_users,
+            "users_selection": train_users_ids,
             "min_n_posrated": 20,
             "min_n_negrated": 20,
             "evaluation": "train_test_split",
@@ -26,7 +26,7 @@ def create_finetuning_config_train(example_config: dict, train_users: list) -> d
     return finetuning_config_train
 
 
-def create_finetuning_config_val(example_config: dict, val_users: list) -> dict:
+def create_finetuning_config_val(example_config: dict) -> dict:
     finetuning_config_val = example_config.copy()
     finetuning_config_val.update(
         {
@@ -38,10 +38,10 @@ def create_finetuning_config_val(example_config: dict, val_users: list) -> dict:
     return finetuning_config_val
 
 
-def create_finetuning_configs(train_users: list, val_users: list) -> None:
+def create_finetuning_configs(train_users_ids: list) -> None:
     example_config = create_example_config()
-    finetuning_config_train = create_finetuning_config_train(example_config, train_users)
-    finetuning_config_val = create_finetuning_config_val(example_config, val_users)
+    finetuning_config_train = create_finetuning_config_train(example_config, train_users_ids)
+    finetuning_config_val = create_finetuning_config_val(example_config)
     finetuning_config_path = ProjectPaths.logreg_experiments_path() / "finetuning_pretraining"
     os.makedirs(finetuning_config_path, exist_ok=True)
     with open(finetuning_config_path / "finetuning_config_train.json", "w") as f:
@@ -69,15 +69,14 @@ def load_outputs() -> tuple:
     )
     train_coefs = np.load(finetuning_outputs_path_train / "users_coefs.npy")
     val_coefs = np.load(finetuning_outputs_path_val / "users_coefs.npy")
-    assert train_coefs.shape[0] == len(train_users) and val_coefs.shape[0] == len(val_users)
+    assert train_coefs.shape[0] == len(train_users_ids)
+    assert val_coefs.shape[0] == len(val_users_ids)
     with open(finetuning_outputs_path_train / "users_coefs_ids_to_idxs.pkl", "rb") as f:
         train_users_ids_to_idxs = pickle.load(f)
     with open(finetuning_outputs_path_val / "users_coefs_ids_to_idxs.pkl", "rb") as f:
         val_users_ids_to_idxs = pickle.load(f)
-    assert (
-        list(train_users_ids_to_idxs.keys()) == train_users
-        and list(val_users_ids_to_idxs.keys()) == val_users
-    )
+    assert len(train_users_ids_to_idxs) == len(train_users_ids)
+    assert len(val_users_ids_to_idxs) == len(val_users_ids)
     return train_coefs, val_coefs, train_users_ids_to_idxs, val_users_ids_to_idxs
 
 
@@ -88,19 +87,16 @@ def save_outputs(
     val_users_ids_to_idxs: dict,
 ) -> None:
     coefs_merged = np.concatenate((train_coefs, val_coefs), axis=0)
-    assert coefs_merged.shape[0] == len(train_users) + len(val_users)
+    assert coefs_merged.shape[0] == len(train_users_ids) + len(val_users_ids)
     val_users_ids_to_idxs_updated = {
-        user_id: idx + len(train_users) for user_id, idx in val_users_ids_to_idxs.items()
+        user_id: idx + len(train_users_ids) for user_id, idx in val_users_ids_to_idxs.items()
     }
     users_ids_to_idxs = {**train_users_ids_to_idxs, **val_users_ids_to_idxs_updated}
-    assert list(users_ids_to_idxs.keys()) == train_users + val_users
+    assert list(users_ids_to_idxs.keys()) == train_users_ids + val_users_ids
     os.makedirs(ProjectPaths.finetuning_data_path(), exist_ok=True)
     state_dicts_path = ProjectPaths.finetuning_data_model_state_dicts_path()
     os.makedirs(state_dicts_path, exist_ok=True)
-    np.save(
-        state_dicts_path / "users_coefs.npy",
-        coefs_merged,
-    )
+    np.save(state_dicts_path / "users_coefs.npy", coefs_merged)
     print(
         f"Saved users_coefs.npy with shape {coefs_merged.shape} at "
         f"{state_dicts_path / 'users_coefs.npy'}"
@@ -117,8 +113,9 @@ def save_outputs(
 
 
 if __name__ == "__main__":
-    finetuning_users = load_finetuning_users()
-    train_users, val_users = finetuning_users["train"], finetuning_users["val"]
-    create_finetuning_configs(train_users, val_users)
+    finetuning_users_ids = load_finetuning_users_ids()
+    train_users_ids = finetuning_users_ids["train"]
+    val_users_ids = finetuning_users_ids["val"]
+    create_finetuning_configs(train_users_ids)
     train_coefs, val_coefs, train_users_ids_to_idxs, val_users_ids_to_idxs = load_outputs()
     save_outputs(train_coefs, val_coefs, train_users_ids_to_idxs, val_users_ids_to_idxs)

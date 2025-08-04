@@ -460,11 +460,3 @@ if __name__ == "__main__":
             print(f"{users_type_string} Users Session-Based Ratings saved to {path}.")
         else:
             print(f"{users_type_string} Users Session-Based Ratings already exist. Skipping saving.")
-
-    users_ids = load_session_based_users_ids(select_non_cs_users_only=True)
-    print(users_ids)
-    from ....src.load_files import load_users_significant_categories
-    significant_categories = load_users_significant_categories(
-        relevant_users_ids=users_ids
-    )
-    print(significant_categories)

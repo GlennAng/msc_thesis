@@ -63,7 +63,7 @@ class Evaluator:
         users_significant_categories = load_users_significant_categories(
             relevant_users_ids=users_ids,
         )
-        papers = load_papers(relevant_columns=["paper_id", "in_ratings", "l1", "l2"])
+        papers = load_papers(relevant_columns=["paper_id", "in_cache", "in_ratings", "l1", "l2"])
         users_ratings = users_ratings.merge(
             papers[["paper_id", "l1", "l2"]], on="paper_id", how="left"
         )
@@ -237,20 +237,18 @@ class Evaluator:
                 split = self.cross_val.split(X=range(len(user_ratings)), y=user_ratings["rating"])
                 train_rated_ratios = []
                 for fold_idx, (fold_train_idxs, fold_val_idxs) in enumerate(split):
-                    (
-                        user_ratings.loc[fold_train_idxs, "split"],
-                        user_ratings.loc[fold_val_idxs, "split"],
-                    ) = ("train", "val")
+                    user_ratings.loc[fold_train_idxs, "split"] = "train"
+                    user_ratings.loc[fold_val_idxs, "split"] = "val"
                     train_ratings, val_ratings = split_ratings(user_ratings)
                     train_rated_ratios.append(len(train_ratings) / len(user_ratings))
-                    user_data = self.load_user_data(
+                    user_data_dict = self.load_user_data_dict(
                         train_ratings=train_ratings,
                         val_ratings=val_ratings,
                         cache_embedding_idxs=cache_embedding_idxs,
                         y_cache=y_cache,
                         random_state=self.config["model_random_state"],
                     )
-                    user_predictions_dict[fold_idx] = fill_user_predictions_dict(user_data)
+                    user_predictions_dict[fold_idx] = fill_user_predictions_dict(user_data_dict)
                     train_negrated_ranking_idxs, val_negrated_ranking_idxs = (
                         load_negrated_ranking_idxs_for_user(
                             train_ratings=train_ratings,
@@ -262,7 +260,7 @@ class Evaluator:
                     )
                     fold_results, fold_predictions, _ = self.train_model_for_user(
                         user_id=user_id,
-                        user_data=user_data,
+                        user_data_dict=user_data_dict,
                         negative_samples_embeddings=negative_samples_embeddings,
                         train_negrated_ranking_idxs=train_negrated_ranking_idxs,
                         val_negrated_ranking_idxs=val_negrated_ranking_idxs,

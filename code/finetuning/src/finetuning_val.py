@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from ...logreg.src.visualization.visualization_tools import format_number
-from .finetuning_data import FinetuningDataset, create_finetuning_dataset
+from .finetuning_data import FinetuningDataset
 from .finetuning_model import FinetuningModel, load_finetuning_model
 from .finetuning_preprocessing import (
     load_finetuning_dataset,
@@ -153,19 +153,19 @@ def get_metric_strings() -> dict:
         "recall": "Recall",
         "specificity": "Specificity",
         "balacc": "Balanced Accuracy",
-        "ndcg": "NDCG",
+        "ndcg": "nDCG",
         "mrr": "MRR",
         "hr@1": "HR@1",
         "infonce": "InfoNCE",
-        "worst_10_ndcg": "Worst 10 NDCG",
-        "worst_3_ndcg": "Worst 3 NDCG",
-        "worst_ndcg": "Worst NDCG",
-        "worst_10_ndcg_diff": "Worst 10 NDCG Diff",
-        "worst_3_ndcg_diff": "Worst 3 NDCG Diff",
-        "worst_ndcg_diff": "Worst NDCG Diff",
-        "best_10_ndcg_diff": "Best 10 NDCG Diff",
-        "best_3_ndcg_diff": "Best 3 NDCG Diff",
-        "best_ndcg_diff": "Best NDCG Diff",
+        "worst_10_ndcg": "Worst 10 nDCG",
+        "worst_3_ndcg": "Worst 3 nDCG",
+        "worst_ndcg": "Worst nDCG",
+        "worst_10_ndcg_diff": "Worst 10 nDCG Diff",
+        "worst_3_ndcg_diff": "Worst 3 nDCG Diff",
+        "worst_ndcg_diff": "Worst nDCG Diff",
+        "best_10_ndcg_diff": "Best 10 nDCG Diff",
+        "best_3_ndcg_diff": "Best 3 nDCG Diff",
+        "best_ndcg_diff": "Best nDCG Diff",
     }
 
 
@@ -241,7 +241,6 @@ def run_validation(
     )
     training_mode = finetuning_model.training
     finetuning_model.eval()
-    print(val_negative_samples_matrix.shape)
     val_negative_samples_scores = finetuning_model.compute_val_negative_samples_scores(
         val_negative_samples["input_ids"],
         val_negative_samples["attention_mask"],
@@ -339,30 +338,30 @@ def run_validation(
 
 
 def test_validation(finetuning_model: FinetuningModel) -> None:
-    dataset = create_finetuning_dataset(
-        load_finetuning_dataset("val"), no_cs_users_selection="val_no_cs"
+    dataset = FinetuningDataset(
+        dataset=load_finetuning_dataset("val"),
+        no_cs_users_selection="val",
     )
     negative_samples = load_finetuning_papers_tokenized("negative_samples_val")
     negative_samples_matrix = load_negative_samples_matrix_val()
     run_validation(
-        finetuning_model,
-        dataset,
-        negative_samples,
-        negative_samples_matrix,
+        finetuning_model=finetuning_model,
+        val_dataset=dataset,
+        val_negative_samples=negative_samples,
+        val_negative_samples_matrix=negative_samples_matrix,
     )
 
 
 if __name__ == "__main__":
-    assert len(sys.argv) == 2, "Usage: python finetuning_val.py <embeddings_folder>"
+    assert len(sys.argv) == 2, "Usage: python finetuning_val.py <model_path>"
     model_path = sys.argv[1]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     val_users_embeddings_idxs = load_val_users_embeddings_idxs()
     finetuning_model = load_finetuning_model(
-        model_path,
+        finetuning_model_path=model_path,
         device=device,
         mode="eval",
-        n_unfreeze_layers=0,
         val_users_embeddings_idxs=val_users_embeddings_idxs,
     )
     test_validation(finetuning_model)

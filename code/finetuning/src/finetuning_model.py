@@ -11,6 +11,13 @@ from transformers import AutoModel
 
 from ...logreg.src.embeddings.compute_embeddings import get_gpu_info
 from ...src.project_paths import ProjectPaths
+from .finetuning_preprocessing import (
+    load_categories_to_idxs,
+    load_users_coefs_ids_to_idxs,
+)
+
+EVAL_BATCH_SIZE = 512
+FINETUNING_DTYPE = torch.float32
 
 
 class FinetuningModel(nn.Module):
@@ -28,148 +35,180 @@ class FinetuningModel(nn.Module):
     ) -> None:
         super().__init__()
         self.transformer_model = transformer_model
-        self.transformer_model_name = ProjectPaths.finetuning_data_model_path().stem
-        self.eval_batch_size = 512
         self.projection = projection
         self.users_embeddings = users_embeddings
         self.categories_embeddings_l1 = categories_embeddings_l1
         self.categories_embeddings_l2 = categories_embeddings_l2
-        self.unfreeze_word_embeddings = unfreeze_word_embeddings
+
         self.device = next(transformer_model.parameters()).device
-        assert (
-            self.device
-            == self.projection.weight.device
-            == self.users_embeddings.weight.device
-        )
-        if categories_embeddings_l1 is not None:
-            assert self.device == self.categories_embeddings_l1.weight.device
-        if categories_embeddings_l2 is not None:
-            assert self.device == self.categories_embeddings_l2.weight.device
+        self._validate_and_setup_components(val_users_embeddings_idxs)
+        self._unfreeze_layers(n_unfreeze_layers, unfreeze_word_embeddings, unfreeze_from_bottom)
+
+    def _validate_and_setup_components(self, val_users_embeddings_idxs: torch.Tensor) -> None:
+        components = [
+            self.projection.weight,
+            self.users_embeddings.weight,
+            self.categories_embeddings_l1.weight,
+        ]
+        if self.categories_embeddings_l2 is not None:
+            components.append(self.categories_embeddings_l2.weight)
         if val_users_embeddings_idxs is not None:
             self.val_users_embeddings_idxs = val_users_embeddings_idxs.to(self.device)
-            assert self.val_users_embeddings_idxs.tolist() == sorted(
-                self.val_users_embeddings_idxs.tolist()
+            components.append(self.val_users_embeddings_idxs)
+            val_users_embeddings_idxs_sorted = (
+                self.val_users_embeddings_idxs[1:] - self.val_users_embeddings_idxs[:-1]
             )
-        self.unfreeze_layers(n_unfreeze_layers, unfreeze_from_bottom)
+            if not torch.all(val_users_embeddings_idxs_sorted >= 0):
+                raise ValueError(
+                    "Tensor val_users_embeddings_idxs must be sorted in ascending order."
+                )
+        all_same_device = all(component.device == self.device for component in components)
+        if not all_same_device:
+            raise ValueError("All components must be on the same device as the transformer model.")
+
+    def _unfreeze_layers(
+        self, n_unfreeze_layers: int, unfreeze_word_embeddings: bool, unfreeze_from_bottom: bool
+    ) -> None:
+        for param in self.transformer_model.parameters():
+            param.requires_grad = False
+        if unfreeze_word_embeddings:
+            for param in self.transformer_model.embeddings.parameters():
+                param.requires_grad = True
+        transformer_layers = self.transformer_model.encoder.layer
+        if unfreeze_from_bottom:
+            for i in range(n_unfreeze_layers):
+                transformer_layers[i].requires_grad_(True)
+        else:
+            for i in range(len(transformer_layers) - n_unfreeze_layers, len(transformer_layers)):
+                transformer_layers[i].requires_grad_(True)
 
     def forward(
         self,
         eval_type: str,
-        input_ids_tensor: torch.Tensor,
-        attention_mask_tensor: torch.Tensor,
-        category_l1_tensor: torch.Tensor,
-        category_l2_tensor: torch.Tensor = None,
-        user_idx_tensor: torch.Tensor = None,
-        sorted_unique_user_idx_tensor: torch.Tensor = None,
-        batch_negatives_indices: torch.Tensor = None,
+        tensors_dict: dict,
     ) -> torch.Tensor:
-        eval_type = eval_type.lower()
-        assert eval_type in ["train", "negative_samples", "val", "test"]
-        t = self.check_devices(
-            input_ids_tensor,
-            attention_mask_tensor,
-            category_l1_tensor,
-            category_l2_tensor,
-            user_idx_tensor,
-            sorted_unique_user_idx_tensor,
-            batch_negatives_indices,
+        """
+        tensors_dict: Dictionary containing the following keys:
+            - input_ids_tensor (required)
+            - attention_mask_tensor (required)
+            - category_l1_tensor (required)
+            - category_l2_tensor (optional)
+            - user_idx_tensor (optional)
+            - sorted_unique_user_idx_tensor (optional)
+            - batch_negatives_indices (optional)
+        """
+        valid_eval_types = ["train", "negative_samples", "val", "test"]
+        if eval_type is None or eval_type not in valid_eval_types:
+            raise ValueError(f"eval_type must be one of {valid_eval_types}, but got {eval_type}.")
+        tensors_dict = self._check_and_move_tensors(tensors_dict)
+
+        papers_embeddings = self._compute_papers_embeddings(
+            input_ids_tensor=tensors_dict["input_ids_tensor"],
+            attention_mask_tensor=tensors_dict["attention_mask_tensor"],
+            category_l1_tensor=tensors_dict["category_l1_tensor"],
+            category_l2_tensor=tensors_dict.get("category_l2_tensor", None),
         )
-        (
-            input_ids_tensor,
-            attention_mask_tensor,
-            category_l1_tensor,
-            category_l2_tensor,
-            user_idx_tensor,
-            sorted_unique_user_idx_tensor,
-            batch_negatives_indices,
-        ) = t
-
-        papers_embeddings = self.transformer_model(
-            input_ids=input_ids_tensor, attention_mask=attention_mask_tensor
-        ).last_hidden_state[:, 0, :]
-        if self.projection is not None:
-            papers_embeddings = self.projection(papers_embeddings)
-            papers_embeddings = F.normalize(papers_embeddings, p=2, dim=1)
-        if self.categories_embeddings_l1 is not None:
-            categories_embeddings = self.categories_embeddings_l1(category_l1_tensor)
-            if self.categories_embeddings_l2 is not None:
-                categories_embeddings_l2 = self.categories_embeddings_l2(category_l2_tensor)
-                categories_embeddings = categories_embeddings + categories_embeddings_l2
-            papers_embeddings = torch.cat((papers_embeddings, categories_embeddings), dim=1)
-
-        if sorted_unique_user_idx_tensor is not None:
-            assert sorted_unique_user_idx_tensor.tolist() == sorted(
-                sorted_unique_user_idx_tensor.tolist()
-            )
-            sorted_unique_users_embeddings = self.users_embeddings(sorted_unique_user_idx_tensor)
-
         if eval_type == "test":
             return papers_embeddings
-        if eval_type == "negative_samples":
-            dot_products = torch.matmul(
-                sorted_unique_users_embeddings[:, :-1],
-                papers_embeddings.transpose(0, 1),
+        elif eval_type == "negative_samples":
+            return self._compute_negative_samples_scores(
+                papers_embeddings=papers_embeddings,
+                sorted_unique_users_idx_tensor=tensors_dict["sorted_unique_user_idx_tensor"],
             )
-            dot_products = dot_products + sorted_unique_users_embeddings[:, -1].unsqueeze(1)
-            return dot_products
-        if eval_type == "val" or eval_type == "train":
-            users_embeddings = self.users_embeddings(user_idx_tensor)
-            dot_products = (
-                torch.sum(papers_embeddings * users_embeddings[:, :-1], dim=1)
-                + self.users_embeddings(user_idx_tensor)[:, -1]
+        else:
+            return self._compute_train_val_scores(
+                papers_embeddings=papers_embeddings,
+                user_idx_tensor=tensors_dict["user_idx_tensor"],
+                sorted_unique_users_idx_tensor=tensors_dict.get(
+                    "sorted_unique_user_idx_tensor", None
+                ),
+                batch_negatives_indices=tensors_dict.get("batch_negatives_indices", None),
             )
-            if eval_type == "val":
-                return dot_products
-            batch_negatives_scores = None
-            if batch_negatives_indices is not None:
-                batch_negatives_papers = papers_embeddings[batch_negatives_indices]
-                batch_negatives_scores = torch.bmm(
-                    batch_negatives_papers,
-                    sorted_unique_users_embeddings[:, :-1].unsqueeze(-1),
-                ).squeeze(-1)
-                batch_negatives_scores = batch_negatives_scores + sorted_unique_users_embeddings[
-                    :, -1
-                ].unsqueeze(1)
-            return dot_products, batch_negatives_scores
 
-    def check_devices(
+    def _check_and_move_tensors(self, tensors_dict: dict) -> dict:
+        device_checked = {}
+        for key, tensor in tensors_dict.items():
+            if tensor is not None and hasattr(tensor, "device"):
+                if tensor.device != self.device:
+                    device_checked[key] = tensor.to(self.device)
+                else:
+                    device_checked[key] = tensor
+            else:
+                device_checked[key] = tensor
+        return device_checked
+
+    def _compute_papers_embeddings(
         self,
         input_ids_tensor: torch.Tensor,
         attention_mask_tensor: torch.Tensor,
         category_l1_tensor: torch.Tensor,
         category_l2_tensor: torch.Tensor = None,
-        user_idx_tensor: torch.Tensor = None,
-        sorted_unique_user_idx_tensor: torch.Tensor = None,
-        batch_negatives_indices: torch.Tensor = None,
-    ) -> tuple:
-        if input_ids_tensor.device != self.device:
-            input_ids_tensor = input_ids_tensor.to(self.device)
-        if attention_mask_tensor.device != self.device:
-            attention_mask_tensor = attention_mask_tensor.to(self.device)
-        if category_l1_tensor is not None:
-            if category_l1_tensor.device != self.device:
-                category_l1_tensor = category_l1_tensor.to(self.device)
-        if category_l2_tensor is not None:
-            if category_l2_tensor.device != self.device:
-                category_l2_tensor = category_l2_tensor.to(self.device)
-        if user_idx_tensor is not None:
-            if user_idx_tensor.device != self.device:
-                user_idx_tensor = user_idx_tensor.to(self.device)
-        if sorted_unique_user_idx_tensor is not None:
-            if sorted_unique_user_idx_tensor.device != self.device:
-                sorted_unique_user_idx_tensor = sorted_unique_user_idx_tensor.to(self.device)
-        if batch_negatives_indices is not None:
-            if batch_negatives_indices.device != self.device:
-                batch_negatives_indices = batch_negatives_indices.to(self.device)
-        return (
-            input_ids_tensor,
-            attention_mask_tensor,
-            category_l1_tensor,
-            category_l2_tensor,
-            user_idx_tensor,
-            sorted_unique_user_idx_tensor,
-            batch_negatives_indices,
+    ) -> torch.Tensor:
+        papers_embeddings = self.transformer_model(
+            input_ids=input_ids_tensor, attention_mask=attention_mask_tensor
+        ).last_hidden_state[:, 0, :]
+        papers_embeddings = self.projection(papers_embeddings)
+        papers_embeddings = F.normalize(papers_embeddings, p=2, dim=1)
+        categories_embeddings = self.categories_embeddings_l1(category_l1_tensor)
+        if self.categories_embeddings_l2 is not None and category_l2_tensor is not None:
+            categories_embeddings_l2 = self.categories_embeddings_l2(category_l2_tensor)
+            categories_embeddings = categories_embeddings + categories_embeddings_l2
+        papers_embeddings = torch.cat((papers_embeddings, categories_embeddings), dim=1)
+        return papers_embeddings
+
+    def _compute_negative_samples_scores(
+        self,
+        papers_embeddings: torch.Tensor,
+        sorted_unique_users_idx_tensor: torch.Tensor,
+    ) -> torch.Tensor:
+        sorted_unique_users_embeddings = self.users_embeddings(sorted_unique_users_idx_tensor)
+        dot_products = torch.matmul(
+            sorted_unique_users_embeddings[:, :-1],
+            papers_embeddings.transpose(0, 1),
         )
+        dot_products = dot_products + sorted_unique_users_embeddings[:, -1].unsqueeze(1)
+        return dot_products
+
+    def _compute_train_val_scores(
+        self,
+        papers_embeddings: torch.Tensor,
+        user_idx_tensor: torch.Tensor,
+        sorted_unique_users_idx_tensor: torch.Tensor = None,
+        batch_negatives_indices: torch.Tensor = None,
+    ) -> torch.Tensor:
+        users_embeddings = self.users_embeddings(user_idx_tensor)
+        dot_products = (
+            torch.sum(papers_embeddings * users_embeddings[:, :-1], dim=1) + users_embeddings[:, -1]
+        )
+        batch_negatives_scores = None
+        if batch_negatives_indices is not None:
+            batch_negatives_scores = self._compute_batch_negatives_scores(
+                papers_embeddings=papers_embeddings,
+                sorted_unique_users_idx_tensor=sorted_unique_users_idx_tensor,
+                batch_negatives_indices=batch_negatives_indices,
+            )
+        return dot_products, batch_negatives_scores
+
+    def _compute_batch_negatives_scores(
+        self,
+        papers_embeddings: torch.Tensor,
+        sorted_unique_users_idx_tensor: torch.Tensor,
+        batch_negatives_indices: torch.Tensor,
+    ) -> torch.Tensor:
+        if sorted_unique_users_idx_tensor is None:
+            raise ValueError(
+                "sorted_unique_users_idx_tensor must be provided when batch_negatives_indices is not None."
+            )
+        batch_negatives_papers = papers_embeddings[batch_negatives_indices]
+        sorted_unique_users_embeddings = self.users_embeddings(sorted_unique_users_idx_tensor)
+        batch_negatives_scores = torch.bmm(
+            batch_negatives_papers,
+            sorted_unique_users_embeddings[:, :-1].unsqueeze(-1),
+        ).squeeze(-1)
+        batch_negatives_scores = batch_negatives_scores + sorted_unique_users_embeddings[
+            :, -1
+        ].unsqueeze(1)
+        return batch_negatives_scores
 
     def save_finetuning_model(self, model_path: Path) -> None:
         if not isinstance(model_path, Path):
@@ -187,22 +226,6 @@ class FinetuningModel(nn.Module):
                 self.categories_embeddings_l2.state_dict(),
                 model_path / "categories_embeddings_l2.pt",
             )
-
-    def unfreeze_layers(self, n_unfreeze_layers: int, unfreeze_from_bottom: bool) -> None:
-        for param in self.transformer_model.parameters():
-            param.requires_grad = False
-        transformer_layers = self.transformer_model.encoder.layer
-        if unfreeze_from_bottom:
-            for i in range(n_unfreeze_layers):
-                transformer_layers[i].requires_grad_(True)
-        else:
-            for i in range(len(transformer_layers) - n_unfreeze_layers, len(transformer_layers)):
-                transformer_layers[i].requires_grad_(True)
-        if self.unfreeze_word_embeddings:
-            for param in self.transformer_model.embeddings.parameters():
-                param.requires_grad = True
-        #for param in self.categories_embeddings_l1.parameters():
-        #    param.requires_grad = False
 
     def count_transformer_layers(self) -> int:
         return len(self.transformer_model.encoder.layer)
@@ -250,7 +273,9 @@ class FinetuningModel(nn.Module):
                     ]
                     batch_category_l1_tensor = None
                     if category_l1_tensor is not None:
-                        batch_category_l1_tensor = category_l1_tensor[n_samples_processed:upper_bound]
+                        batch_category_l1_tensor = category_l1_tensor[
+                            n_samples_processed:upper_bound
+                        ]
                     batch_category_l2_tensor = None
                     if category_l2_tensor is not None:
                         batch_category_l2_tensor = category_l2_tensor[
@@ -259,16 +284,22 @@ class FinetuningModel(nn.Module):
                     batch_user_idx_tensor = None
                     if user_idx_tensor is not None:
                         batch_user_idx_tensor = user_idx_tensor[n_samples_processed:upper_bound]
+                    tensors_dict = {
+                        "input_ids_tensor": batch_input_ids_tensor,
+                        "attention_mask_tensor": batch_attention_mask_tensor,
+                        "category_l1_tensor": batch_category_l1_tensor,
+                        "category_l2_tensor": batch_category_l2_tensor,
+                        "user_idx_tensor": batch_user_idx_tensor,
+                    }
                     with torch.autocast(device_type=self.device.type, dtype=torch.float16):
                         with torch.inference_mode():
                             results = self(
                                 eval_type=eval_type,
-                                input_ids_tensor=batch_input_ids_tensor,
-                                attention_mask_tensor=batch_attention_mask_tensor,
-                                category_l1_tensor=batch_category_l1_tensor,
-                                category_l2_tensor=batch_category_l2_tensor,
-                                user_idx_tensor=batch_user_idx_tensor,
-                            ).cpu()
+                                tensors_dict=tensors_dict,
+                            )
+                            if isinstance(results, tuple) and len(results) == 2:
+                                results = results[0]
+                            results = results.cpu()
                             gpu_info = get_gpu_info()
                     results_total.append(results)
                     n_samples_processed = min(n_samples, n_samples_processed + batch_size)
@@ -303,10 +334,10 @@ class FinetuningModel(nn.Module):
         category_l2_tensor: torch.Tensor = None,
     ) -> torch.Tensor:
         return self.perform_inference(
-            self.eval_batch_size,
-            input_ids_tensor,
-            attention_mask_tensor,
-            category_l1_tensor,
+            max_batch_size=EVAL_BATCH_SIZE,
+            input_ids_tensor=input_ids_tensor,
+            attention_mask_tensor=attention_mask_tensor,
+            category_l1_tensor=category_l1_tensor,
             category_l2_tensor=category_l2_tensor,
             eval_type="test",
         )
@@ -321,10 +352,10 @@ class FinetuningModel(nn.Module):
     ) -> torch.Tensor:
         assert user_idx_tensor is not None
         return self.perform_inference(
-            self.eval_batch_size,
-            input_ids_tensor,
-            attention_mask_tensor,
-            category_l1_tensor,
+            max_batch_size=EVAL_BATCH_SIZE,
+            input_ids_tensor=input_ids_tensor,
+            attention_mask_tensor=attention_mask_tensor,
+            category_l1_tensor=category_l1_tensor,
             category_l2_tensor=category_l2_tensor,
             user_idx_tensor=user_idx_tensor,
             eval_type="val",
@@ -337,24 +368,27 @@ class FinetuningModel(nn.Module):
         category_l1_tensor: torch.Tensor,
         category_l2_tensor: torch.Tensor = None,
     ) -> torch.Tensor:
+        tensors_dict = {
+            "input_ids_tensor": input_ids_tensor,
+            "attention_mask_tensor": attention_mask_tensor,
+            "category_l1_tensor": category_l1_tensor,
+            "category_l2_tensor": category_l2_tensor,
+            "sorted_unique_user_idx_tensor": self.val_users_embeddings_idxs,
+        }
         with torch.autocast(device_type=self.device.type, dtype=torch.float16):
             with torch.inference_mode():
                 return self(
                     eval_type="negative_samples",
-                    input_ids_tensor=input_ids_tensor,
-                    attention_mask_tensor=attention_mask_tensor,
-                    category_l1_tensor=category_l1_tensor,
-                    category_l2_tensor=category_l2_tensor,
-                    sorted_unique_user_idx_tensor=self.val_users_embeddings_idxs,
+                    tensors_dict=tensors_dict,
                 ).cpu()
-            
+
     def get_memory_footprint(self) -> dict:
         memory_info = {}
         total_params = sum(p.numel() for p in self.parameters())
         trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
         memory_info["total_parameters"] = total_params
         memory_info["trainable_parameters"] = trainable_params
-        memory_info["trainable_percentage"] = (trainable_params / total_params)
+        memory_info["trainable_percentage"] = trainable_params / total_params
         if torch.cuda.is_available():
             memory_info["gpu_memory_allocated (GB)"] = torch.cuda.memory_allocated() / 1024**3
             memory_info["gpu_memory_reserved (GB)"] = torch.cuda.memory_reserved() / 1024**3
@@ -375,46 +409,101 @@ def get_transformer_embeddings_dim(transformer_model: AutoModel) -> int:
     return transformer_model.config.hidden_size
 
 
+def load_unfreeze_parameters(unfreeze_parameters_dict: dict, mode: str) -> tuple:
+    if unfreeze_parameters_dict is None:
+        unfreeze_parameters_dict = {}
+    n_unfreeze_layers = unfreeze_parameters_dict.get("n_unfreeze_layers", None)
+    unfreeze_word_embeddings = unfreeze_parameters_dict.get("unfreeze_word_embeddings", False)
+    unfreeze_from_bottom = unfreeze_parameters_dict.get("unfreeze_from_bottom", False)
+    if mode == "eval":
+        if n_unfreeze_layers is None:
+            n_unfreeze_layers = 0
+        assert n_unfreeze_layers == 0
+    return n_unfreeze_layers, unfreeze_word_embeddings, unfreeze_from_bottom
+
+
 def load_projection(
+    tensors_parameters_dict: dict,
     device: torch.device,
+    projection_path: Path = None,
     transformer_embeddings_dim: int = None,
-    projection_dim: int = None,
-    projection_state_dict: dict = None,
-    dtype=torch.float32,
 ) -> nn.Linear:
-    if projection_state_dict is not None:
+    projection_pretrained = tensors_parameters_dict.get("projection_pretrained", True)
+    projection_dim = tensors_parameters_dict.get("projection_dim", None)
+    projection_state_dict = None
+
+    if projection_pretrained:
+        if not projection_path.exists():
+            raise FileNotFoundError(f"Projection state dict not found at {projection_path}.")
+        projection_state_dict = torch.load(
+            projection_path,
+            map_location=device,
+            weights_only=True,
+        )
         projection_dim, transformer_embeddings_dim = projection_state_dict["weight"].shape
-    projection = nn.Linear(transformer_embeddings_dim, projection_dim)
+    else:
+        if transformer_embeddings_dim is None:
+            raise ValueError(
+                "transformer_embeddings_dim must be provided if pretrained_projection is False."
+            )
+        if projection_dim is None:
+            raise ValueError("projection_dim must be provided if pretrained_projection is False.")
+
+    projection = nn.Linear(
+        in_features=transformer_embeddings_dim,
+        out_features=projection_dim,
+    )
     if projection_state_dict is not None:
         projection.load_state_dict(projection_state_dict)
-    projection = projection.to(device, dtype=dtype)
+    projection = projection.to(device, dtype=FINETUNING_DTYPE)
     return projection
 
 
 def load_embeddings(
+    embeddings_type: str,
+    tensors_parameters_dict: dict,
     device: torch.device,
-    num_embeddings: int = None,
-    embeddings_dim: int = None,
-    embeddings_state_dict: dict = None,
-    dtype=torch.float32,
+    embeddings_path: Path = None,
 ) -> nn.Embedding:
-    if embeddings_state_dict is not None:
+    valid_embeddings_types = [
+        "users_embeddings",
+        "categories_embeddings_l1",
+        "categories_embeddings_l2",
+    ]
+    if embeddings_type not in valid_embeddings_types:
+        raise ValueError(
+            f"embeddings_type must be one of {valid_embeddings_types}, but got {embeddings_type}."
+        )
+    pretrained_embeddings = tensors_parameters_dict.get(f"{embeddings_type}_pretrained", True)
+    embeddings_dim = tensors_parameters_dict.get(f"{embeddings_type}_dim", None)
+    embeddings_state_dict = None
+
+    if pretrained_embeddings:
+        if not embeddings_path.exists():
+            raise FileNotFoundError(f"Embeddings state dict not found at {embeddings_path}.")
+        embeddings_state_dict = torch.load(
+            embeddings_path,
+            map_location=device,
+            weights_only=True,
+        )
         num_embeddings, embeddings_dim = embeddings_state_dict["weight"].shape
+    else:
+        if embeddings_dim is None:
+            raise ValueError("embeddings_dim must be provided if pretrained_embeddings is False.")
+        if embeddings_type == "users_embeddings":
+            num_embeddings = len(load_users_coefs_ids_to_idxs())
+        elif embeddings_type == "categories_embeddings_l1":
+            num_embeddings = len(load_categories_to_idxs("l1"))
+        elif embeddings_type == "categories_embeddings_l2":
+            num_embeddings = len(load_categories_to_idxs("l2"))
+
     embeddings = nn.Embedding(num_embeddings, embeddings_dim)
     if embeddings_state_dict is not None:
         embeddings.load_state_dict(embeddings_state_dict)
-    embeddings = embeddings.to(device, dtype=dtype)
+    embeddings = embeddings.to(device, dtype=FINETUNING_DTYPE)
+    if embeddings_type == "categories_embeddings_l2" and embeddings_state_dict is None:
+        nn.init.normal_(embeddings.weight, std=0.01)
     return embeddings
-
-
-def init_categories_embeddings_l2(
-    device: torch.device, num_embeddings: int, embeddings_dim: int, dtype=torch.float32
-) -> nn.Embedding:
-    categories_embeddings_l2 = nn.Embedding(
-        num_embeddings, embeddings_dim, dtype=dtype, device=device
-    )
-    nn.init.normal_(categories_embeddings_l2.weight, std=0.01)
-    return categories_embeddings_l2
 
 
 def fix_gte_config(model_path: Path) -> None:
@@ -436,116 +525,63 @@ def load_finetuning_model(
     finetuning_model_path: Path,
     device: torch.device,
     mode: str,
-    n_unfreeze_layers: int = 4,
+    unfreeze_parameters_dict: dict = {},
+    tensors_parameters_dict: dict = {},
+    include_categories_embeddings_l2: bool = False,
     val_users_embeddings_idxs: torch.Tensor = None,
-    unfreeze_word_embeddings: bool = False,
-    unfreeze_from_bottom: bool = False,
-    projection_state_dict: dict = None,
-    users_embeddings_state_dict: dict = None,
-    categories_embeddings_l1_state_dict: dict = None,
-    categories_embeddings_l2_state_dict: dict = None,
-    pretrained_projection: bool = True,
-    pretrained_users_embeddings: bool = True,
-    pretrained_categories_embeddings_l1: bool = True,
-    projection_dim: int = 256,
-    n_users: int = 3995,
-    n_categories_l1: int = 18,
-    n_categories_l2: int = None,
-    categories_embeddings_dim: int = None,
 ) -> FinetuningModel:
-    modes = ["train", "eval"]
-    if mode not in modes:
-        raise ValueError(f"Mode must be one of {modes}, but got {mode}.")
+    valid_modes = ["train", "eval"]
+    if mode not in valid_modes:
+        raise ValueError(f"Mode must be one of {valid_modes}, but got {mode}.")
     if not isinstance(finetuning_model_path, Path):
         finetuning_model_path = Path(finetuning_model_path).resolve()
-
+    n_unfreeze_layers, unfreeze_word_embeddings, unfreeze_from_bottom = load_unfreeze_parameters(
+        unfreeze_parameters_dict, mode
+    )
     transformer_model_path = finetuning_model_path / "transformer_model"
     fix_gte_config(transformer_model_path)
     transformer_model = load_transformer_model(transformer_model_path, device)
     transformer_embeddings_dim = get_transformer_embeddings_dim(transformer_model)
 
-    if mode == "eval" or (
-        mode == "train" and projection_state_dict is None and pretrained_projection
-    ):
-        projection_state_dict = torch.load(
-            finetuning_model_path / "projection.pt",
-            map_location=device,
-            weights_only=True,
-        )
-        projection = load_projection(device, projection_state_dict=projection_state_dict)
-    else:
-        projection = load_projection(
-            device,
-            transformer_embeddings_dim=transformer_embeddings_dim,
-            projection_dim=projection_dim,
-        )
-
-    if mode == "eval" or (
-        mode == "train"
-        and categories_embeddings_l1_state_dict is None
-        and pretrained_categories_embeddings_l1
-    ):
-        categories_embeddings_l1_state_dict = torch.load(
-            finetuning_model_path / "categories_embeddings_l1.pt",
-            map_location=device,
-            weights_only=True,
-        )
-        categories_embeddings_l1 = load_embeddings(
-            device, embeddings_state_dict=categories_embeddings_l1_state_dict
-        )
-    else:
-        categories_embeddings_l1 = load_embeddings(
-            device,
-            num_embeddings=n_categories_l1,
-            embeddings_dim=categories_embeddings_dim,
-        )
+    projection = load_projection(
+        tensors_parameters_dict=tensors_parameters_dict,
+        device=device,
+        projection_path=finetuning_model_path / "projection.pt",
+    )
+    categories_embeddings_l1 = load_embeddings(
+        embeddings_type="categories_embeddings_l1",
+        tensors_parameters_dict=tensors_parameters_dict,
+        device=device,
+        embeddings_path=finetuning_model_path / "categories_embeddings_l1.pt",
+    )
     categories_embeddings_l1_dim = categories_embeddings_l1.embedding_dim
-
-    if mode == "eval" or (
-        mode == "train" and users_embeddings_state_dict is None and pretrained_users_embeddings
-    ):
-        users_embeddings_state_dict = torch.load(
-            finetuning_model_path / "users_embeddings.pt",
-            map_location=device,
-            weights_only=True,
-        )
-        users_embeddings = load_embeddings(
-            device, embeddings_state_dict=users_embeddings_state_dict
-        )
-    else:
-        users_embeddings = load_embeddings(
-            device,
-            num_embeddings=n_users,
-            embeddings_dim=transformer_embeddings_dim + categories_embeddings_l1_dim + 1,
-        )
-
+    tensors_parameters_dict.update(
+        {"users_embeddings_dim": transformer_embeddings_dim + categories_embeddings_l1_dim + 1}
+    )
+    users_embeddings = load_embeddings(
+        embeddings_type="users_embeddings",
+        tensors_parameters_dict=tensors_parameters_dict,
+        device=device,
+        embeddings_path=finetuning_model_path / "users_embeddings.pt",
+    )
     categories_embeddings_l2 = None
-    if mode == "eval":
-        categories_embeddings_l2_path = finetuning_model_path / "categories_embeddings_l2.pt"
-        if (
-            os.path.exists(categories_embeddings_l2_path)
-            and categories_embeddings_l2_state_dict is None
-        ):
-            categories_embeddings_l2_state_dict = torch.load(
-                categories_embeddings_l2_path, map_location=device, weights_only=True
-            )
-        if categories_embeddings_l2_state_dict is not None:
-            categories_embeddings_l2 = load_embeddings(
-                device, embeddings_state_dict=categories_embeddings_l2_state_dict
-            )
-    if mode == "train" and n_categories_l2 is not None:
-        categories_embeddings_l2 = init_categories_embeddings_l2(
-            device,
-            num_embeddings=n_categories_l2,
-            embeddings_dim=categories_embeddings_l1_dim,
+    if include_categories_embeddings_l2:
+        tensors_parameters_dict.update(
+            {"categories_embeddings_l2_dim": categories_embeddings_l1_dim}
+        )
+        categories_embeddings_l2 = load_embeddings(
+            embeddings_type="categories_embeddings_l2",
+            tensors_parameters_dict=tensors_parameters_dict,
+            device=device,
+            embeddings_path=finetuning_model_path / "categories_embeddings_l2.pt",
         )
 
     return FinetuningModel(
-        transformer_model,
-        projection,
-        users_embeddings,
-        categories_embeddings_l1,
-        categories_embeddings_l2,
+        transformer_model=transformer_model,
+        projection=projection,
+        users_embeddings=users_embeddings,
+        categories_embeddings_l1=categories_embeddings_l1,
+        categories_embeddings_l2=categories_embeddings_l2,
         val_users_embeddings_idxs=val_users_embeddings_idxs,
         n_unfreeze_layers=n_unfreeze_layers,
         unfreeze_word_embeddings=unfreeze_word_embeddings,
