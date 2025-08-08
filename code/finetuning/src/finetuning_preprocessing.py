@@ -30,7 +30,7 @@ from ...src.load_files import (
 from ...src.project_paths import ProjectPaths
 
 N_VAL_NEGATIVE_SAMPLES = 100
-N_TRAIN_NEGATIVE_SAMPLES_PER_CATEGORY_MAX = 30000
+N_TRAIN_NEGATIVE_SAMPLES_PER_CATEGORY_MAX = 150000
 
 
 def save_transformer_model() -> None:
@@ -541,7 +541,7 @@ def load_finetuning_papers_tokenized(
 
 
 def get_negative_samples_ids_per_category_dict_train(
-    random_state: int,
+    selection_random_state: int,
 ) -> dict:
     papers = load_papers(relevant_columns=["paper_id", "in_ratings", "l1"])
     ratings_papers_ids = papers[papers["in_ratings"]]["paper_id"].tolist()
@@ -567,7 +567,7 @@ def get_negative_samples_ids_per_category_dict_train(
         if len(category_papers) > N_TRAIN_NEGATIVE_SAMPLES_PER_CATEGORY_MAX:
             category_papers = category_papers.sample(
                 n=N_TRAIN_NEGATIVE_SAMPLES_PER_CATEGORY_MAX,
-                random_state=random_state,
+                random_state=selection_random_state,
                 replace=False,
             )
         category_papers_ids = sorted(list(category_papers["paper_id"].unique()))
@@ -588,7 +588,7 @@ def save_negative_samples_tokenized_train(
         print("Negative samples tokenized for train already exist - skipping saving.")
         return
     papers_ids_per_category_dict = get_negative_samples_ids_per_category_dict_train(
-        random_state=selection_random_state
+        selection_random_state=selection_random_state
     )
     papers_tokenized_per_category_dict = {}
     if tokenizer is None:

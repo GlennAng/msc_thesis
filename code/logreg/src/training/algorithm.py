@@ -159,6 +159,7 @@ SCORES_DICT = {
     Score.BALANCED_ACCURACY: {
         "name": "Balanced Accuracy",
         "abbreviation": "BAL",
+        "abbreviation_for_visu_file": "BAL_All",
         "increase_better": True,
         "derivable": True,
         "ranking": False,
@@ -339,6 +340,7 @@ SCORES_DICT = {
     Score.NDCG_ALL: {
         "name": "Normalized Discounted Cumulative Gain All",
         "abbreviation": "NDCG\nAll",
+        "abbreviation_for_visu_file": "NDCG_All",
         "increase_better": True,
         "derivable": False,
         "ranking": True,
@@ -357,6 +359,7 @@ SCORES_DICT = {
     Score.MRR_ALL: {
         "name": "Mean Reciprocal Rank All",
         "abbreviation": "MRR\nAll",
+        "abbreviation_for_visu_file": "MRR_All",
         "increase_better": True,
         "derivable": False,
         "ranking": True,

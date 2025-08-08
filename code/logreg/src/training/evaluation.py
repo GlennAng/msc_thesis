@@ -71,6 +71,7 @@ class Evaluator:
         self.manage_users_coefs()
         self.val_negative_samples_ids = self.set_val_negative_samples_ids(papers)
         self.cache_papers_categories_ids, self.cache_papers_ids = self.set_cache_papers_ids(papers)
+        self.random_neg = self.config["evaluation"] != Evaluation.SESSION_BASED
 
         if self.config["n_jobs"] == 1:
             self.evaluate_users_in_sequence(users_ids, users_ratings, users_significant_categories)
@@ -202,7 +203,10 @@ class Evaluator:
                 Evaluation.TRAIN_TEST_SPLIT,
                 Evaluation.SESSION_BASED,
             ]:
-                train_ratings, val_ratings = split_ratings(user_ratings)
+                train_ratings, val_ratings, val_sessions_ids = split_ratings(
+                    user_ratings=user_ratings,
+                    sliding_window_eval=self.config["sliding_window_eval"],
+                )
                 user_info["train_rated_ratio"] = len(train_ratings) / len(user_ratings)
                 user_data_dict = self.load_user_data_dict(
                     train_ratings=train_ratings,
@@ -212,25 +216,38 @@ class Evaluator:
                     random_state=self.config["model_random_state"],
                 )
                 user_predictions_dict[0] = fill_user_predictions_dict(user_data_dict)
-                train_negrated_ranking_idxs, val_negrated_ranking_idxs = (
-                    load_negrated_ranking_idxs_for_user(
+                train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
+                    user_ratings=train_ratings,
+                    random_neg=self.random_neg,
+                    random_state=self.config["ranking_random_state"],
+                    same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
+                )
+
+                for val_session_id in val_sessions_ids:
+                    val_session_mask = (val_ratings["session_id"] == val_session_id)
+                    train_ratings_session, val_ratings_session = split_ratings_session(
                         train_ratings=train_ratings,
                         val_ratings=val_ratings,
-                        random_neg=(self.config["evaluation"] != Evaluation.SESSION_BASED),
+                        val_session_mask=val_session_mask,
+                    )
+                    val_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
+                        user_ratings=val_ratings_session,
+                        random_neg=self.random_neg,
                         random_state=self.config["ranking_random_state"],
                         same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
                     )
-                )
-                user_results, user_predictions, user_coefs = self.train_model_for_user(
-                    user_id=user_id,
-                    user_data_dict=user_data_dict,
-                    negative_samples_embeddings=negative_samples_embeddings,
-                    train_negrated_ranking_idxs=train_negrated_ranking_idxs,
-                    val_negrated_ranking_idxs=val_negrated_ranking_idxs,
-                )
-                user_results_dict[0] = user_results
-                if self.config["save_users_predictions"]:
-                    user_predictions_dict[0].update(update_user_predictions_dict(user_predictions))
+                    user_results, user_predictions, user_coefs = self.train_model_for_user(
+                        user_id=user_id,
+                        user_data_dict=user_data_dict,
+                        negative_samples_embeddings=negative_samples_embeddings,
+                        train_negrated_ranking_idxs=train_negrated_ranking_idxs,
+                        val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+                    )
+                    user_results_dict[0] = user_results
+                    if self.config["save_users_predictions"]:
+                        user_predictions_dict[0].update(
+                            update_user_predictions_dict(user_predictions)
+                        )
 
             elif self.config["evaluation"] == Evaluation.CROSS_VALIDATION:
                 user_ratings["split"] = None
@@ -239,7 +256,7 @@ class Evaluator:
                 for fold_idx, (fold_train_idxs, fold_val_idxs) in enumerate(split):
                     user_ratings.loc[fold_train_idxs, "split"] = "train"
                     user_ratings.loc[fold_val_idxs, "split"] = "val"
-                    train_ratings, val_ratings = split_ratings(user_ratings)
+                    train_ratings, val_ratings, _ = split_ratings(user_ratings)
                     train_rated_ratios.append(len(train_ratings) / len(user_ratings))
                     user_data_dict = self.load_user_data_dict(
                         train_ratings=train_ratings,
@@ -249,14 +266,17 @@ class Evaluator:
                         random_state=self.config["model_random_state"],
                     )
                     user_predictions_dict[fold_idx] = fill_user_predictions_dict(user_data_dict)
-                    train_negrated_ranking_idxs, val_negrated_ranking_idxs = (
-                        load_negrated_ranking_idxs_for_user(
-                            train_ratings=train_ratings,
-                            val_ratings=val_ratings,
-                            random_neg=True,
-                            random_state=self.config["ranking_random_state"],
-                            same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
-                        )
+                    train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
+                        user_ratings=train_ratings,
+                        random_neg=self.random_neg,
+                        random_state=self.config["ranking_random_state"],
+                        same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
+                    )
+                    val_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
+                        user_ratings=val_ratings,
+                        random_neg=self.random_neg,
+                        random_state=self.config["ranking_random_state"],
+                        same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
                     )
                     fold_results, fold_predictions, _ = self.train_model_for_user(
                         user_id=user_id,
@@ -608,18 +628,35 @@ class Evaluator:
         np.save(folder / "user_coefs.npy", user_coefs)
 
 
-def split_ratings(user_ratings: pd.DataFrame) -> tuple:
+def split_ratings(user_ratings: pd.DataFrame, sliding_window_eval: bool = False) -> tuple:
     if "split" not in user_ratings.columns:
         raise ValueError("User ratings DataFrame must contain 'split' column.")
     train_mask = user_ratings["split"] == "train"
     val_mask = user_ratings["split"] == "val"
     train_ratings = user_ratings.loc[train_mask].reset_index(drop=True)
     val_ratings = user_ratings.loc[val_mask].reset_index(drop=True)
+    min_val_session_id = val_ratings["session_id"].min()
+    if not sliding_window_eval:
+        val_ratings["session_id"] = min_val_session_id
+    val_sessions_ids = list(val_ratings["session_id"].unique())
+    assert val_sessions_ids == list(
+        range(min_val_session_id, min_val_session_id + len(val_sessions_ids))
+    )
     assert len(train_ratings) + len(val_ratings) == len(user_ratings)
     assert (
         train_ratings["time"].is_monotonic_increasing
         and val_ratings["time"].is_monotonic_increasing
     )
+    return train_ratings, val_ratings, val_sessions_ids
+
+
+def split_ratings_session(
+    train_ratings: pd.DataFrame, val_ratings: pd.DataFrame, val_session_mask: pd.Series
+) -> tuple:
+    train_ratings = pd.concat(
+        [train_ratings, val_ratings[~val_session_mask]]
+    ).reset_index(drop=True)
+    val_ratings = val_ratings[val_session_mask].reset_index(drop=True)
     return train_ratings, val_ratings
 
 

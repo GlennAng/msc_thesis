@@ -50,7 +50,7 @@ if __name__ == "__main__":
                 "--outputs_folder",
                 str(outputs_folder),
                 "--score",
-                "balanced_accuracy",
+                "ndcg_all",
             ]
             + (["--save_scores_tables"] if args.save_scores_tables else []),
             check=True,

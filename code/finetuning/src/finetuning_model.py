@@ -86,6 +86,7 @@ class FinetuningModel(nn.Module):
         self,
         eval_type: str,
         tensors_dict: dict,
+        n_negative_samples_per_user: int = "all",
     ) -> torch.Tensor:
         """
         tensors_dict: Dictionary containing the following keys:
@@ -112,8 +113,9 @@ class FinetuningModel(nn.Module):
             return papers_embeddings
         elif eval_type == "negative_samples":
             return self._compute_negative_samples_scores(
-                papers_embeddings=papers_embeddings,
+                negative_samples_embeddings=papers_embeddings,
                 sorted_unique_users_idx_tensor=tensors_dict["sorted_unique_user_idx_tensor"],
+                n_negative_samples_per_user=n_negative_samples_per_user,
             )
         else:
             return self._compute_train_val_scores(
@@ -158,14 +160,29 @@ class FinetuningModel(nn.Module):
 
     def _compute_negative_samples_scores(
         self,
-        papers_embeddings: torch.Tensor,
+        negative_samples_embeddings: torch.Tensor,
         sorted_unique_users_idx_tensor: torch.Tensor,
+        n_negative_samples_per_user: int = "all",
     ) -> torch.Tensor:
         sorted_unique_users_embeddings = self.users_embeddings(sorted_unique_users_idx_tensor)
-        dot_products = torch.matmul(
-            sorted_unique_users_embeddings[:, :-1],
-            papers_embeddings.transpose(0, 1),
-        )
+        if n_negative_samples_per_user == "all":
+            dot_products = torch.matmul(
+                sorted_unique_users_embeddings[:, :-1],
+                negative_samples_embeddings.transpose(0, 1),
+            )
+        else:
+            if len(negative_samples_embeddings) % n_negative_samples_per_user != 0:
+                raise ValueError(
+                    "Length of negative_samples_embeddings must be divisible by n_negative_samples_per_user."
+                )
+            n_users = len(sorted_unique_users_embeddings)
+            negative_samples_batches = negative_samples_embeddings.view(
+                n_users, n_negative_samples_per_user, -1
+            )
+            dot_products = torch.bmm(
+                sorted_unique_users_embeddings[:, :-1].unsqueeze(1),
+                negative_samples_batches.transpose(1, 2),
+            ).squeeze(1)
         dot_products = dot_products + sorted_unique_users_embeddings[:, -1].unsqueeze(1)
         return dot_products
 

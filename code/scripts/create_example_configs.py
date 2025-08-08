@@ -49,6 +49,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
     )
     example_config.update(
         {
+            "sliding_window_eval": True,
             "algorithm": "logreg",
             "logreg_solver": "lbfgs",
             "svm_kernel": None,
@@ -76,6 +77,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
 def create_example_config_cross_val(embeddings_folder: Path = None) -> dict:
     example_config = create_example_config(embeddings_folder)
     example_config.update({"evaluation": "cross_validation", "train_size": 0.8})
+    example_config.update({"sliding_window_eval": False})
     return example_config
 
 
@@ -110,3 +112,9 @@ if __name__ == "__main__":
     example_config_cross_val = create_example_config_cross_val()
     with open(logreg_experiments_path / "example_config_cross_val.json", "w") as f:
         json.dump(example_config_cross_val, f, indent=4)
+    example_config_tfidf = create_example_config_tfidf()
+    with open(logreg_experiments_path / "example_config_tfidf.json", "w") as f:
+        json.dump(example_config_tfidf, f, indent=4)
+    example_config_tfidf_cross_val = create_example_config_tfidf_cross_val()
+    with open(logreg_experiments_path / "example_config_tfidf_cross_val.json", "w") as f:
+        json.dump(example_config_tfidf_cross_val, f, indent=4)

@@ -41,6 +41,7 @@ def config_assertions(config: Dict[str, Any]) -> None:
     if config["evaluation"] in ["cross_validation", "train_test_split"]:
         assert config["stratified"], "Config: stratified True for evaluation in "
         "['cross_validation', 'train_test_split']."
+        assert not config["sliding_window_eval"]
 
 
 def load_config(config_path: Path) -> Dict[str, Any]:

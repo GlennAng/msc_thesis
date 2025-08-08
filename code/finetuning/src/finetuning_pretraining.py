@@ -19,6 +19,7 @@ def create_finetuning_config_train(example_config: dict, train_users_ids: list) 
             "min_n_posrated": 20,
             "min_n_negrated": 20,
             "evaluation": "train_test_split",
+            "sliding_window_eval": False,
             "train_size": 1.0,
             "save_users_coefs": True,
         }

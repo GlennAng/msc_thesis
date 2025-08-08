@@ -1,7 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-
 def plot_correlation(
     models: list,
     x_values: list,
@@ -11,7 +10,7 @@ def plot_correlation(
     save_path: str,
     title="Model Performance Correlation",
 ):
-    plt.figure(figsize=(10, 8))
+    plt.figure(figsize=(12, 8))
     plt.scatter(
         x_values,
         y_values,
@@ -22,15 +21,28 @@ def plot_correlation(
         linewidth=1,
     )
 
+    # Define positioning for each model
+    left_models = ["Qwen3-0.6B", "Qwen3-4B"]
+    
     for i, model in enumerate(models):
+        if model == "GTE-Base":
+            xytext = (-4, 6)  # A chunk left but not as far as the others
+            ha = "right"
+        elif model in left_models:
+            xytext = (-4, 6)
+            ha = "right"
+        else:  # right_models: GTE-Large, SPECTER2, Qwen3-8B
+            xytext = (5, 6)
+            ha = "left"
+            
         plt.annotate(
             model,
             (x_values[i], y_values[i]),
-            xytext=(5, 5),
+            xytext=xytext,
             textcoords="offset points",
-            fontsize=9,
-            ha="left",
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.7, edgecolor="none"),
+            fontsize=12,
+            fontweight="bold",
+            ha=ha,
         )
 
     x_range = np.linspace(min(x_values), max(x_values), 100)
@@ -38,8 +50,8 @@ def plot_correlation(
     p = np.poly1d(z)
     plt.plot(x_range, p(x_range), "r--", alpha=0.8, linewidth=2)
 
-    plt.xlabel(x_label, fontsize=12)
-    plt.ylabel(y_label, fontsize=12)
+    plt.xlabel(x_label, fontsize=16, fontweight="bold")
+    plt.ylabel(y_label, fontsize=16, fontweight="bold")
     plt.title(title, fontsize=14, fontweight="bold")
     plt.gca().set_facecolor("#f5f5f5")
     plt.grid(True, alpha=0.3, which="major", linestyle="-", linewidth=0.5)
@@ -62,13 +74,13 @@ def plot_correlation(
         0.95,
         f"Correlation: {corr:.3f}",
         transform=plt.gca().transAxes,
+        fontweight="bold",
         bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
     )
 
     plt.tight_layout()
     plt.show()
-    plt.savefig(save_path, format="pdf", dpi=300, bbox_inches="tight")
-
+    plt.savefig(save_path, format="png", dpi=300, bbox_inches="tight")
 
 models = ["SPECTER2", "GTE-Base", "GTE-Large", "Qwen3-0.6B", "Qwen3-4B", "Qwen3-8B"]
 session_based_ndcg = [79.85, 79.34, 80.31, 79.86, 82.21, 82.66]
@@ -81,7 +93,7 @@ plot_correlation(
     y_values=cross_val_ndcg,
     x_label="Session-based",
     y_label="Cross-validation",
-    save_path="session_vs_cross_val_correlation.pdf",
+    save_path="session_vs_cross_val_correlation.png",
     title="Correlation between Session-based and Cross-validation nDCG (both on the Scholar Inbox Dataset)",
 )
 
@@ -91,6 +103,6 @@ plot_correlation(
     y_values=v_measure,
     x_label="Session-based",
     y_label="V-measure",
-    save_path="session_vs_v_measure_correlation.pdf",
+    save_path="session_vs_v_measure_correlation.png",
     title="Correlation between Session-based nDCG (Scholar Inbox Dataset) and V-Measure (arXiv Clustering Dataset)",
 )

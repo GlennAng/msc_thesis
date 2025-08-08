@@ -51,50 +51,34 @@ def load_negrated_ranking_idxs_for_user_timesort(
 
 
 def load_negrated_ranking_idxs_for_user(
-    train_ratings: pd.DataFrame,
-    val_ratings: pd.DataFrame,
+    user_ratings: pd.DataFrame,
     random_neg: bool,
     random_state: int,
     same_negrated_for_all_pos: bool,
 ) -> tuple:
-    train_pos_idxs = train_ratings[train_ratings["rating"] > 0].index.values.tolist()
-    train_neg_idxs = train_ratings[train_ratings["rating"] <= 0].index.values.tolist()
-    val_pos_idxs = val_ratings[val_ratings["rating"] > 0].index.values.tolist()
-    val_neg_idxs = val_ratings[val_ratings["rating"] <= 0].index.values.tolist()
-    n_pos_train, n_pos_val, n_neg_train, n_neg_val = (
-        len(train_pos_idxs),
-        len(val_pos_idxs),
-        len(train_neg_idxs),
-        len(val_neg_idxs),
-    )
-    min_n_negrated_train, min_n_negrated_val = min(4, n_neg_train), min(4, n_neg_val)
-    train_negrated_ranking_idxs = np.zeros((n_pos_train, min_n_negrated_train), dtype=np.int64)
-    val_negrated_ranking_idxs = np.zeros((n_pos_val, min_n_negrated_val), dtype=np.int64)
+    pos_idxs = user_ratings[user_ratings["rating"] > 0].index.values.tolist()
+    neg_idxs = user_ratings[user_ratings["rating"] <= 0].index.values.tolist()
+    n_pos = len(pos_idxs)
+    n_neg = len(neg_idxs)
+    min_n_negrated = min(4, n_neg)
+    negrated_ranking_idxs = np.zeros((n_pos, min_n_negrated), dtype=np.int64)
     if random_neg:
-        train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user_random(
-            train_ratings,
-            train_pos_idxs,
-            train_neg_idxs,
-            train_negrated_ranking_idxs,
-            random_state,
-            same_negrated_for_all_pos,
-        )
-        val_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user_random(
-            val_ratings,
-            val_pos_idxs,
-            val_neg_idxs,
-            val_negrated_ranking_idxs,
-            random_state,
-            same_negrated_for_all_pos,
+        negrated_ranking_idxs = load_negrated_ranking_idxs_for_user_random(
+            ratings=user_ratings,
+            pos_idxs=pos_idxs,
+            neg_idxs=neg_idxs,
+            negrated_ranking_idxs=negrated_ranking_idxs,
+            random_state=random_state,
+            same_negrated_for_all_pos=same_negrated_for_all_pos,
         )
     else:
-        train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user_timesort(
-            train_ratings, train_pos_idxs, train_neg_idxs, train_negrated_ranking_idxs
+        negrated_ranking_idxs = load_negrated_ranking_idxs_for_user_timesort(
+            ratings=user_ratings,
+            pos_idxs=pos_idxs,
+            neg_idxs=neg_idxs,
+            negrated_ranking_idxs=negrated_ranking_idxs
         )
-        val_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user_timesort(
-            val_ratings, val_pos_idxs, val_neg_idxs, val_negrated_ranking_idxs
-        )
-    return train_negrated_ranking_idxs, val_negrated_ranking_idxs
+    return negrated_ranking_idxs
 
 
 def get_categories_ratios_for_validation() -> dict:

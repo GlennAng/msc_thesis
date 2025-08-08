@@ -6,7 +6,6 @@ import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
 from ....src.load_files import load_users_significant_categories
-
 from ..training.algorithm import (
     SCORES_DICT,
     Algorithm,
@@ -58,7 +57,7 @@ OPTIMIZATION_CONSTANTS = {
 def parse_args() -> dict:
     parser = argparse.ArgumentParser(description="Global Visualization Parameters")
     parser.add_argument("--outputs_folder", type=Path)
-    parser.add_argument("--score", type=str, default="balanced_accuracy")
+    parser.add_argument("--score", type=str, default="ndcg_all")
     parser.add_argument("--optimize_tail", action="store_true", default=False)
     parser.add_argument("--no-optimize_tail", action="store_false", dest="optimize_tail")
     parser.add_argument("--save_scores_tables", action="store_true", default=False)
@@ -77,13 +76,11 @@ class Global_Visualizer:
         hyperparameters_combinations: pd.DataFrame,
         results_before_averaging_over_folds: pd.DataFrame,
         folder: Path,
-        score: Score = Score.BALANCED_ACCURACY,
+        score: Score = Score.NDCG_ALL,
         tail: bool = False,
     ) -> None:
         self.config = config
-        self.users_info = clean_users_info(
-            users_info, include_base=False, include_cache=True
-        )
+        self.users_info = clean_users_info(users_info, include_base=False, include_cache=True)
         self.hyperparameters_combinations = hyperparameters_combinations
         self.results_before_averaging_over_folds = results_before_averaging_over_folds
         self.folder = folder
@@ -232,7 +229,6 @@ class Global_Visualizer:
             self.users_significant_categories["category"] == "Computer Science"
         ]["user_id"].values
         self.non_cs_users = [user_id for user_id in self.users_ids if user_id not in self.cs_users]
-
 
     def extract_best_individual_hyperparameters_combination_data(self) -> None:
         self.best_individual_hyperparameters_combination_df = (
@@ -487,10 +483,8 @@ class Global_Visualizer:
                 self.users_info, on="user_id"
             )
         )
-        best_global_merged_with_users_info = (
-            best_global_merged_with_users_info.merge(
-                self.users_significant_categories, on="user_id", how="left"
-            )
+        best_global_merged_with_users_info = best_global_merged_with_users_info.merge(
+            self.users_significant_categories, on="user_id", how="left"
         )
         print_interesting_users(
             pdf,
@@ -509,10 +503,8 @@ class Global_Visualizer:
                 self.users_info, on="user_id"
             )
         )
-        best_global_merged_with_users_info = (
-            best_global_merged_with_users_info.merge(
-                self.users_significant_categories, on="user_id", how="left"
-            )
+        best_global_merged_with_users_info = best_global_merged_with_users_info.merge(
+            self.users_significant_categories, on="user_id", how="left"
         )
         print_interesting_users(
             pdf,
@@ -522,10 +514,8 @@ class Global_Visualizer:
         )
 
     def generate_eighth_page(self, pdf: PdfPages) -> None:
-        self.largest_performance_gain_df = (
-            self.largest_performance_gain_df.merge(
-                self.users_significant_categories, on="user_id"
-            )
+        self.largest_performance_gain_df = self.largest_performance_gain_df.merge(
+            self.users_significant_categories, on="user_id"
         )
         print_largest_performance_gain(
             pdf,
@@ -553,7 +543,8 @@ class Global_Visualizer:
 
     def generate_pdf(self, save_scores_tables: bool = False) -> None:
         file_name = (
-            self.folder / f"global_visu_{SCORES_DICT[self.score]['abbreviation'].lower()}.pdf"
+            self.folder
+            / f"global_visu_{SCORES_DICT[self.score]['abbreviation_for_visu_file'].lower()}.pdf"
         )
         scores_tables_save_path = self.folder / "scores_table" if save_scores_tables else None
         with PdfPages(file_name) as pdf:

@@ -83,7 +83,7 @@ subprocess.run(
         "--outputs_folder",
         str(outputs_folder),
         "--score",
-        "balanced_accuracy",
+        "ndcg_all",
     ],
     check=True,
 )

@@ -314,7 +314,7 @@ def run_validation(
     )
     val_ranking_metrics_negative_samples = torch.mean(val_ranking_metrics_negative_samples, dim=0)
     val_ranking_metrics_all_no_cs = torch.mean(
-        val_ranking_metrics_all[val_dataset.no_cs_users_selection], dim=0
+        val_ranking_metrics_all[val_dataset.non_cs_users_selection], dim=0
     )
     val_ranking_metrics_all = torch.mean(val_ranking_metrics_all, dim=0)
 
