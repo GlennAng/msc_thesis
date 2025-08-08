@@ -1,13 +1,17 @@
 import json
 import os
-
 from pathlib import Path
+
 from ..src.load_files import ProjectPaths
 
 
 def create_example_config(embeddings_folder: Path = None) -> dict:
     if embeddings_folder is None:
-        embeddings_folder = ProjectPaths.logreg_embeddings_path() / "after_pca" / "gte_large_256_categories_l2_unit_100"
+        embeddings_folder = (
+            ProjectPaths.logreg_embeddings_path()
+            / "after_pca"
+            / "gte_large_256_test_categories_l2_unit_100"
+        )
     example_config = {}
     example_config.update(
         {
@@ -67,7 +71,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
     )
     example_config.update(
         {
-            "embedding_folder": str(embeddings_folder),   
+            "embedding_folder": str(embeddings_folder),
             "embedding_float_precision": None,
         }
     )

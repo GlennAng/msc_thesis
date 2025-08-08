@@ -6,13 +6,24 @@ from ....src.load_files import (
     TEST_RANDOM_STATES,
     load_finetuning_users_ids,
     load_papers,
+    load_session_based_users_ids,
     load_users_ratings,
 )
 from ....src.project_paths import ProjectPaths
 from ..training.training_data import get_cache_papers_ids, get_categories_samples_ids
 
 
-def save_relevant_papers(seeds: list = TEST_RANDOM_STATES) -> list:
+def save_relevant_papers(
+    seeds: list = TEST_RANDOM_STATES, users_selection: str = "test", save: bool = True
+) -> list:
+    if users_selection in ["train", "test", "val"]:
+        users_ids = load_finetuning_users_ids(selection=users_selection)
+    elif users_selection == "session_based":
+        users_ids = load_session_based_users_ids()
+    else:
+        raise ValueError(
+            f"Invalid users_selection: {users_selection}. Choose from 'train', 'test', 'val', or 'session_based'."
+        )
     users_ids = load_finetuning_users_ids(selection="test")
     print(len(users_ids), "Users loaded.")
     users_ratings = load_users_ratings(relevant_users_ids=users_ids)
@@ -46,9 +57,10 @@ def save_relevant_papers(seeds: list = TEST_RANDOM_STATES) -> list:
 
     relevant_papers_ids = sorted(list(relevant_papers_ids))
     print(len(relevant_papers_ids), "Final number of relevant papers IDs in List.")
-    path = ProjectPaths.data_relevant_papers_ids_path()
-    with open(path, "wb") as f:
-        pickle.dump(relevant_papers_ids, f)
+    if save:
+        path = ProjectPaths.data_relevant_papers_ids_path()
+        with open(path, "wb") as f:
+            pickle.dump(relevant_papers_ids, f)
     return relevant_papers_ids
 
 

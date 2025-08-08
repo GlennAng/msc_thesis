@@ -182,127 +182,86 @@ class Evaluator:
         user_categories_ratios = get_user_categories_ratios(
             categories_to_exclude=user_significant_categories
         )
-        user_val_negative_samples_ids, negative_samples_embeddings = (
-            self.set_user_val_negative_samples(user_categories_ratios=user_categories_ratios)
+        user_val_negative_samples = self.get_user_val_negative_samples(
+            user_categories_ratios=user_categories_ratios
         )
-        user_predictions_dict["negative_samples_ids"] = user_val_negative_samples_ids
+        user_predictions_dict["negative_samples_ids"] = user_val_negative_samples[
+            "val_negative_samples_ids"
+        ]
         papers_ids_to_exclude_from_cache = (
-            user_ratings["paper_id"].tolist() + user_val_negative_samples_ids
+            user_ratings["paper_id"].tolist()
+            + user_val_negative_samples["val_negative_samples_ids"]
         )
-        _, cache_embedding_idxs, cache_n, y_cache = self.set_user_cache_papers_ids(
+        user_cache_papers = self.get_user_cache_papers(
             user_categories_ratios=user_categories_ratios,
             papers_ids_to_exclude_from_cache=papers_ids_to_exclude_from_cache,
         )
         posrated_n = len(user_ratings[user_ratings["rating"] == 1])
         negrated_n = len(user_ratings[user_ratings["rating"] == 0])
         assert posrated_n + negrated_n == len(user_ratings)
-        user_info = self.store_user_info(posrated_n, negrated_n, cache_n)
+        user_info = self.store_user_info(posrated_n, negrated_n, user_cache_papers["cache_n"])
 
         try:
             if self.config["evaluation"] in [
                 Evaluation.TRAIN_TEST_SPLIT,
                 Evaluation.SESSION_BASED,
             ]:
-                train_ratings, val_ratings, val_sessions_ids = split_ratings(
-                    user_ratings=user_ratings,
-                    sliding_window_eval=self.config["sliding_window_eval"],
-                )
-                user_info["train_rated_ratio"] = len(train_ratings) / len(user_ratings)
-                user_data_dict = self.load_user_data_dict(
-                    train_ratings=train_ratings,
-                    val_ratings=val_ratings,
-                    cache_embedding_idxs=cache_embedding_idxs,
-                    y_cache=y_cache,
-                    random_state=self.config["model_random_state"],
-                )
-                user_predictions_dict[0] = fill_user_predictions_dict(user_data_dict)
-                train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
-                    user_ratings=train_ratings,
+                pass
+                """
+                val_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
+                    user_ratings=val_ratings_session,
                     random_neg=self.random_neg,
                     random_state=self.config["ranking_random_state"],
                     same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
                 )
-
-                for val_session_id in val_sessions_ids:
-                    val_session_mask = (val_ratings["session_id"] == val_session_id)
-                    train_ratings_session, val_ratings_session = split_ratings_session(
-                        train_ratings=train_ratings,
-                        val_ratings=val_ratings,
-                        val_session_mask=val_session_mask,
+                user_models = self.train_user_models(
+                    user_data_dict=user_data_dict,
+                    user_id=user_id,
+                )
+                user_results = self.score_user_models(
+                    user_models=user_models,
+                    user_data_dict=user_data_dict,
+                    negative_samples_embeddings=negative_samples_embeddings,
+                    train_negrated_ranking_idxs=train_negrated_ranking_idxs,
+                    val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+                )
+                user_results_dict[0] = user_results
+                if self.config["save_users_predictions"]:
+                    user_predictions_dict[0].update(
+                        update_user_predictions_dict(user_predictions=None)
                     )
-                    val_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
-                        user_ratings=val_ratings_session,
-                        random_neg=self.random_neg,
-                        random_state=self.config["ranking_random_state"],
-                        same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
-                    )
-                    user_results, user_predictions, user_coefs = self.train_model_for_user(
-                        user_id=user_id,
-                        user_data_dict=user_data_dict,
-                        negative_samples_embeddings=negative_samples_embeddings,
-                        train_negrated_ranking_idxs=train_negrated_ranking_idxs,
-                        val_negrated_ranking_idxs=val_negrated_ranking_idxs,
-                    )
-                    user_results_dict[0] = user_results
-                    if self.config["save_users_predictions"]:
-                        user_predictions_dict[0].update(
-                            update_user_predictions_dict(user_predictions)
-                        )
+                """
+                self.evaluate_user_split(
+                    user_id=user_id,
+                    user_ratings=user_ratings,
+                    user_val_negative_samples=user_val_negative_samples,
+                    user_cache_papers=user_cache_papers,
+                    user_info=user_info,
+                    user_results_dict=user_results_dict,
+                    user_predictions_dict=user_predictions_dict,
+                )
 
             elif self.config["evaluation"] == Evaluation.CROSS_VALIDATION:
-                user_ratings["split"] = None
-                split = self.cross_val.split(X=range(len(user_ratings)), y=user_ratings["rating"])
-                train_rated_ratios = []
-                for fold_idx, (fold_train_idxs, fold_val_idxs) in enumerate(split):
-                    user_ratings.loc[fold_train_idxs, "split"] = "train"
-                    user_ratings.loc[fold_val_idxs, "split"] = "val"
-                    train_ratings, val_ratings, _ = split_ratings(user_ratings)
-                    train_rated_ratios.append(len(train_ratings) / len(user_ratings))
-                    user_data_dict = self.load_user_data_dict(
-                        train_ratings=train_ratings,
-                        val_ratings=val_ratings,
-                        cache_embedding_idxs=cache_embedding_idxs,
-                        y_cache=y_cache,
-                        random_state=self.config["model_random_state"],
-                    )
-                    user_predictions_dict[fold_idx] = fill_user_predictions_dict(user_data_dict)
-                    train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
-                        user_ratings=train_ratings,
-                        random_neg=self.random_neg,
-                        random_state=self.config["ranking_random_state"],
-                        same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
-                    )
-                    val_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
-                        user_ratings=val_ratings,
-                        random_neg=self.random_neg,
-                        random_state=self.config["ranking_random_state"],
-                        same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
-                    )
-                    fold_results, fold_predictions, _ = self.train_model_for_user(
-                        user_id=user_id,
-                        user_data_dict=user_data_dict,
-                        negative_samples_embeddings=negative_samples_embeddings,
-                        train_negrated_ranking_idxs=train_negrated_ranking_idxs,
-                        val_negrated_ranking_idxs=val_negrated_ranking_idxs,
-                    )
-                    user_results_dict[fold_idx] = fold_results
-                    if self.config["save_users_predictions"]:
-                        user_predictions_dict[fold_idx].update(
-                            update_user_predictions_dict(fold_predictions)
-                        )
-                user_info["train_rated_ratio"] = np.mean(train_rated_ratios)
-
+                self.evaluate_user_cross_validation(
+                    user_id=user_id,
+                    user_ratings=user_ratings,
+                    user_val_negative_samples=user_val_negative_samples,
+                    user_cache_papers=user_cache_papers,
+                    user_info=user_info,
+                    user_results_dict=user_results_dict,
+                    user_predictions_dict=user_predictions_dict,
+                )
             self.save_user_info(user_id, user_info)
             self.save_user_results(user_id, user_results_dict)
             self.save_user_predictions(user_id, user_predictions_dict)
             if "save_users_coefs" in self.config and self.config["save_users_coefs"]:
-                self.save_user_coefs(user_id, user_coefs)
+                self.save_user_coefs(user_id, user_coefs=None)
             print(f"User {user_id} done.")
         except Exception as e:
             print(f"Error evaluating user {user_id}: {e}")
             traceback.print_exc()
 
-    def set_user_val_negative_samples(self, user_categories_ratios: dict) -> tuple:
+    def get_user_val_negative_samples(self, user_categories_ratios: dict) -> dict:
         val_negative_samples_ids = get_user_categories_samples_ids(
             categories_samples_ids=self.val_negative_samples_ids,
             n_categories_samples=self.config["n_negative_samples"],
@@ -313,11 +272,14 @@ class Evaluator:
         negative_samples_embeddings = self.embedding.matrix[
             self.embedding.get_idxs(val_negative_samples_ids)
         ]
-        return val_negative_samples_ids, negative_samples_embeddings
+        return {
+            "val_negative_samples_ids": val_negative_samples_ids,
+            "val_negative_samples_embeddings": negative_samples_embeddings,
+        }
 
-    def set_user_cache_papers_ids(
+    def get_user_cache_papers(
         self, user_categories_ratios: dict, papers_ids_to_exclude_from_cache: list
-    ) -> tuple:
+    ) -> dict:
         user_cache_papers_categories_ids = get_user_categories_samples_ids(
             categories_samples_ids=self.cache_papers_categories_ids,
             n_categories_samples=self.config["n_categories_cache"],
@@ -342,12 +304,12 @@ class Evaluator:
         cache_embedding_idxs = self.embedding.get_idxs(cache_papers_ids)
         cache_n = len(cache_embedding_idxs)
         y_cache = np.zeros(cache_n, dtype=LABEL_DTYPE)
-        return (
-            user_cache_papers_categories_ids,
-            cache_embedding_idxs,
-            cache_n,
-            y_cache,
-        )
+        return {
+            "user_cache_papers_categories_ids": user_cache_papers_categories_ids,
+            "cache_embedding_idxs": cache_embedding_idxs,
+            "cache_n": cache_n,
+            "y_cache": y_cache,
+        }
 
     def store_user_info(
         self,
@@ -365,7 +327,205 @@ class Evaluator:
             "n_zerorated": zerorated_n,
         }
 
-    def train_model_for_user(
+    def evaluate_user_split(
+        self,
+        user_id: int,
+        user_ratings: pd.DataFrame,
+        user_val_negative_samples: dict,
+        user_cache_papers: dict,
+        user_info: dict,
+        user_results_dict: dict,
+        user_predictions_dict: dict,
+    ) -> None:
+        train_ratings, val_ratings, val_sessions_ids = split_ratings(
+            user_ratings=user_ratings,
+            sliding_window_eval=self.config["sliding_window_eval"],
+        )
+        user_info["train_rated_ratio"] = len(train_ratings) / len(user_ratings)
+        user_data_dict = self.load_user_data_dict(
+            train_ratings=train_ratings,
+            val_ratings=val_ratings,
+            cache_embedding_idxs=user_cache_papers["cache_embedding_idxs"],
+            y_cache=user_cache_papers["y_cache"],
+            random_state=self.config["model_random_state"],
+        )
+        user_predictions_dict[0] = fill_user_predictions_dict(user_data_dict)
+        train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
+            user_ratings=train_ratings,
+            random_neg=self.random_neg,
+            random_state=self.config["ranking_random_state"],
+            same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
+        )
+        for val_session_id in val_sessions_ids:
+
+            val_session_mask = val_ratings["session_id"] == val_session_id
+            train_ratings_session, val_ratings_session = split_ratings_session(
+                train_ratings=train_ratings,
+                val_ratings=val_ratings,
+                val_session_mask=val_session_mask,
+            )
+            user_data_dict_session = self.load_user_data_dict(
+                train_ratings=train_ratings_session,
+                val_ratings=val_ratings_session,
+                cache_embedding_idxs=user_cache_papers["cache_embedding_idxs"],
+                y_cache=user_cache_papers["y_cache"],
+                random_state=self.config["model_random_state"],
+            )
+            val_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
+                user_ratings=val_ratings_session,
+                random_neg=self.random_neg,
+                random_state=self.config["ranking_random_state"],
+                same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
+            )
+            user_models = self.train_user_models(
+                user_data_dict=user_data_dict_session, user_id=user_id
+            )
+            user_results, user_predictions = self.score_user_models(
+                user_data_dict=user_data_dict_session,
+                user_models=user_models,
+                negative_samples_embeddings=user_val_negative_samples[
+                    "val_negative_samples_embeddings"
+                ],
+                train_negrated_ranking_idxs=train_negrated_ranking_idxs,
+                val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+            )
+            user_results_dict[0] = user_results
+            user_predictions_dict[0] = user_predictions
+
+    def evaluate_user_cross_validation(
+        self,
+        user_id: int,
+        user_ratings: pd.DataFrame,
+        user_val_negative_samples: dict,
+        user_cache_papers: dict,
+        user_info: dict,
+        user_results_dict: dict,
+        user_predictions_dict: dict,
+    ) -> None:
+        user_ratings["split"] = None
+        split = self.cross_val.split(X=range(len(user_ratings)), y=user_ratings["rating"])
+        train_rated_ratios = []
+        for fold_idx, (fold_train_idxs, fold_val_idxs) in enumerate(split):
+            user_ratings.loc[fold_train_idxs, "split"] = "train"
+            user_ratings.loc[fold_val_idxs, "split"] = "val"
+            train_ratings, val_ratings, _ = split_ratings(user_ratings)
+            train_rated_ratios.append(len(train_ratings) / len(user_ratings))
+            user_data_dict = self.load_user_data_dict(
+                train_ratings=train_ratings,
+                val_ratings=val_ratings,
+                cache_embedding_idxs=user_cache_papers["cache_embedding_idxs"],
+                y_cache=user_cache_papers["y_cache"],
+                random_state=self.config["model_random_state"],
+            )
+            user_predictions_dict[fold_idx] = fill_user_predictions_dict(user_data_dict)
+            train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
+                user_ratings=train_ratings,
+                random_neg=self.random_neg,
+                random_state=self.config["ranking_random_state"],
+                same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
+            )
+            val_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
+                user_ratings=val_ratings,
+                random_neg=self.random_neg,
+                random_state=self.config["ranking_random_state"],
+                same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
+            )
+            user_models = self.train_user_models(
+                user_data_dict=user_data_dict, user_id=user_id
+            )
+            fold_results, fold_predictions = self.score_user_models(
+                user_data_dict=user_data_dict,
+                user_models=user_models,
+                negative_samples_embeddings=user_val_negative_samples[
+                    "val_negative_samples_embeddings"
+                ],
+                train_negrated_ranking_idxs=train_negrated_ranking_idxs,
+                val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+            )
+            user_results_dict[fold_idx] = fold_results
+            if self.config["save_users_predictions"]:
+                user_predictions_dict[fold_idx].update(
+                    update_user_predictions_dict(fold_predictions)
+                )
+        user_info["train_rated_ratio"] = np.mean(train_rated_ratios)
+
+    def train_user_models(self, user_data_dict: dict, user_id: int = None) -> list:
+        user_models = []
+        for hyperparameters_combination in self.hyperparameters_combinations:
+            model = self.get_model_for_user(hyperparameters_combination)
+            if self.load_users_coefs:
+                assert len(self.hyperparameters_combinations) == 1
+                user_coefs = self.users_coefs[self.users_coefs_ids_to_idxs[user_id], :]
+                model.n_features_in = user_coefs.shape[0]
+                model.coef_ = user_coefs[:-1].reshape(1, -1)
+                model.intercept_ = user_coefs[-1].reshape(1, -1)
+                model.classes_ = np.array([0, 1])
+            else:
+                sample_weights = np.empty(user_data_dict["X_train"].shape[0], dtype=np.float64)
+                train_posrated_n = user_data_dict["pos_idxs"].shape[0]
+                train_negrated_n = user_data_dict["neg_idxs"].shape[0]
+                cache_n = user_data_dict["cache_idxs"].shape[0]
+                w_p, w_n, _, _, w_c = self.wh.load_weights_for_user(
+                    hyperparameters=self.hyperparameters,
+                    hyperparameters_combination=hyperparameters_combination,
+                    train_posrated_n=train_posrated_n,
+                    train_negrated_n=train_negrated_n,
+                    cache_n=cache_n,
+                )
+                sample_weights[user_data_dict["pos_idxs"]] = w_p
+                sample_weights[user_data_dict["neg_idxs"]] = w_n
+                sample_weights[user_data_dict["cache_idxs"]] = w_c
+                model.fit(
+                    user_data_dict["X_train"],
+                    user_data_dict["y_train"],
+                    sample_weight=sample_weights,
+                )
+            user_models.append(model)
+        return user_models
+
+    def score_user_models(
+        self,
+        user_data_dict: dict,
+        user_models: list,
+        negative_samples_embeddings: np.ndarray,
+        train_negrated_ranking_idxs: np.ndarray,
+        val_negrated_ranking_idxs: np.ndarray,
+    ) -> tuple:
+        user_results = {}
+        user_predictions = {
+            "train_predictions": {},
+            "val_predictions": {},
+            "negrated_ranking_predictions": {},
+            "negative_samples_predictions": {},
+        }
+        for i, model in enumerate(user_models):
+            if len(user_data_dict["y_val"]) > 0:
+                user_outputs_dict = get_user_outputs_dict(
+                    model=model,
+                    user_data_dict=user_data_dict,
+                    negative_samples_embeddings=negative_samples_embeddings,
+                    train_negrated_ranking_idxs=train_negrated_ranking_idxs,
+                    val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+                )
+                scores = self.get_user_scores(
+                    user_data_dict=user_data_dict, user_outputs_dict=user_outputs_dict
+                )
+                user_results[i] = scores
+                if self.config["save_users_predictions"]:
+                    user_predictions["train_predictions"][i] = user_outputs_dict[
+                        "y_train_rated_proba"
+                    ].tolist()
+                    user_predictions["val_predictions"][i] = user_outputs_dict[
+                        "y_val_proba"
+                    ].tolist()
+                    user_predictions["negative_samples_predictions"][i] = user_outputs_dict[
+                        "y_negative_samples_proba"
+                    ].tolist()
+                if self.config["save_tfidf_coefs"]:
+                    user_predictions["tfidf_coefs"][i] = model.coef_[0].tolist()
+        return user_results, user_predictions
+
+    def train_model_for_user_x(
         self,
         user_id: int,
         user_data_dict: dict,
@@ -439,19 +599,19 @@ class Evaluator:
 
     def get_model_for_user(self, hyperparameters_combination: tuple) -> object:
         clf_C = hyperparameters_combination[self.hyperparameters["clf_C"]]
+        logreg_solver = None
+        if self.config["algorithm"] == Algorithm.LOGREG:
+            logreg_solver = self.config["logreg_solver"]
+        svm_kernel = None
+        if self.config["algorithm"] == Algorithm.SVM:
+            svm_kernel = self.config["svm_kernel"]
         return get_model(
-            self.config["algorithm"],
-            self.config["max_iter"],
-            clf_C,
-            self.config["model_random_state"],
-            logreg_solver=(
-                self.config["logreg_solver"]
-                if self.config["algorithm"] == Algorithm.LOGREG
-                else None
-            ),
-            svm_kernel=(
-                self.config["svm_kernel"] if self.config["algorithm"] == Algorithm.SVM else None
-            ),
+            algorithm=self.config["algorithm"],
+            max_iter=self.config["max_iter"],
+            clf_C=clf_C,
+            random_state=self.config["model_random_state"],
+            logreg_solver=logreg_solver,
+            svm_kernel=svm_kernel,
         )
 
     def get_user_scores(
@@ -653,9 +813,9 @@ def split_ratings(user_ratings: pd.DataFrame, sliding_window_eval: bool = False)
 def split_ratings_session(
     train_ratings: pd.DataFrame, val_ratings: pd.DataFrame, val_session_mask: pd.Series
 ) -> tuple:
-    train_ratings = pd.concat(
-        [train_ratings, val_ratings[~val_session_mask]]
-    ).reset_index(drop=True)
+    train_ratings = pd.concat([train_ratings, val_ratings[~val_session_mask]]).reset_index(
+        drop=True
+    )
     val_ratings = val_ratings[val_session_mask].reset_index(drop=True)
     return train_ratings, val_ratings
 
