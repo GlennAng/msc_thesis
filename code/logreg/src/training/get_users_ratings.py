@@ -14,6 +14,16 @@ from ....src.project_paths import ProjectPaths
 from .algorithm import Evaluation
 
 LABEL_DTYPE = np.int64
+MAX_USERS = 500
+MIN_N_POSRATED = 20
+MIN_N_NEGRATED = 20
+MIN_N_POSRATED_TRAIN = 16
+MIN_N_NEGRATED_TRAIN = 16
+MIN_N_POSRATED_VAL = 4
+MIN_N_NEGRATED_VAL = 4
+N_NEGRATED_RANKING = 4
+TRAIN_SIZE = 0.8
+MIN_TRAIN_SIZE = 0.7
 
 pd.set_option("display.max_rows", None)
 
@@ -110,6 +120,7 @@ def check_single_split(
 def split_single_user(
     user_ratings: pd.DataFrame,
     test_size: float,
+    max_test_size: float,
     min_n_posrated_train: int,
     min_n_negrated_train: int,
     min_n_posrated_val: int,
@@ -119,14 +130,14 @@ def split_single_user(
     best_session_id, best_session_test_size_diff = None, float("inf")
     for split_session_id in range(n_sessions, -1, -1):
         valid_split, test_size_split = check_single_split(
-            user_ratings,
-            split_session_id,
-            min_n_posrated_train,
-            min_n_negrated_train,
-            min_n_posrated_val,
-            min_n_negrated_val,
+            user_ratings=user_ratings,
+            split_session_id=split_session_id,
+            min_n_posrated_train=min_n_posrated_train,
+            min_n_negrated_train=min_n_negrated_train,
+            min_n_posrated_val=min_n_posrated_val,
+            min_n_negrated_val=min_n_negrated_val,
         )
-        if valid_split and test_size_split <= 0.3:
+        if valid_split and test_size_split <= max_test_size:
             test_size_diff = abs(test_size_split - test_size)
             if test_size_diff < best_session_test_size_diff:
                 best_session_id, best_session_test_size_diff = split_session_id, test_size_diff
@@ -144,6 +155,7 @@ def split_single_user(
 def filter_users_ratings_with_sufficient_votes_session_based(
     users_ratings: pd.DataFrame,
     test_size: float,
+    max_test_size: float,
     min_n_posrated_train: int,
     min_n_negrated_train: int,
     min_n_posrated_val: int,
@@ -157,12 +169,13 @@ def filter_users_ratings_with_sufficient_votes_session_based(
     for user_id in users_ids:
         user_ratings = users_ratings[users_ratings["user_id"] == user_id].reset_index(drop=True)
         user_ratings_split = split_single_user(
-            user_ratings,
-            test_size,
-            min_n_posrated_train,
-            min_n_negrated_train,
-            min_n_posrated_val,
-            min_n_negrated_val,
+            user_ratings=user_ratings,
+            test_size=test_size,
+            min_n_posrated_train=min_n_posrated_train,
+            min_n_negrated_train=min_n_negrated_train,
+            min_n_posrated_val=min_n_posrated_val,
+            min_n_negrated_val=min_n_negrated_val,
+            max_test_size=max_test_size,
         )
         if user_ratings_split is not None:
             users_ratings_with_sufficient_votes.append(user_ratings_split)
@@ -170,13 +183,6 @@ def filter_users_ratings_with_sufficient_votes_session_based(
         return pd.DataFrame(columns=users_ratings.columns)
     users_ratings = pd.concat(users_ratings_with_sufficient_votes, ignore_index=True)
     return users_ratings
-
-
-def get_users_ids_with_sufficient_votes(users_ratings: pd.DataFrame) -> np.ndarray:
-    users_ids_with_sufficient_votes = users_ratings["user_id"].unique()
-    assert np.all(users_ids_with_sufficient_votes[:-1] <= users_ids_with_sufficient_votes[1:])
-    print(len(users_ids_with_sufficient_votes), "Users with sufficient Votes.")
-    return users_ids_with_sufficient_votes
 
 
 def process_selected_users(
@@ -228,36 +234,74 @@ def select_users_random(
 def get_session_based_users_ratings(users_selection: str) -> tuple:
     if users_selection == "finetuning_val":
         users_ids = load_finetuning_users_ids(selection="val")
-        users_ratings = pd.read_parquet(
-            ProjectPaths.data_session_based_ratings_val_users_path(), engine="pyarrow"
-        )
-        assert np.all(users_ratings["user_id"].unique() == users_ids)
-        print(f"{len(users_ids)} Users selected for Validation Users Session-Based Evaluation.")
-        return users_ratings, users_ids
+        with open(ProjectPaths.data_session_based_ratings_val_users_path(), "rb") as f:
+            users_ratings_dict = pickle.load(f)
     elif users_selection == "finetuning_test":
         users_ids = load_finetuning_users_ids(selection="test")
-        users_ratings = pd.read_parquet(
-            ProjectPaths.data_session_based_ratings_test_users_path(), engine="pyarrow"
-        )
-        assert np.all(users_ratings["user_id"].unique() == users_ids)
-        print(f"{len(users_ids)} Users selected for Test Users Session-Based Evaluation.")
-        return users_ratings, users_ids
+        with open(ProjectPaths.data_session_based_ratings_test_users_path(), "rb") as f:
+            users_ratings_dict = pickle.load(f)
     elif users_selection == "session_based":
         users_ids = load_session_based_users_ids()
-        users_ratings = pd.read_parquet(
-            ProjectPaths.data_session_based_ratings_session_based_users_path(), engine="pyarrow"
-        )
-        assert np.all(users_ratings["user_id"].unique() == users_ids)
-        print(f"{len(users_ids)} Users selected for Session-Based Users Session-Based Evaluation.")
-        return users_ratings, users_ids
+        with open(ProjectPaths.data_session_based_ratings_session_based_users_path(), "rb") as f:
+            users_ratings_dict = pickle.load(f)
     else:
         raise ValueError(f"Invalid users_selection: {users_selection}.")
+    users_ratings = users_ratings_dict["users_ratings"]
+    users_negrated_ranking = users_ratings_dict["users_negrated_ranking"]
+    assert np.all(users_ratings["user_id"].unique() == users_ids)
+    assert set(users_negrated_ranking["user_id"].unique()) <= set(users_ids)
+    print(f"{len(users_ids)} Users selected for {users_selection} Session-Based Evaluation.")
+    return users_ratings, users_negrated_ranking, users_ids
+
+
+def filter_users_ratings_for_negrated_ranking(
+    users_ratings: pd.DataFrame,
+    filter_for_negrated_ranking: bool,
+) -> tuple:
+    if filter_for_negrated_ranking:
+        users_ratings_head = users_ratings[
+            users_ratings["n_negrated_still_to_come"] >= N_NEGRATED_RANKING
+        ]
+        users_ratings_tail = users_ratings[
+            users_ratings["n_negrated_still_to_come"] < N_NEGRATED_RANKING
+        ]
+    else:
+        users_ratings_head = users_ratings
+        users_ratings_tail = pd.DataFrame(columns=users_ratings.columns)
+    assert len(users_ratings_head) + len(users_ratings_tail) == len(users_ratings)
+    return users_ratings_head, users_ratings_tail
+
+
+def get_users_negrated_ranking(
+    users_ratings: pd.DataFrame,
+    users_ratings_removed_for_negrated_ranking: pd.DataFrame,
+) -> pd.DataFrame:
+    columns = [
+        column
+        for column in users_ratings.columns
+        if column not in ["rating", "n_negrated_still_to_come"]
+    ]
+    users_rating_neg = users_ratings[users_ratings["rating"] == 0][columns]
+    users_ratings_removed_for_negrated_ranking = users_ratings_removed_for_negrated_ranking.copy()
+    if "split" in columns:
+        users_ratings_removed_for_negrated_ranking["split"] = "removed"
+    users_ratings_removed_for_negrated_ranking_neg = users_ratings_removed_for_negrated_ranking[
+        users_ratings_removed_for_negrated_ranking["rating"] == 0
+    ][columns]
+    users_negrated_ranking = pd.concat(
+        [users_rating_neg, users_ratings_removed_for_negrated_ranking_neg]
+    )
+    users_negrated_ranking = users_negrated_ranking.sort_values(["user_id", "time"]).reset_index(
+        drop=True
+    )
+    return users_negrated_ranking
 
 
 def get_users_ratings(
     users_selection: str,
     evaluation: Evaluation,
     train_size: float,
+    min_train_size: float = 0.0,
     max_users: int = None,
     users_random_state: int = 42,
     model_random_state: int = 42,
@@ -269,9 +313,20 @@ def get_users_ratings(
     min_n_negrated_train: int = 0,
     min_n_posrated_val: int = 0,
     min_n_negrated_val: int = 0,
+    filter_for_negrated_ranking: bool = True,
 ) -> tuple:
-
-    if evaluation == Evaluation.SESSION_BASED:
+    if all(
+        [
+            evaluation == Evaluation.SESSION_BASED,
+            train_size == TRAIN_SIZE,
+            min_train_size == MIN_TRAIN_SIZE,
+            min_n_posrated_train == MIN_N_POSRATED_TRAIN,
+            min_n_negrated_train == MIN_N_NEGRATED_TRAIN,
+            min_n_posrated_val == MIN_N_POSRATED_VAL,
+            min_n_negrated_val == MIN_N_NEGRATED_VAL,
+            filter_for_negrated_ranking,
+        ]
+    ):
         path = None
         if users_selection == "finetuning_val":
             path = ProjectPaths.data_session_based_ratings_val_users_path()
@@ -283,21 +338,31 @@ def get_users_ratings(
             return get_session_based_users_ratings(users_selection)
 
     test_size = 1.0 - train_size
+    max_test_size = 1.0 - min_train_size
     users_ratings = load_users_ratings()
+    users_ratings, users_ratings_removed_for_negrated_ranking = (
+        filter_users_ratings_for_negrated_ranking(users_ratings, filter_for_negrated_ranking)
+    )
+    if not (evaluation == Evaluation.SESSION_BASED and filter_for_negrated_ranking):
+        users_ratings_removed_for_negrated_ranking = pd.DataFrame(columns=users_ratings.columns)
+
     if evaluation in [Evaluation.TRAIN_TEST_SPLIT, Evaluation.CROSS_VALIDATION]:
         users_ratings = filter_users_ratings_with_sufficient_votes(
             users_ratings, min_n_posrated, min_n_negrated
         )
     elif evaluation == Evaluation.SESSION_BASED:
         users_ratings = filter_users_ratings_with_sufficient_votes_session_based(
-            users_ratings,
-            test_size,
-            min_n_posrated_train,
-            min_n_negrated_train,
-            min_n_posrated_val,
-            min_n_negrated_val,
+            users_ratings=users_ratings,
+            test_size=test_size,
+            max_test_size=max_test_size,
+            min_n_posrated_train=min_n_posrated_train,
+            min_n_negrated_train=min_n_negrated_train,
+            min_n_posrated_val=min_n_posrated_val,
+            min_n_negrated_val=min_n_negrated_val,
         )
-    users_ids_with_sufficient_votes = get_users_ids_with_sufficient_votes(users_ratings)
+    users_ids_with_sufficient_votes = users_ratings["user_id"].unique()
+    assert np.all(users_ids_with_sufficient_votes[:-1] <= users_ids_with_sufficient_votes[1:])
+    print(len(users_ids_with_sufficient_votes), "Users with sufficient Votes.")
 
     if users_selection != "random":
         if type(users_selection) is str:
@@ -309,14 +374,24 @@ def get_users_ratings(
         users_ids_selected = select_users_random(
             users_ids_with_sufficient_votes, max_users, users_random_state, take_complement
         )
-
     users_ratings = users_ratings[users_ratings["user_id"].isin(users_ids_selected)].reset_index(
         drop=True
     )
     assert np.all(users_ratings["user_id"].unique() == users_ids_selected)
+    users_ratings_removed_for_negrated_ranking = users_ratings_removed_for_negrated_ranking[
+        users_ratings_removed_for_negrated_ranking["user_id"].isin(users_ids_selected)
+    ].reset_index(drop=True)
+    assert set(users_ratings_removed_for_negrated_ranking["user_id"].unique()) <= set(
+        users_ids_selected
+    )
+
     if evaluation == Evaluation.TRAIN_TEST_SPLIT:
         users_ratings = get_train_test_split(users_ratings, test_size, model_random_state, stratify)
-    return users_ratings, users_ids_selected.tolist()
+    users_negrated_ranking = get_users_negrated_ranking(
+        users_ratings=users_ratings,
+        users_ratings_removed_for_negrated_ranking=users_ratings_removed_for_negrated_ranking,
+    )
+    return users_ratings, users_negrated_ranking, users_ids_selected.tolist()
 
 
 def convert_users_selection_string(users_selection: str) -> list:
@@ -342,16 +417,17 @@ def users_query(
     max_users: int,
     random_state: int,
 ) -> list:
-    _, users_ids = get_users_ratings(
+    _, _, users_ids = get_users_ratings(
         users_selection="random",
         evaluation=Evaluation.SESSION_BASED,
-        train_size=1.0,
+        train_size=TRAIN_SIZE,
+        min_train_size=MIN_TRAIN_SIZE,
         max_users=max_users,
         users_random_state=random_state,
-        min_n_posrated_train=16,
-        min_n_negrated_train=16,
-        min_n_posrated_val=4,
-        min_n_negrated_val=4,
+        min_n_posrated_train=MIN_N_POSRATED_TRAIN,
+        min_n_negrated_train=MIN_N_NEGRATED_TRAIN,
+        min_n_posrated_val=MIN_N_POSRATED_VAL,
+        min_n_negrated_val=MIN_N_NEGRATED_VAL,
         take_complement=take_complement,
     )
     return users_ids
@@ -360,30 +436,30 @@ def users_query(
 def save_finetuning_users_ids(path: Path, random_state: int) -> None:
     test_users_ids = users_query(
         take_complement=False,
-        max_users=500,
+        max_users=MAX_USERS,
         random_state=random_state,
     )
     assert_sorted_and_unique(test_users_ids)
     complement_users_ids = users_query(
         take_complement=True,
-        max_users=500,
+        max_users=MAX_USERS,
         random_state=random_state,
     )
     assert_sorted_and_unique(complement_users_ids)
     assert set(test_users_ids).isdisjoint(set(complement_users_ids))
-    assert len(complement_users_ids) >= 500
+    assert len(complement_users_ids) >= MAX_USERS
     random.seed(random_state)
-    val_users_ids = random.sample(complement_users_ids, k=500)
+    val_users_ids = random.sample(complement_users_ids, k=MAX_USERS)
     val_users_ids = sorted(val_users_ids)
     assert_sorted_and_unique(val_users_ids)
-    _, full_users_ids = get_users_ratings(
+    _, _, full_users_ids = get_users_ratings(
         users_selection="random",
         evaluation=Evaluation.CROSS_VALIDATION,
-        train_size=1.0,
+        train_size=TRAIN_SIZE,
         max_users=None,
         users_random_state=random_state,
-        min_n_posrated=20,
-        min_n_negrated=20,
+        min_n_posrated=MIN_N_POSRATED,
+        min_n_negrated=MIN_N_NEGRATED,
         take_complement=False,
     )
     assert_sorted_and_unique(full_users_ids)
@@ -419,7 +495,6 @@ def save_session_based_users_ids(path: Path) -> None:
 
 if __name__ == "__main__":
     random_state = 42
-
     finetuning_users_ids_path = ProjectPaths.data_finetuning_users_ids_path()
     if not finetuning_users_ids_path.exists():
         save_finetuning_users_ids(
@@ -447,16 +522,25 @@ if __name__ == "__main__":
         elif users_type == "session_based":
             path = ProjectPaths.data_session_based_ratings_session_based_users_path()
         if not path.exists():
-            session_based_users_ratings = get_users_ratings(
+            users_ratings, users_negrated_ranking, _ = get_users_ratings(
                 users_selection=users_type,
                 evaluation=Evaluation.SESSION_BASED,
-                train_size=1.0,
-                min_n_posrated_train=16,
-                min_n_negrated_train=16,
-                min_n_posrated_val=4,
-                min_n_negrated_val=4,
-            )[0]
-            session_based_users_ratings.to_parquet(path, index=False, compression="gzip")
+                train_size=TRAIN_SIZE,
+                min_train_size=MIN_TRAIN_SIZE,
+                min_n_posrated_train=MIN_N_POSRATED_TRAIN,
+                min_n_negrated_train=MIN_N_NEGRATED_TRAIN,
+                min_n_posrated_val=MIN_N_POSRATED_VAL,
+                min_n_negrated_val=MIN_N_NEGRATED_VAL,
+                filter_for_negrated_ranking=True,
+            )
+            users_ratings_dict = {
+                "users_ratings": users_ratings,
+                "users_negrated_ranking": users_negrated_ranking,
+            }
+            with open(path, "wb") as f:
+                pickle.dump(users_ratings_dict, f)
             print(f"{users_type_string} Users Session-Based Ratings saved to {path}.")
         else:
-            print(f"{users_type_string} Users Session-Based Ratings already exist. Skipping saving.")
+            print(
+                f"{users_type_string} Users Session-Based Ratings already exist. Skipping saving."
+            )

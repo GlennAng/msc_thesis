@@ -42,6 +42,8 @@ def config_assertions(config: Dict[str, Any]) -> None:
         assert config["stratified"], "Config: stratified True for evaluation in "
         "['cross_validation', 'train_test_split']."
         assert not config["sliding_window_eval"]
+    if config["sliding_window_eval"]:
+        assert config["filter_for_negrated_ranking"]
 
 
 def load_config(config_path: Path) -> Dict[str, Any]:
@@ -200,10 +202,11 @@ if __name__ == "__main__":
     convert_enums(config)
     create_outputs_folder(config)
 
-    users_ratings, users_ids = get_users_ratings(
+    users_ratings, users_negrated_ranking, users_ids = get_users_ratings(
         users_selection=config["users_selection"],
         evaluation=config["evaluation"],
         train_size=config["train_size"],
+        min_train_size=config["min_train_size"],
         max_users=config["max_users"],
         users_random_state=config["users_random_state"],
         model_random_state=config["model_random_state"],
@@ -215,6 +218,7 @@ if __name__ == "__main__":
         min_n_negrated_train=config["min_n_negrated_train"],
         min_n_posrated_val=config["min_n_posrated_val"],
         min_n_negrated_val=config["min_n_negrated_val"],
+        filter_for_negrated_ranking=config["filter_for_negrated_ranking"],
     )
 
     init_scores(config)
@@ -229,7 +233,7 @@ if __name__ == "__main__":
     save_hyperparameters_combinations(config, hyperparameters_combinations)
 
     evaluator = Evaluator(config, hyperparameters_combinations, wh)
-    evaluator.evaluate_embedding(embedding, users_ratings)
+    evaluator.evaluate_embedding(embedding, users_ratings, users_negrated_ranking)
     merge_users_infos(config, users_ids)
     merge_users_results(config, users_ids)
     merge_users_coefs(config, users_ids)

@@ -4,6 +4,8 @@ from math import floor
 import numpy as np
 import pandas as pd
 
+from .get_users_ratings import N_NEGRATED_RANKING
+
 FLOAT_PRECISION = 1e-10
 LABEL_DTYPE = np.int64
 
@@ -39,7 +41,6 @@ def load_negrated_ranking_idxs_for_user_timesort(
     ratings: pd.DataFrame, pos_idxs: list, neg_idxs: list, negrated_ranking_idxs: np.ndarray
 ) -> np.ndarray:
     assert len(pos_idxs) == negrated_ranking_idxs.shape[0]
-    assert sorted(pos_idxs + neg_idxs) == list(range(len(ratings)))
     n_negrated = negrated_ranking_idxs.shape[1]
     for i, pos_idx in enumerate(pos_idxs):
         pos_time = ratings.loc[pos_idx, "time"]
@@ -52,17 +53,23 @@ def load_negrated_ranking_idxs_for_user_timesort(
 
 def load_negrated_ranking_idxs_for_user(
     user_ratings: pd.DataFrame,
-    random_neg: bool,
+    negrated_ranking_type: str,
     random_state: int,
     same_negrated_for_all_pos: bool,
-) -> tuple:
+    val_session_mask: np.ndarray = None,
+    user_ratings_removed_for_negrated_ranking: pd.DataFrame = None,
+) -> np.ndarray:
+    if negrated_ranking_type not in ["random", "closest_in_time", "following_in_time"]:
+        raise ValueError(f"Unknown negrated_ranking_type: {negrated_ranking_type}")
     pos_idxs = user_ratings[user_ratings["rating"] > 0].index.values.tolist()
-    neg_idxs = user_ratings[user_ratings["rating"] <= 0].index.values.tolist()
     n_pos = len(pos_idxs)
+    if n_pos <= 0:
+        return np.array([])
+    neg_idxs = user_ratings[user_ratings["rating"] <= 0].index.values.tolist()
     n_neg = len(neg_idxs)
-    min_n_negrated = min(4, n_neg)
+    min_n_negrated = min(N_NEGRATED_RANKING, n_neg)
     negrated_ranking_idxs = np.zeros((n_pos, min_n_negrated), dtype=np.int64)
-    if random_neg:
+    if negrated_ranking_type == "random":
         negrated_ranking_idxs = load_negrated_ranking_idxs_for_user_random(
             ratings=user_ratings,
             pos_idxs=pos_idxs,
@@ -71,12 +78,19 @@ def load_negrated_ranking_idxs_for_user(
             random_state=random_state,
             same_negrated_for_all_pos=same_negrated_for_all_pos,
         )
-    else:
+    elif negrated_ranking_type == "closest_in_time":
         negrated_ranking_idxs = load_negrated_ranking_idxs_for_user_timesort(
             ratings=user_ratings,
             pos_idxs=pos_idxs,
             neg_idxs=neg_idxs,
-            negrated_ranking_idxs=negrated_ranking_idxs
+            negrated_ranking_idxs=negrated_ranking_idxs,
+        )
+    elif negrated_ranking_type == "following_in_time":
+        negrated_ranking_idxs = load_negrated_ranking_idxs_for_user_timesort(
+            ratings=user_ratings,
+            pos_idxs=pos_idxs,
+            neg_idxs=neg_idxs,
+            negrated_ranking_idxs=negrated_ranking_idxs,
         )
     return negrated_ranking_idxs
 

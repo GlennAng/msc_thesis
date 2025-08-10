@@ -29,10 +29,9 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
         {"users_selection": "finetuning_test", "max_users": 500, "take_complement_of_users": False}
     )
     example_config.update(
-        {"min_n_posrated": 20, "min_n_negrated": 20, "same_negrated_for_all_pos": False}
-    )
-    example_config.update(
         {
+            "min_n_posrated": 20,
+            "min_n_negrated": 20,
             "min_n_posrated_train": 16,
             "min_n_negrated_train": 16,
             "min_n_posrated_val": 4,
@@ -44,16 +43,24 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
             "cache_type": "categories_cache",
             "n_cache": 5000,
             "n_categories_cache": 0,
-            "n_negative_samples": 100,
             "categories_scale": 1.0,
         }
     )
     example_config.update(
-        {"evaluation": "session_based", "train_size": 1.0, "stratified": True, "k_folds": 5}
+        {
+            "evaluation": "session_based",
+            "sliding_window_eval": True,
+            "train_size": 0.8,
+            "min_train_size": 0.7,
+            "filter_for_negrated_ranking": True,
+            "n_negative_samples": 100,
+            "same_negrated_for_all_pos": False,
+            "stratified": True,
+            "k_folds": 5,
+        }
     )
     example_config.update(
         {
-            "sliding_window_eval": True,
             "algorithm": "logreg",
             "logreg_solver": "lbfgs",
             "svm_kernel": None,
@@ -80,7 +87,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
 
 def create_example_config_cross_val(embeddings_folder: Path = None) -> dict:
     example_config = create_example_config(embeddings_folder)
-    example_config.update({"evaluation": "cross_validation", "train_size": 0.8})
+    example_config.update({"evaluation": "cross_validation"})
     example_config.update({"sliding_window_eval": False})
     return example_config
 
