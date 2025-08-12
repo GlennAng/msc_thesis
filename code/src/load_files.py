@@ -86,6 +86,7 @@ def load_relevant_papers_ids(
     assert isinstance(relevant_papers_ids, list)
     assert len(relevant_papers_ids) == len(set(relevant_papers_ids))
     assert relevant_papers_ids == sorted(relevant_papers_ids)
+    print(f"Loaded {len(relevant_papers_ids)} relevant papers IDs.")
     return relevant_papers_ids
 
 

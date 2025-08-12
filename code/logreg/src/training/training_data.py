@@ -53,24 +53,24 @@ def load_negrated_ranking_idxs_for_user_timesort(
 
 def load_negrated_ranking_idxs_for_user(
     user_ratings: pd.DataFrame,
-    negrated_ranking_type: str,
+    timesort: bool,
     random_state: int,
     same_negrated_for_all_pos: bool,
-    val_session_mask: np.ndarray = None,
-    user_ratings_removed_for_negrated_ranking: pd.DataFrame = None,
 ) -> np.ndarray:
-    if negrated_ranking_type not in ["random", "closest_in_time", "following_in_time"]:
-        raise ValueError(f"Unknown negrated_ranking_type: {negrated_ranking_type}")
     pos_idxs = user_ratings[user_ratings["rating"] > 0].index.values.tolist()
-    n_pos = len(pos_idxs)
-    if n_pos <= 0:
-        return np.array([])
     neg_idxs = user_ratings[user_ratings["rating"] <= 0].index.values.tolist()
-    n_neg = len(neg_idxs)
+    n_pos, n_neg = len(pos_idxs), len(neg_idxs)
     min_n_negrated = min(N_NEGRATED_RANKING, n_neg)
     negrated_ranking_idxs = np.zeros((n_pos, min_n_negrated), dtype=np.int64)
-    if negrated_ranking_type == "random":
-        negrated_ranking_idxs = load_negrated_ranking_idxs_for_user_random(
+    if timesort:
+        return load_negrated_ranking_idxs_for_user_timesort(
+            ratings=user_ratings,
+            pos_idxs=pos_idxs,
+            neg_idxs=neg_idxs,
+            negrated_ranking_idxs=negrated_ranking_idxs,
+        )
+    else:
+        return load_negrated_ranking_idxs_for_user_random(
             ratings=user_ratings,
             pos_idxs=pos_idxs,
             neg_idxs=neg_idxs,
@@ -78,21 +78,6 @@ def load_negrated_ranking_idxs_for_user(
             random_state=random_state,
             same_negrated_for_all_pos=same_negrated_for_all_pos,
         )
-    elif negrated_ranking_type == "closest_in_time":
-        negrated_ranking_idxs = load_negrated_ranking_idxs_for_user_timesort(
-            ratings=user_ratings,
-            pos_idxs=pos_idxs,
-            neg_idxs=neg_idxs,
-            negrated_ranking_idxs=negrated_ranking_idxs,
-        )
-    elif negrated_ranking_type == "following_in_time":
-        negrated_ranking_idxs = load_negrated_ranking_idxs_for_user_timesort(
-            ratings=user_ratings,
-            pos_idxs=pos_idxs,
-            neg_idxs=neg_idxs,
-            negrated_ranking_idxs=negrated_ranking_idxs,
-        )
-    return negrated_ranking_idxs
 
 
 def get_categories_ratios_for_validation() -> dict:

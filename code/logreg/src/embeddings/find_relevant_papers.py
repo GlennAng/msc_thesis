@@ -4,6 +4,7 @@ from tqdm import tqdm
 
 from ....src.load_files import (
     TEST_RANDOM_STATES,
+    VAL_RANDOM_STATE,
     load_finetuning_users_ids,
     load_papers,
     load_session_based_users_ids,
@@ -14,7 +15,7 @@ from ..training.training_data import get_cache_papers_ids, get_categories_sample
 
 
 def save_relevant_papers(
-    seeds: list = TEST_RANDOM_STATES, users_selection: str = "test", save: bool = True
+    seeds: list, users_selection: str = "test", save: bool = True
 ) -> list:
     if users_selection in ["train", "test", "val"]:
         users_ids = load_finetuning_users_ids(selection=users_selection)
@@ -24,7 +25,6 @@ def save_relevant_papers(
         raise ValueError(
             f"Invalid users_selection: {users_selection}. Choose from 'train', 'test', 'val', or 'session_based'."
         )
-    users_ids = load_finetuning_users_ids(selection="test")
     print(len(users_ids), "Users loaded.")
     users_ratings = load_users_ratings(relevant_users_ids=users_ids)
     assert len(users_ratings["user_id"].unique()) == len(users_ids), "Users IDs do not match."
@@ -56,7 +56,7 @@ def save_relevant_papers(
     relevant_papers_ids.update(old_cache_papers_ids)
 
     relevant_papers_ids = sorted(list(relevant_papers_ids))
-    print(len(relevant_papers_ids), "Final number of relevant papers IDs in List.")
+    print(len(relevant_papers_ids), "Final number of relevant papers IDs in List after Cache.")
     if save:
         path = ProjectPaths.data_relevant_papers_ids_path()
         with open(path, "wb") as f:
@@ -65,4 +65,5 @@ def save_relevant_papers(
 
 
 if __name__ == "__main__":
-    save_relevant_papers()
+    seeds = sorted([VAL_RANDOM_STATE] + TEST_RANDOM_STATES)
+    save_relevant_papers(seeds=seeds, users_selection="session_based")

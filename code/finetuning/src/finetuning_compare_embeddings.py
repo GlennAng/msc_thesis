@@ -24,8 +24,7 @@ def compute_sims_same_set(embeddings: np.ndarray) -> float:
     return np.mean(sims[np.triu_indices_from(sims, k=1)])
 
 
-"""
-def get_categories_word_embeddings(papers: pd.DataFrame, embeddings: Embedding, categories: ) -> dict:
+def get_categories_word_embeddings(embeddings: Embedding) -> dict:
     categories_word_embeddings = {}
     for category in categories_l1:
         category_papers_ids = papers[papers["l1"] == category]["paper_id"].tolist()
@@ -33,7 +32,7 @@ def get_categories_word_embeddings(papers: pd.DataFrame, embeddings: Embedding, 
         category_embeddings = embeddings.matrix[category_papers_idxs, -100:].mean(axis=0)
         categories_word_embeddings[category] = category_embeddings
     return categories_word_embeddings
-"""
+
 
 
 def get_lengths_of_word_embeddings(categories_word_embeddings: dict) -> dict:

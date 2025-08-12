@@ -92,7 +92,7 @@ def run_val_users(embeddings_path: Path, selection: str = "session_based") -> No
         check=True,
     )
     config_val_users_path.unlink()
-    outputs_path = ProjectPaths.logreg_outputs_path() / f"config_{name}" / "global_visu_bal.pdf"
+    outputs_path = ProjectPaths.logreg_outputs_path() / f"config_{name}" / "global_visu_ndcg_all.pdf"
     shutil.move(outputs_path, embeddings_path.parent / f"visu_{name}.pdf")
 
 
@@ -119,7 +119,7 @@ def run_test_users(embeddings_path: Path, selection: str = "session_based") -> N
         check=True,
     )
     config_test_users_path.unlink()
-    outputs_path = ProjectPaths.logreg_outputs_path() / f"config_{name}_averaged" / "global_visu_bal.pdf"
+    outputs_path = ProjectPaths.logreg_outputs_path() / f"config_{name}_averaged" / "global_visu_ndcg_all.pdf"
     shutil.move(outputs_path, embeddings_path.parent / f"visu_{name}.pdf")
 
 

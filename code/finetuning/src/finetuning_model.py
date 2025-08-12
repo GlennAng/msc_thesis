@@ -192,7 +192,7 @@ class FinetuningModel(nn.Module):
         user_idx_tensor: torch.Tensor,
         sorted_unique_users_idx_tensor: torch.Tensor = None,
         batch_negatives_indices: torch.Tensor = None,
-    ) -> torch.Tensor:
+    ) -> tuple:
         users_embeddings = self.users_embeddings(user_idx_tensor)
         dot_products = (
             torch.sum(papers_embeddings * users_embeddings[:, :-1], dim=1) + users_embeddings[:, -1]

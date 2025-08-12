@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -30,6 +31,7 @@ if configs_folder.exists():
 os.makedirs(configs_folder, exist_ok=True)
 
 
+start_time = time.time()
 for random_state in TEST_RANDOM_STATES:
     config_random_state = config.copy()
     config_random_state["model_random_state"] = random_state
@@ -48,6 +50,7 @@ for random_state in TEST_RANDOM_STATES:
         ],
         check=True,
     )
+time_taken = time.time() - start_time
 shutil.rmtree(configs_folder, ignore_errors=True)
 
 results = []
@@ -74,6 +77,14 @@ averaged_results_file = outputs_folder / "users_results.csv"
 if averaged_results_file.exists():
     averaged_results_file.unlink()
 averaged_df.to_csv(averaged_results_file, index=False)
+config_file = outputs_folder / "config.json"
+config = json.load(open(config_file, "r"))
+config["time_elapsed"] = time_taken
+config["model_random_state"] = TEST_RANDOM_STATES
+config["cache_random_state"] = TEST_RANDOM_STATES
+config["ranking_random_state"] = TEST_RANDOM_STATES
+with open(config_file, "w") as f:
+    json.dump(config, f, indent=4)
 
 subprocess.run(
     [

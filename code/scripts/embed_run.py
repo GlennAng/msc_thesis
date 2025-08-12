@@ -23,6 +23,7 @@ def parse_args() -> dict:
     parser.add_argument("--model_name", type=str, required=True, choices=MODEL_CHOICES)
     parser.add_argument("--batch_size", type=int, required=False)
     parser.add_argument("--all_papers", action="store_true", default=False)
+    parser.add_argument("--existing_embedding", type=str, required=False)
     args_dict = vars(parser.parse_args())
     return args_dict
 
@@ -77,7 +78,12 @@ subprocess.run(
         "--max_sequence_length",
         str(MAX_SEQUENCE_LENGTH),
     ]
-    + (["--save_scores_tables"] if args_dict["all_papers"] else []),
+    + (["--save_scores_tables"] if args_dict["all_papers"] else [])
+    + (
+        ["--existing_embedding", args_dict["existing_embedding"]]
+        if args_dict["existing_embedding"]
+        else []
+    ),
     check=True,
 )
 
@@ -90,6 +96,18 @@ subprocess.run(
     ],
     check=True,
 )
+
+if args_dict["existing_embedding"]:
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "code.logreg.src.embeddings.combine_two_embeddings",
+            str(embeddings_folder),
+            str(args_dict["existing_embedding"]),
+        ],
+        check=True,
+    )
 
 subprocess.run(
     [

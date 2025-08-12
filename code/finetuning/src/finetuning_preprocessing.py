@@ -10,7 +10,15 @@ from transformers import AutoModel, AutoTokenizer
 from ...logreg.src.embeddings.papers_categories import get_glove_categories_embeddings
 from ...logreg.src.embeddings.papers_categories_dicts import PAPERS_CATEGORIES
 from ...logreg.src.training.algorithm import Evaluation
-from ...logreg.src.training.get_users_ratings import get_users_ratings
+from ...logreg.src.training.get_users_ratings import (
+    get_users_ratings,
+    TRAIN_SIZE,
+    MAX_USERS,
+    MIN_N_POSRATED_TRAIN,
+    MIN_N_NEGRATED_TRAIN,
+    MIN_N_POSRATED_VAL,
+    MIN_N_NEGRATED_VAL_SPLIT,
+)
 from ...logreg.src.training.training_data import (
     get_cache_papers_ids,
     get_categories_ratios_for_validation,
@@ -372,7 +380,7 @@ def load_negative_samples_matrix_val() -> torch.Tensor:
         )
     negative_samples_matrix = torch.load(matrix_path, weights_only=True)
     assert negative_samples_matrix.dtype == torch.int64
-    assert negative_samples_matrix.shape == (500, N_VAL_NEGATIVE_SAMPLES)
+    assert negative_samples_matrix.shape == (MAX_USERS, N_VAL_NEGATIVE_SAMPLES)
     return negative_samples_matrix
 
 
@@ -692,7 +700,11 @@ def gather_finetuning_dataset(dataset_type: str, users_type: str) -> tuple:
         users_ratings = get_users_ratings(
             users_selection="finetuning_val",
             evaluation=Evaluation.SESSION_BASED,
-            train_size=1.0,
+            train_size=TRAIN_SIZE,
+            min_n_posrated_train=MIN_N_POSRATED_TRAIN,
+            min_n_negrated_train=MIN_N_NEGRATED_TRAIN,
+            min_n_posrated_val=MIN_N_POSRATED_VAL,
+            min_n_negrated_val=MIN_N_NEGRATED_VAL_SPLIT,
         )[0]
         if dataset_type == "train":
             users_ratings = users_ratings[users_ratings["split"] == "train"]

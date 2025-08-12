@@ -12,6 +12,7 @@ from adapters import AutoAdapterModel
 from transformers import AutoModel, AutoTokenizer
 
 from ....src.load_files import load_papers_texts, load_relevant_papers_ids
+from .embedding import Embedding
 
 MAX_TRIES = 20
 
@@ -27,6 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max_batch_size", type=int)
     parser.add_argument("--max_sequence_length", type=int)
     parser.add_argument("--all_papers", action="store_true", default=False)
+    parser.add_argument("--existing_embedding", type=str, required=False)
     return parser.parse_args()
 
 
@@ -215,11 +217,18 @@ if __name__ == "__main__":
     print(f"Using device: {device}.")
     model, tokenizer = load_model_and_tokenizer(args.model_path)
     papers_texts = load_papers_texts(relevant_columns=["paper_id", "title", "abstract"])
+    relevant_papers_ids = papers_texts["paper_id"].tolist()
     if not args.all_papers:
         print("Finding relevant papers IDs...")
         relevant_papers_ids = load_relevant_papers_ids()
-        papers_texts = papers_texts[papers_texts["paper_id"].isin(relevant_papers_ids)]
-        print(f"Found {len(papers_texts)} relevant papers.")
+        print(f"Found {len(relevant_papers_ids)} relevant papers.")
+    if args.existing_embedding:
+        embedding = Embedding(Path(args.existing_embedding).resolve())
+        available_papers_ids = list(embedding.papers_ids_to_idxs.keys())
+        missing_papers_ids = set(relevant_papers_ids) - set(available_papers_ids)
+        relevant_papers_ids = sorted(list(missing_papers_ids))
+        print(f"Found {len(relevant_papers_ids)} missing papers.")
+    papers_texts = papers_texts[papers_texts["paper_id"].isin(relevant_papers_ids)]
     papers_texts = papers_texts[["paper_id", "title", "abstract"]].values.tolist()
     max_sequence_length = args.max_sequence_length + (20 if is_qwen_instruct else 0)
     tokenize_and_encode_papers_in_batches(

@@ -44,15 +44,27 @@ class ProjectPaths:
 
     @staticmethod
     def data_session_based_ratings_session_based_users_path():
-        return ProjectPaths.data_path() / "session_based_ratings_session_based_users.pkl"
+        return ProjectPaths.data_path() / "session_based_ratings_session_based_users.parquet"
 
     @staticmethod
     def data_session_based_ratings_test_users_path():
-        return ProjectPaths.data_path() / "session_based_ratings_test_users.pkl"
+        return ProjectPaths.data_path() / "session_based_ratings_test_users.parquet"
 
     @staticmethod
     def data_session_based_ratings_val_users_path():
-        return ProjectPaths.data_path() / "session_based_ratings_val_users.pkl"
+        return ProjectPaths.data_path() / "session_based_ratings_val_users.parquet"
+    
+    @staticmethod
+    def data_sequence_session_based_ratings_session_based_users_path():
+        return ProjectPaths.data_path() / "sequence_session_based_ratings_session_based_users.pkl"
+    
+    @staticmethod
+    def data_sequence_session_based_ratings_test_users_path():
+        return ProjectPaths.data_path() / "sequence_session_based_ratings_test_users.pkl"
+
+    @staticmethod
+    def data_sequence_session_based_ratings_val_users_path():
+        return ProjectPaths.data_path() / "sequence_session_based_ratings_val_users.pkl"
 
     @staticmethod
     def finetuning_path():
@@ -155,3 +167,15 @@ class ProjectPaths:
     @staticmethod
     def logreg_outputs_path():
         return ProjectPaths.logreg_path() / "outputs"
+    
+    @staticmethod
+    def sequence_path():
+        return ProjectPaths._base_path() / "code" / "sequence"
+    
+    @staticmethod
+    def sequence_data_path():
+        return ProjectPaths.sequence_path() / "data"
+    
+    @staticmethod
+    def sequence_data_users_embeddings_path():
+        return ProjectPaths.sequence_data_path() / "users_embeddings"

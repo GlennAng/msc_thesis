@@ -340,7 +340,7 @@ def run_validation(
 def test_validation(finetuning_model: FinetuningModel) -> None:
     dataset = FinetuningDataset(
         dataset=load_finetuning_dataset("val"),
-        no_cs_users_selection="val",
+        non_cs_users_selection="val",
     )
     negative_samples = load_finetuning_papers_tokenized("negative_samples_val")
     negative_samples_matrix = load_negative_samples_matrix_val()
@@ -358,6 +358,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     val_users_embeddings_idxs = load_val_users_embeddings_idxs()
+    print(len(val_users_embeddings_idxs), "validation users embeddings indices loaded.")
     finetuning_model = load_finetuning_model(
         finetuning_model_path=model_path,
         device=device,

@@ -14,25 +14,35 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 
 | Model Name | Bal. Acc. | NDCG | MRR | InfoNCE |
 |------------|------------------|------|-----|---------|
-| tf-idf | 73.16 | 81.03 | 74.71 | 1.4097 |
-| specter2_base | 76.26 | 83.74 | 78.29 | 0.9946 |
-| gte-base-en-v1.5 | 76.69 | 83.89 | 78.48 | 0.9962 |
-| gte-large-en-v1.5 | 77.16 | 84.35 | 79.09 | 0.9691 |
-| Qwen3-Embedding-0.6B | 76.93 | 84.37 | 79.12 | 0.9621 |
-| Qwen3-Embedding-4B | **78.54** | 85.83 | 81.06 | 0.8873 |
-| Qwen3-Embedding-8B | 78.46 | **85.89** | **81.13** | **0.8839** |
+| tf-idf | 73.65 | 81.92 | 75.88 | 1.3559 |
+| specter2_base | 76.92 | 84.61 | 79.43 | 0.9540 |
+| gte-base-en-v1.5 | 77.16 | 84.70 | 79.55 | 0.9571 |
+| gte-large-en-v1.5 | 77.66 | 85.14 | 80.14 | 0.9334 |
+| Qwen3-Embedding-0.6B | 77.43 | 85.12 | 80.11 | 0.9273 |
+| Qwen3-Embedding-4B | **78.99** | **86.67** | **82.18** | 0.8477 |
+| Qwen3-Embedding-8B | 78.93 | **86.67** | **82.18** | **0.8467** |
 
 ## Session-based Evaluation
 
 | Model Name | Bal. Acc. | NDCG | MRR | InfoNCE |
 |------------|------------------|------|-----|---------|
-| tf-idf | 62.26 | 72.68 | 63.77 | 1.8670 |
-| specter2_base | 71.23 | 79.85 | 73.16 | 1.1897 |
-| gte-base-en-v1.5 | 70.03 | 79.34 |72.49 | 1.2375 |
-| gte-large-en-v1.5 | 70.61 | 80.31 | 73.77 | 1.2071 |
-| Qwen3-Embedding-0.6B | 70.46 | 79.86 | 73.17 | 1.2025 |
-| Qwen3-Embedding-4B | 72.73 | 82.21 | 76.28 | 1.097 |
-| Qwen3-Embedding-8B | **73.75** | **82.66** | **76.87** | **1.0522** |
+| tf-idf | 63.88 | 73.74 | 65.18 | 1.8139 |
+| specter2_base | 71.35 | 80.43 | 73.93 | 1.1770 |
+| gte-base-en-v1.5 | 70.56 | 79.72 |73.00 | 1.2229 |
+| gte-large-en-v1.5 | 71.12 | 80.44 | 73.95 | 1.1923 |
+| Qwen3-Embedding-0.6B | 71.07 | 80.25 | 73.68 | 1.1790 |
+| Qwen3-Embedding-4B | 73.35 | 82.70 | 76.93 | 1.0650 |
+| Qwen3-Embedding-8B | **73.67** | **83.03** | **77.37** | **1.0385** |
+
+## Test Users
+
+## Session-based Evaluation
+
+| Model Name | NDCG | NDCG CS | NDCG Non-CS
+|------------|------------------|------|-----|
+| gte-large-en-v1.5 | 80.84 | 80.91 | 78.99 |
+| gte-large-en-v1.5 fine-tune | 83.14 | 83.25 | 80.16 |
+| Qwen3-Embedding-8B | 83.20 | 83.22 |82.62 |
 
 
 # II. Experiment Setup

@@ -10,7 +10,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
         embeddings_folder = (
             ProjectPaths.logreg_embeddings_path()
             / "after_pca"
-            / "gte_large_256_test_categories_l2_unit_100"
+            / "gte_large_256_session_based_categories_l2_unit_100"
         )
     example_config = {}
     example_config.update(
@@ -26,7 +26,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
     )
     example_config.update({"load_users_coefs": False, "users_coefs_path": None})
     example_config.update(
-        {"users_selection": "finetuning_test", "max_users": 500, "take_complement_of_users": False}
+        {"users_selection": "session_based", "max_users": None, "take_complement_of_users": False}
     )
     example_config.update(
         {
@@ -49,10 +49,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
     example_config.update(
         {
             "evaluation": "session_based",
-            "sliding_window_eval": True,
             "train_size": 0.8,
-            "min_train_size": 0.7,
-            "filter_for_negrated_ranking": True,
             "n_negative_samples": 100,
             "same_negrated_for_all_pos": False,
             "stratified": True,
@@ -87,8 +84,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
 
 def create_example_config_cross_val(embeddings_folder: Path = None) -> dict:
     example_config = create_example_config(embeddings_folder)
-    example_config.update({"evaluation": "cross_validation"})
-    example_config.update({"sliding_window_eval": False})
+    example_config.update({"evaluation": "cross_validation", "train_size": 0.8})
     return example_config
 
 

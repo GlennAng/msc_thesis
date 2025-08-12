@@ -14,17 +14,17 @@ from ....src.project_paths import ProjectPaths
 from .algorithm import Evaluation
 
 LABEL_DTYPE = np.int64
-MAX_USERS = 500
+MAX_USERS = 538
 MIN_N_POSRATED = 20
 MIN_N_NEGRATED = 20
 MIN_N_POSRATED_TRAIN = 16
 MIN_N_NEGRATED_TRAIN = 16
 MIN_N_POSRATED_VAL = 4
-MIN_N_NEGRATED_VAL = 4
+MIN_N_NEGRATED_VAL_USERS_SELECTION = 0
+MIN_N_NEGRATED_VAL_SPLIT = 4
+MIN_N_SESSIONS = 4
 N_NEGRATED_RANKING = 4
 TRAIN_SIZE = 0.8
-MIN_TRAIN_SIZE = 0.7
-
 pd.set_option("display.max_rows", None)
 
 
@@ -77,12 +77,14 @@ def filter_users_ratings_with_sufficient_votes(
         .agg(
             n_posrated=("rating", lambda x: (x == 1).sum()),
             n_negrated=("rating", lambda x: (x == 0).sum()),
+            n_distinct_sessions=("session_id", "nunique"),
         )
         .reset_index()
     )
     users_ratings_counts_sufficient_votes = users_ratings_counts[
         (users_ratings_counts["n_posrated"] >= min_n_posrated)
         & (users_ratings_counts["n_negrated"] >= min_n_negrated)
+        & (users_ratings_counts["n_distinct_sessions"] >= MIN_N_SESSIONS)
     ]
     users_ratings_filtered = users_ratings[
         users_ratings["user_id"].isin(users_ratings_counts_sufficient_votes["user_id"])
@@ -120,7 +122,6 @@ def check_single_split(
 def split_single_user(
     user_ratings: pd.DataFrame,
     test_size: float,
-    max_test_size: float,
     min_n_posrated_train: int,
     min_n_negrated_train: int,
     min_n_posrated_val: int,
@@ -137,7 +138,7 @@ def split_single_user(
             min_n_posrated_val=min_n_posrated_val,
             min_n_negrated_val=min_n_negrated_val,
         )
-        if valid_split and test_size_split <= max_test_size:
+        if valid_split:
             test_size_diff = abs(test_size_split - test_size)
             if test_size_diff < best_session_test_size_diff:
                 best_session_id, best_session_test_size_diff = split_session_id, test_size_diff
@@ -155,7 +156,6 @@ def split_single_user(
 def filter_users_ratings_with_sufficient_votes_session_based(
     users_ratings: pd.DataFrame,
     test_size: float,
-    max_test_size: float,
     min_n_posrated_train: int,
     min_n_negrated_train: int,
     min_n_posrated_val: int,
@@ -168,6 +168,9 @@ def filter_users_ratings_with_sufficient_votes_session_based(
     users_ids = users_ratings["user_id"].unique()
     for user_id in users_ids:
         user_ratings = users_ratings[users_ratings["user_id"] == user_id].reset_index(drop=True)
+        n_sessions = user_ratings["session_id"].nunique()
+        if n_sessions < MIN_N_SESSIONS:
+            continue
         user_ratings_split = split_single_user(
             user_ratings=user_ratings,
             test_size=test_size,
@@ -175,7 +178,6 @@ def filter_users_ratings_with_sufficient_votes_session_based(
             min_n_negrated_train=min_n_negrated_train,
             min_n_posrated_val=min_n_posrated_val,
             min_n_negrated_val=min_n_negrated_val,
-            max_test_size=max_test_size,
         )
         if user_ratings_split is not None:
             users_ratings_with_sufficient_votes.append(user_ratings_split)
@@ -234,24 +236,20 @@ def select_users_random(
 def get_session_based_users_ratings(users_selection: str) -> tuple:
     if users_selection == "finetuning_val":
         users_ids = load_finetuning_users_ids(selection="val")
-        with open(ProjectPaths.data_session_based_ratings_val_users_path(), "rb") as f:
-            users_ratings_dict = pickle.load(f)
+        path = ProjectPaths.data_session_based_ratings_val_users_path()
     elif users_selection == "finetuning_test":
         users_ids = load_finetuning_users_ids(selection="test")
-        with open(ProjectPaths.data_session_based_ratings_test_users_path(), "rb") as f:
-            users_ratings_dict = pickle.load(f)
+        path = ProjectPaths.data_session_based_ratings_test_users_path()
     elif users_selection == "session_based":
         users_ids = load_session_based_users_ids()
-        with open(ProjectPaths.data_session_based_ratings_session_based_users_path(), "rb") as f:
-            users_ratings_dict = pickle.load(f)
+        path = ProjectPaths.data_session_based_ratings_session_based_users_path()
     else:
         raise ValueError(f"Invalid users_selection: {users_selection}.")
-    users_ratings = users_ratings_dict["users_ratings"]
-    users_negrated_ranking = users_ratings_dict["users_negrated_ranking"]
+    users_ratings = pd.read_parquet(path, engine="pyarrow")
+    users_negrated_ranking = pd.DataFrame(columns=users_ratings.columns)
     assert np.all(users_ratings["user_id"].unique() == users_ids)
-    assert set(users_negrated_ranking["user_id"].unique()) <= set(users_ids)
     print(f"{len(users_ids)} Users selected for {users_selection} Session-Based Evaluation.")
-    return users_ratings, users_negrated_ranking, users_ids
+    return users_ratings, users_ids, users_negrated_ranking
 
 
 def filter_users_ratings_for_negrated_ranking(
@@ -281,19 +279,22 @@ def get_users_negrated_ranking(
         for column in users_ratings.columns
         if column not in ["rating", "n_negrated_still_to_come"]
     ]
-    users_rating_neg = users_ratings[users_ratings["rating"] == 0][columns]
+    users_ratings_neg = users_ratings[users_ratings["rating"] == 0][columns].copy()
     users_ratings_removed_for_negrated_ranking = users_ratings_removed_for_negrated_ranking.copy()
     if "split" in columns:
         users_ratings_removed_for_negrated_ranking["split"] = "removed"
     users_ratings_removed_for_negrated_ranking_neg = users_ratings_removed_for_negrated_ranking[
         users_ratings_removed_for_negrated_ranking["rating"] == 0
     ][columns]
-    users_negrated_ranking = pd.concat(
-        [users_rating_neg, users_ratings_removed_for_negrated_ranking_neg]
-    )
-    users_negrated_ranking = users_negrated_ranking.sort_values(["user_id", "time"]).reset_index(
-        drop=True
-    )
+    if len(users_ratings_removed_for_negrated_ranking_neg) > 0:
+        users_negrated_ranking = pd.concat(
+            [users_ratings_neg, users_ratings_removed_for_negrated_ranking_neg]
+        )
+        users_negrated_ranking = users_negrated_ranking.sort_values(
+            ["user_id", "time"]
+        ).reset_index(drop=True)
+    else:
+        users_negrated_ranking = users_ratings_neg
     return users_negrated_ranking
 
 
@@ -301,7 +302,6 @@ def get_users_ratings(
     users_selection: str,
     evaluation: Evaluation,
     train_size: float,
-    min_train_size: float = 0.0,
     max_users: int = None,
     users_random_state: int = 42,
     model_random_state: int = 42,
@@ -313,18 +313,17 @@ def get_users_ratings(
     min_n_negrated_train: int = 0,
     min_n_posrated_val: int = 0,
     min_n_negrated_val: int = 0,
-    filter_for_negrated_ranking: bool = True,
+    filter_for_negrated_ranking: bool = False,
 ) -> tuple:
     if all(
         [
             evaluation == Evaluation.SESSION_BASED,
             train_size == TRAIN_SIZE,
-            min_train_size == MIN_TRAIN_SIZE,
             min_n_posrated_train == MIN_N_POSRATED_TRAIN,
             min_n_negrated_train == MIN_N_NEGRATED_TRAIN,
             min_n_posrated_val == MIN_N_POSRATED_VAL,
-            min_n_negrated_val == MIN_N_NEGRATED_VAL,
-            filter_for_negrated_ranking,
+            min_n_negrated_val == MIN_N_NEGRATED_VAL_SPLIT,
+            not filter_for_negrated_ranking,
         ]
     ):
         path = None
@@ -338,7 +337,6 @@ def get_users_ratings(
             return get_session_based_users_ratings(users_selection)
 
     test_size = 1.0 - train_size
-    max_test_size = 1.0 - min_train_size
     users_ratings = load_users_ratings()
     users_ratings, users_ratings_removed_for_negrated_ranking = (
         filter_users_ratings_for_negrated_ranking(users_ratings, filter_for_negrated_ranking)
@@ -354,7 +352,6 @@ def get_users_ratings(
         users_ratings = filter_users_ratings_with_sufficient_votes_session_based(
             users_ratings=users_ratings,
             test_size=test_size,
-            max_test_size=max_test_size,
             min_n_posrated_train=min_n_posrated_train,
             min_n_negrated_train=min_n_negrated_train,
             min_n_posrated_val=min_n_posrated_val,
@@ -391,7 +388,7 @@ def get_users_ratings(
         users_ratings=users_ratings,
         users_ratings_removed_for_negrated_ranking=users_ratings_removed_for_negrated_ranking,
     )
-    return users_ratings, users_negrated_ranking, users_ids_selected.tolist()
+    return users_ratings, users_ids_selected.tolist(), users_negrated_ranking
 
 
 def convert_users_selection_string(users_selection: str) -> list:
@@ -417,18 +414,18 @@ def users_query(
     max_users: int,
     random_state: int,
 ) -> list:
-    _, _, users_ids = get_users_ratings(
+    _, users_ids, _ = get_users_ratings(
         users_selection="random",
         evaluation=Evaluation.SESSION_BASED,
-        train_size=TRAIN_SIZE,
-        min_train_size=MIN_TRAIN_SIZE,
+        train_size=0.0,
         max_users=max_users,
         users_random_state=random_state,
         min_n_posrated_train=MIN_N_POSRATED_TRAIN,
         min_n_negrated_train=MIN_N_NEGRATED_TRAIN,
         min_n_posrated_val=MIN_N_POSRATED_VAL,
-        min_n_negrated_val=MIN_N_NEGRATED_VAL,
+        min_n_negrated_val=MIN_N_NEGRATED_VAL_USERS_SELECTION,
         take_complement=take_complement,
+        filter_for_negrated_ranking=True,
     )
     return users_ids
 
@@ -452,7 +449,7 @@ def save_finetuning_users_ids(path: Path, random_state: int) -> None:
     val_users_ids = random.sample(complement_users_ids, k=MAX_USERS)
     val_users_ids = sorted(val_users_ids)
     assert_sorted_and_unique(val_users_ids)
-    _, _, full_users_ids = get_users_ratings(
+    _, full_users_ids, _ = get_users_ratings(
         users_selection="random",
         evaluation=Evaluation.CROSS_VALIDATION,
         train_size=TRAIN_SIZE,
@@ -512,6 +509,7 @@ if __name__ == "__main__":
     else:
         print("Session-Based Users IDs already exist. Skipping saving.")
 
+
     users_types = ["finetuning_val", "finetuning_test", "session_based"]
     for users_type in users_types:
         users_type_string = users_type.replace("_", " ").title()
@@ -522,23 +520,17 @@ if __name__ == "__main__":
         elif users_type == "session_based":
             path = ProjectPaths.data_session_based_ratings_session_based_users_path()
         if not path.exists():
-            users_ratings, users_negrated_ranking, _ = get_users_ratings(
+            users_ratings, _, _ = get_users_ratings(
                 users_selection=users_type,
                 evaluation=Evaluation.SESSION_BASED,
                 train_size=TRAIN_SIZE,
-                min_train_size=MIN_TRAIN_SIZE,
                 min_n_posrated_train=MIN_N_POSRATED_TRAIN,
                 min_n_negrated_train=MIN_N_NEGRATED_TRAIN,
                 min_n_posrated_val=MIN_N_POSRATED_VAL,
-                min_n_negrated_val=MIN_N_NEGRATED_VAL,
-                filter_for_negrated_ranking=True,
+                min_n_negrated_val=MIN_N_NEGRATED_VAL_SPLIT,
+                filter_for_negrated_ranking=False,
             )
-            users_ratings_dict = {
-                "users_ratings": users_ratings,
-                "users_negrated_ranking": users_negrated_ranking,
-            }
-            with open(path, "wb") as f:
-                pickle.dump(users_ratings_dict, f)
+            users_ratings.to_parquet(path, index=False, compression="gzip")
             print(f"{users_type_string} Users Session-Based Ratings saved to {path}.")
         else:
             print(

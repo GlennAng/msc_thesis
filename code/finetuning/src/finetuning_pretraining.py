@@ -19,7 +19,6 @@ def create_finetuning_config_train(example_config: dict, train_users_ids: list) 
             "min_n_posrated": 20,
             "min_n_negrated": 20,
             "evaluation": "train_test_split",
-            "sliding_window_eval": False,
             "train_size": 1.0,
             "save_users_coefs": True,
         }
@@ -40,7 +39,9 @@ def create_finetuning_config_val(example_config: dict) -> dict:
 
 
 def create_finetuning_configs(train_users_ids: list) -> None:
-    example_config = create_example_config()
+    example_config = create_example_config(
+        ProjectPaths.logreg_embeddings_path() / "after_pca" / "gte_large_256_categories_l2_unit_100"
+    )
     finetuning_config_train = create_finetuning_config_train(example_config, train_users_ids)
     finetuning_config_val = create_finetuning_config_val(example_config)
     finetuning_config_path = ProjectPaths.logreg_experiments_path() / "finetuning_pretraining"

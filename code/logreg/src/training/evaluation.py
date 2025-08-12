@@ -22,7 +22,6 @@ from .algorithm import (
     get_ranking_scores,
     get_score,
 )
-from .get_users_ratings import N_NEGRATED_RANKING
 from .training_data import (
     LABEL_DTYPE,
     get_cache_papers_ids,
@@ -62,7 +61,6 @@ class Evaluator:
         self,
         embedding: Embedding,
         users_ratings: pd.DataFrame,
-        users_negrated_ranking: pd.DataFrame,
     ) -> None:
         self.embedding = embedding
         users_ids = users_ratings["user_id"].unique().tolist()
@@ -75,24 +73,31 @@ class Evaluator:
         )
 
         self.manage_users_coefs()
-        self.val_negative_samples_ids = self.get_val_negative_samples_ids(papers)
-        self.cache_papers_categories_ids, self.cache_papers_ids = self.get_cache_papers_ids(papers)
-        self.negrated_ranking_type_train, self.negrated_ranking_type_val = (
-            self.get_negrated_ranking_types()
+        self.val_negative_samples_ids = get_val_negative_samples_ids(
+            papers=papers,
+            n_categories_samples=self.config["n_negative_samples"],
+            random_state=self.config["ranking_random_state"],
+            papers_ids_to_exclude=papers[papers["in_ratings"]]["paper_id"].tolist(),
         )
+        self.cache_papers_categories_ids, self.cache_papers_ids = get_cache_papers_ids_full(
+            papers=papers,
+            cache_type=self.config["cache_type"],
+            n_cache=self.config["n_cache"],
+            random_state=self.config["cache_random_state"],
+            n_categories_cache=self.config["n_categories_cache"],
+        )
+        self.negrated_ranking_timesort = (self.config["evaluation"] == Evaluation.SESSION_BASED)
 
         if self.config["n_jobs"] == 1:
             self.evaluate_users_in_sequence(
                 users_ids=users_ids,
                 users_ratings=users_ratings,
-                users_negrated_ranking=users_negrated_ranking,
                 users_significant_categories=users_significant_categories,
             )
         else:
             self.evaluate_users_in_parallel(
                 users_ids=users_ids,
                 users_ratings=users_ratings,
-                users_negrated_ranking=users_negrated_ranking,
                 users_significant_categories=users_significant_categories,
             )
 
@@ -123,59 +128,21 @@ class Evaluator:
             with open(users_coefs_path / "users_coefs_ids_to_idxs.pkl", "rb") as f:
                 self.users_coefs_ids_to_idxs = pickle.load(f)
 
-    def get_val_negative_samples_ids(self, papers: pd.DataFrame) -> list:
-        return get_categories_samples_ids(
-            papers=papers,
-            n_categories_samples=self.config["n_negative_samples"],
-            random_state=self.config["ranking_random_state"],
-            papers_ids_to_exclude=papers[papers["in_ratings"]]["paper_id"].tolist(),
-        )[0]
-
-    def get_cache_papers_ids(self, papers: pd.DataFrame) -> tuple:
-        cache_papers_ids = get_cache_papers_ids(
-            cache_type=self.config["cache_type"],
-            papers=papers,
-            n_cache=self.config["n_cache"],
-            random_state=self.config["cache_random_state"],
-        )
-        cache_papers_categories_ids = get_categories_samples_ids(
-            papers=papers,
-            n_categories_samples=self.config["n_categories_cache"],
-            random_state=self.config["cache_random_state"],
-            papers_ids_to_exclude=cache_papers_ids,
-        )[0]
-        return cache_papers_categories_ids, cache_papers_ids
-
-    def get_negrated_ranking_types(self) -> tuple:
-        if self.config["evaluation"] != Evaluation.SESSION_BASED:
-            negrated_ranking_type_train = negrated_ranking_type_val = "random"
-        else:
-            negrated_ranking_type_train = "closest_in_time"
-            if self.config["filter_for_negrated_ranking"]:
-                negrated_ranking_type_val = "following_in_time"
-            else:
-                negrated_ranking_type_val = "closest_in_time"
-        return negrated_ranking_type_train, negrated_ranking_type_val
 
     def evaluate_users_in_sequence(
         self,
         users_ids: list,
         users_ratings: pd.DataFrame,
-        users_negrated_ranking: pd.DataFrame,
         users_significant_categories: pd.DataFrame,
     ) -> None:
         for user_id in users_ids:
             user_ratings = users_ratings[users_ratings["user_id"] == user_id].reset_index(drop=True)
-            user_negrated_ranking = users_negrated_ranking[
-                users_negrated_ranking["user_id"] == user_id
-            ].reset_index(drop=True)
             user_significant_categories = users_significant_categories[
                 users_significant_categories["user_id"] == user_id
             ]["category"].tolist()
             self.evaluate_user(
                 user_id=user_id,
                 user_ratings=user_ratings,
-                user_negrated_ranking=user_negrated_ranking,
                 user_significant_categories=user_significant_categories,
             )
 
@@ -183,7 +150,6 @@ class Evaluator:
         self,
         users_ids: list,
         users_ratings: pd.DataFrame,
-        users_negrated_ranking: pd.DataFrame,
         users_significant_categories: pd.DataFrame,
     ) -> None:
         users_list = []
@@ -192,9 +158,6 @@ class Evaluator:
                 (
                     user_id,
                     users_ratings[users_ratings["user_id"] == user_id].reset_index(drop=True),
-                    users_negrated_ranking[
-                        users_negrated_ranking["user_id"] == user_id
-                    ].reset_index(drop=True),
                     users_significant_categories[
                         users_significant_categories["user_id"] == user_id
                     ]["category"].tolist(),
@@ -204,17 +167,15 @@ class Evaluator:
             delayed(self.evaluate_user)(
                 user_id=user_id,
                 user_ratings=user_ratings,
-                users_negrated_ranking=users_negrated_ranking,
                 user_significant_categories=user_significant_categories,
             )
-            for user_id, user_ratings, users_negrated_ranking, user_significant_categories in users_list
+            for user_id, user_ratings, user_significant_categories in users_list
         )
 
     def evaluate_user(
         self,
         user_id: int,
         user_ratings: pd.DataFrame,
-        user_negrated_ranking: pd.DataFrame,
         user_significant_categories: list,
     ) -> None:
         user_results_dict, user_predictions_dict = {}, {}
@@ -222,8 +183,12 @@ class Evaluator:
         user_categories_ratios = get_user_categories_ratios(
             categories_to_exclude=user_significant_categories
         )
-        user_val_negative_samples = self.get_user_val_negative_samples(
-            user_categories_ratios=user_categories_ratios
+        user_val_negative_samples = get_user_val_negative_samples(
+            val_negative_samples_ids=self.val_negative_samples_ids,
+            n_negative_samples=self.config["n_negative_samples"],
+            random_state=self.config["ranking_random_state"],
+            user_categories_ratios=user_categories_ratios,
+            embedding=self.embedding,
         )
         user_predictions_dict["negative_samples_ids"] = user_val_negative_samples[
             "val_negative_samples_ids"
@@ -232,9 +197,15 @@ class Evaluator:
             user_ratings["paper_id"].tolist()
             + user_val_negative_samples["val_negative_samples_ids"]
         )
-        user_cache_papers = self.get_user_cache_papers(
-            user_categories_ratios=user_categories_ratios,
+        user_cache_papers = get_user_cache_papers(
+            cache_type=self.config["cache_type"],
+            cache_papers_ids=self.cache_papers_ids,
+            cache_papers_categories_ids=self.cache_papers_categories_ids,
+            n_categories_cache=self.config["n_categories_cache"],
+            random_state=self.config["cache_random_state"],
             papers_ids_to_exclude_from_cache=papers_ids_to_exclude_from_cache,
+            user_categories_ratios=user_categories_ratios,
+            embedding=self.embedding,
         )
         user_info = self.store_user_info(
             user_ratings=user_ratings,
@@ -249,7 +220,6 @@ class Evaluator:
                 self.evaluate_user_split(
                     user_id=user_id,
                     user_ratings=user_ratings,
-                    user_ratings_removed_for_negrated_ranking=user_ratings_removed_for_negrated_ranking,
                     user_val_negative_samples=user_val_negative_samples,
                     user_cache_papers=user_cache_papers,
                     user_info=user_info,
@@ -258,7 +228,6 @@ class Evaluator:
                 )
 
             elif self.config["evaluation"] == Evaluation.CROSS_VALIDATION:
-                assert len(user_ratings_removed_for_negrated_ranking) == 0
                 self.evaluate_user_cross_validation(
                     user_id=user_id,
                     user_ratings=user_ratings,
@@ -272,62 +241,11 @@ class Evaluator:
             self.save_user_info(user_id, user_info)
             self.save_user_results(user_id, user_results_dict)
             self.save_user_predictions(user_id, user_predictions_dict)
-            if "save_users_coefs" in self.config and self.config["save_users_coefs"]:
-                self.save_user_coefs(user_id, user_coefs=None)
             print(f"User {user_id} done.")
         except Exception as e:
             print(f"Error evaluating user {user_id}: {e}")
             traceback.print_exc()
 
-    def get_user_val_negative_samples(self, user_categories_ratios: dict) -> dict:
-        val_negative_samples_ids = get_user_categories_samples_ids(
-            categories_samples_ids=self.val_negative_samples_ids,
-            n_categories_samples=self.config["n_negative_samples"],
-            random_state=self.config["ranking_random_state"],
-            sort_samples=True,
-            user_categories_ratios=user_categories_ratios,
-        )
-        negative_samples_embeddings = self.embedding.matrix[
-            self.embedding.get_idxs(val_negative_samples_ids)
-        ]
-        return {
-            "val_negative_samples_ids": val_negative_samples_ids,
-            "val_negative_samples_embeddings": negative_samples_embeddings,
-        }
-
-    def get_user_cache_papers(
-        self, user_categories_ratios: dict, papers_ids_to_exclude_from_cache: list
-    ) -> dict:
-        user_cache_papers_categories_ids = get_user_categories_samples_ids(
-            categories_samples_ids=self.cache_papers_categories_ids,
-            n_categories_samples=self.config["n_categories_cache"],
-            random_state=self.config["cache_random_state"],
-            sort_samples=False,
-            user_categories_ratios=user_categories_ratios,
-        )
-        user_cache_papers_ids = get_user_cache_papers_ids(
-            cache_type=self.config["cache_type"],
-            cache_papers_ids=self.cache_papers_ids,
-        )
-        cache_papers_ids = sorted(
-            list(set(user_cache_papers_categories_ids) | set(user_cache_papers_ids))
-        )
-        cache_papers_ids = [
-            paper_id
-            for paper_id in cache_papers_ids
-            if paper_id not in papers_ids_to_exclude_from_cache
-        ]
-        assert user_cache_papers_ids == sorted(user_cache_papers_ids)
-        assert len(user_cache_papers_ids) == len(set(user_cache_papers_ids))
-        cache_embedding_idxs = self.embedding.get_idxs(cache_papers_ids)
-        cache_n = len(cache_embedding_idxs)
-        y_cache = np.zeros(cache_n, dtype=LABEL_DTYPE)
-        return {
-            "user_cache_papers_categories_ids": user_cache_papers_categories_ids,
-            "cache_embedding_idxs": cache_embedding_idxs,
-            "cache_n": cache_n,
-            "y_cache": y_cache,
-        }
 
     def store_user_info(self, user_ratings: pd.DataFrame, cache_n: int) -> dict:
         user_info = {"n_cache": cache_n, "n_base": 0, "n_zerorated": 0}
@@ -341,17 +259,13 @@ class Evaluator:
         self,
         user_id: int,
         user_ratings: pd.DataFrame,
-        user_ratings_removed_for_negrated_ranking: pd.DataFrame,
         user_val_negative_samples: dict,
         user_cache_papers: dict,
         user_info: dict,
         user_results_dict: dict,
         user_predictions_dict: dict,
     ) -> None:
-        train_ratings, val_ratings, val_sessions_ids = split_ratings(
-            user_ratings=user_ratings,
-            sliding_window_eval=self.config["sliding_window_eval"],
-        )
+        train_ratings, val_ratings = split_ratings(user_ratings)
         user_info["train_rated_ratio"] = len(train_ratings) / len(user_ratings)
         user_data_dict = self.load_user_data_dict(
             train_ratings=train_ratings,
@@ -363,46 +277,35 @@ class Evaluator:
         user_predictions_dict[0] = fill_user_predictions_dict(user_data_dict)
         train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
             user_ratings=train_ratings,
-            negrated_ranking_type=self.negrated_ranking_type_train,
+            timesort=self.negrated_ranking_timesort,
             random_state=self.config["ranking_random_state"],
             same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
         )
-
-        for val_session_id in val_sessions_ids:
-            val_session_mask = val_ratings["session_id"] == val_session_id
-            train_ratings_session, val_ratings_session = split_ratings_session(
-                train_ratings=train_ratings,
-                val_ratings=val_ratings,
-                val_session_mask=val_session_mask,
-            )
-            user_data_dict_session = self.load_user_data_dict(
-                train_ratings=train_ratings_session,
-                val_ratings=val_ratings_session,
-                cache_embedding_idxs=user_cache_papers["cache_embedding_idxs"],
-                y_cache=user_cache_papers["y_cache"],
-                random_state=self.config["model_random_state"],
-            )
-            val_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
-                user_ratings=val_ratings,
-                negrated_ranking_type=self.negrated_ranking_type_val,
-                random_state=self.config["ranking_random_state"],
-                same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
-                val_session_mask=val_session_mask,
-            )
-            user_models = self.train_user_models(
-                user_data_dict=user_data_dict_session, user_id=user_id
-            )
-            user_results, user_predictions = self.score_user_models(
-                user_data_dict=user_data_dict_session,
-                user_models=user_models,
-                negative_samples_embeddings=user_val_negative_samples[
-                    "val_negative_samples_embeddings"
-                ],
-                train_negrated_ranking_idxs=train_negrated_ranking_idxs,
-                val_negrated_ranking_idxs=val_negrated_ranking_idxs,
-            )
-            user_results_dict[0] = user_results
-            user_predictions_dict[0] = user_predictions
+        val_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
+            user_ratings=val_ratings,
+            timesort=self.negrated_ranking_timesort,
+            random_state=self.config["ranking_random_state"],
+            same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
+        )
+        user_models = self.train_user_models(
+            user_data_dict=user_data_dict, user_id=user_id
+        )
+        user_results, user_predictions = self.score_user_models(
+            user_data_dict=user_data_dict,
+            user_models=user_models,
+            negative_samples_embeddings=user_val_negative_samples[
+                "val_negative_samples_embeddings"
+            ],
+            train_negrated_ranking_idxs=train_negrated_ranking_idxs,
+            val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+        )
+        user_results_dict[0] = user_results
+        user_predictions_dict[0] = user_predictions
+        if self.config["save_users_coefs"]:
+            assert len(user_models) == 1
+            model = user_models[0]
+            user_coefs = np.hstack([model.coef_[0], model.intercept_[0]])
+            self.save_user_coefs(user_id, user_coefs=user_coefs)
 
     def evaluate_user_cross_validation(
         self,
@@ -420,7 +323,7 @@ class Evaluator:
         for fold_idx, (fold_train_idxs, fold_val_idxs) in enumerate(split):
             user_ratings.loc[fold_train_idxs, "split"] = "train"
             user_ratings.loc[fold_val_idxs, "split"] = "val"
-            train_ratings, val_ratings, _ = split_ratings(user_ratings)
+            train_ratings, val_ratings = split_ratings(user_ratings)
             train_rated_ratios.append(len(train_ratings) / len(user_ratings))
             user_data_dict = self.load_user_data_dict(
                 train_ratings=train_ratings,
@@ -432,13 +335,13 @@ class Evaluator:
             user_predictions_dict[fold_idx] = fill_user_predictions_dict(user_data_dict)
             train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
                 user_ratings=train_ratings,
-                random_neg=self.negrated_ranking_type_train,
+                timesort=self.negrated_ranking_timesort,
                 random_state=self.config["ranking_random_state"],
                 same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
             )
             val_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
                 user_ratings=val_ratings,
-                random_neg=self.negrated_ranking_type_val,
+                timesort=self.negrated_ranking_timesort,
                 random_state=self.config["ranking_random_state"],
                 same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
             )
@@ -798,33 +701,121 @@ class Evaluator:
         np.save(folder / "user_coefs.npy", user_coefs)
 
 
-def split_ratings(user_ratings: pd.DataFrame, sliding_window_eval: bool = False) -> tuple:
+def get_val_negative_samples_ids(
+    papers: pd.DataFrame,
+    n_categories_samples: int,
+    random_state: int,
+    papers_ids_to_exclude: list,      
+) -> list:
+    return get_categories_samples_ids(
+        papers=papers,
+        n_categories_samples=n_categories_samples,
+        random_state=random_state,
+        papers_ids_to_exclude=papers_ids_to_exclude,
+    )[0]
+
+
+def get_cache_papers_ids_full(
+    papers: pd.DataFrame,
+    cache_type: str,
+    n_cache: int,
+    random_state: int,
+    n_categories_cache: int,
+) -> tuple:
+    cache_papers_ids = get_cache_papers_ids(
+        cache_type=cache_type,
+        papers=papers,
+        n_cache=n_cache,
+        random_state=random_state,
+    )
+    cache_papers_categories_ids = get_categories_samples_ids(
+        papers=papers,
+        n_categories_samples=n_categories_cache,
+        random_state=random_state,
+        papers_ids_to_exclude=cache_papers_ids,
+    )[0]
+    return cache_papers_categories_ids, cache_papers_ids
+
+
+def get_user_val_negative_samples(
+    val_negative_samples_ids: list,
+    n_negative_samples: int,
+    random_state: int,
+    user_categories_ratios: dict,
+    embedding: Embedding=None,
+) -> dict:
+    val_negative_samples_ids = get_user_categories_samples_ids(
+        categories_samples_ids=val_negative_samples_ids,
+        n_categories_samples=n_negative_samples,
+        random_state=random_state,
+        sort_samples=True,
+        user_categories_ratios=user_categories_ratios,
+    )
+    negative_samples_embeddings = None
+    if embedding is not None:
+        negative_samples_embeddings = embedding.matrix[
+            embedding.get_idxs(val_negative_samples_ids)
+        ]
+    return {
+        "val_negative_samples_ids": val_negative_samples_ids,
+        "val_negative_samples_embeddings": negative_samples_embeddings,
+    }
+
+
+def get_user_cache_papers(
+    cache_type: str,
+    cache_papers_ids: list,
+    cache_papers_categories_ids: list,
+    n_categories_cache: int,
+    random_state: int,
+    papers_ids_to_exclude_from_cache: list,
+    user_categories_ratios: dict,
+    embedding: Embedding = None,
+) -> dict:
+    user_cache_papers_ids = get_user_cache_papers_ids(
+        cache_type=cache_type,
+        cache_papers_ids=cache_papers_ids,
+    )
+    user_cache_papers_categories_ids = get_user_categories_samples_ids(
+        categories_samples_ids=cache_papers_categories_ids,
+        n_categories_samples=n_categories_cache,
+        random_state=random_state,
+        sort_samples=False,
+        user_categories_ratios=user_categories_ratios,
+    )
+    cache_papers_ids = sorted(
+        list(set(user_cache_papers_categories_ids) | set(user_cache_papers_ids))
+    )
+    cache_papers_ids = [
+        paper_id
+        for paper_id in cache_papers_ids
+        if paper_id not in papers_ids_to_exclude_from_cache
+    ]
+    assert user_cache_papers_ids == sorted(user_cache_papers_ids)
+    assert len(user_cache_papers_ids) == len(set(user_cache_papers_ids))
+    cache_n = len(cache_papers_ids)
+    y_cache = np.zeros(cache_n, dtype=LABEL_DTYPE)
+    cache_embedding_idxs = None
+    if embedding is not None:
+        cache_embedding_idxs = embedding.get_idxs(cache_papers_ids)
+    return {
+        "user_cache_papers_categories_ids": user_cache_papers_categories_ids,
+        "cache_embedding_idxs": cache_embedding_idxs,
+        "cache_n": cache_n,
+        "y_cache": y_cache,
+    }
+
+
+def split_ratings(user_ratings: pd.DataFrame) -> tuple:
     if "split" not in user_ratings.columns:
         raise ValueError("User ratings DataFrame must contain 'split' column.")
     train_mask = user_ratings["split"] == "train"
     val_mask = user_ratings["split"] == "val"
     train_ratings = user_ratings.loc[train_mask].reset_index(drop=True)
     val_ratings = user_ratings.loc[val_mask].reset_index(drop=True)
-    min_val_session_id = val_ratings["session_id"].min()
-    if not sliding_window_eval:
-        val_ratings["session_id"] = min_val_session_id
-    val_sessions_ids = list(val_ratings["session_id"].unique())
-    assert val_sessions_ids == list(
-        range(min_val_session_id, min_val_session_id + len(val_sessions_ids))
-    )
     assert len(train_ratings) + len(val_ratings) == len(user_ratings)
     assert train_ratings["time"].is_monotonic_increasing
     assert val_ratings["time"].is_monotonic_increasing
-    return train_ratings, val_ratings, val_sessions_ids
-
-
-def split_ratings_session(
-    train_ratings: pd.DataFrame, val_ratings: pd.DataFrame, val_session_mask: pd.Series
-) -> tuple:
-    train_ratings = pd.concat([train_ratings, val_ratings[~val_session_mask]]).reset_index(
-        drop=True
-    )
-    val_ratings = val_ratings[val_session_mask].reset_index(drop=True)
     return train_ratings, val_ratings
 
 
