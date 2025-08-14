@@ -12,18 +12,24 @@ import numpy as np
 import pandas as pd
 
 from ...scripts.create_example_configs import check_config
+from ...sequence.src.sequence_data import load_users_embeddings_dict
 from ...src.project_paths import ProjectPaths
 from .embeddings.embedding import Embedding
-from .training.algorithm import Score, get_algorithm_from_arg, get_evaluation_from_arg
+from .training.algorithm import (
+    Evaluation,
+    Score,
+    get_algorithm_from_arg,
+    get_evaluation_from_arg,
+)
 from .training.evaluation import Evaluator
-from .training.get_users_ratings import get_users_ratings
+from .training.get_users_ratings import get_users_ratings, sequence_load_users_ratings
 from .training.weights_handler import Weights_Handler, load_hyperparameter_range
 
 
 def config_assertions(config: Dict[str, Any]) -> None:
     assert config["cache_type"] in [
-        "categories_cache", 
-        "old_cache", 
+        "categories_cache",
+        "old_cache",
         "random_cache",
     ]
     assert config["k_folds"] == 5, "Config: k_folds must be 5."
@@ -39,8 +45,8 @@ def config_assertions(config: Dict[str, Any]) -> None:
         "session_based",
     ] or isinstance(config["users_selection"], list)
     if config["evaluation"] in ["cross_validation", "train_test_split"]:
-        assert config["stratified"], "Config: stratified True for evaluation in "
-        "['cross_validation', 'train_test_split']."
+        assert config["stratified"]
+        assert not config["filter_for_negrated_ranking"]
 
 
 def load_config(config_path: Path) -> Dict[str, Any]:
@@ -95,6 +101,20 @@ def load_hyperparameters(config: Dict[str, Any], wh: Weights_Handler) -> list:
     return hyperparameters_combinations
 
 
+def init_sliding_window(config: Dict[str, Any]) -> tuple:
+    assert config["n_cache"] == 0
+    assert config["filter_for_negrated_ranking"]
+    users_embeddings_dict = load_users_embeddings_dict(config["users_coefs_path"])
+    config["users_selection"] = users_embeddings_dict["users_selection"]
+    config["embedding_folder"] = users_embeddings_dict["embedding_path"]
+    users_ratings_tuple = sequence_load_users_ratings(
+        selection=users_embeddings_dict["users_selection"]
+    )
+    users_ratings, users_ids, users_negrated_ranking = users_ratings_tuple
+    users_embeddings = users_embeddings_dict["users_embeddings"]
+    return users_ratings, users_ids, users_negrated_ranking, users_embeddings
+
+
 def init_scores(config: Dict[str, Any]) -> None:
     scores = {}
     for index, score in enumerate(Score):
@@ -130,7 +150,9 @@ def hyperparameters_combinations_to_dataframe(
     return df
 
 
-def save_hyperparameters_combinations(config: Dict[str, Any], hyperparameters_combinations: List[tuple]) -> None:
+def save_hyperparameters_combinations(
+    config: Dict[str, Any], hyperparameters_combinations: List[tuple]
+) -> None:
     outputs_dir = config["outputs_dir"]
     hyperparameters_combinations_df = hyperparameters_combinations_to_dataframe(
         config["hyperparameters"], hyperparameters_combinations
@@ -199,22 +221,29 @@ if __name__ == "__main__":
     convert_enums(config)
     create_outputs_folder(config)
 
-    users_ratings, users_ids, _ = get_users_ratings(
-        users_selection=config["users_selection"],
-        evaluation=config["evaluation"],
-        train_size=config["train_size"],
-        max_users=config["max_users"],
-        users_random_state=config["users_random_state"],
-        model_random_state=config["model_random_state"],
-        stratify=config["stratified"],
-        take_complement=config["take_complement_of_users"],
-        min_n_posrated=config["min_n_posrated"],
-        min_n_negrated=config["min_n_negrated"],
-        min_n_posrated_train=config["min_n_posrated_train"],
-        min_n_negrated_train=config["min_n_negrated_train"],
-        min_n_posrated_val=config["min_n_posrated_val"],
-        min_n_negrated_val=config["min_n_negrated_val"],
-    )
+    if config["evaluation"] == Evaluation.SLIDING_WINDOW:
+        users_ratings, users_ids, users_negrated_ranking, users_embeddings = init_sliding_window(
+            config=config
+        )
+    else:
+        users_ratings, users_ids, users_negrated_ranking = get_users_ratings(
+            users_selection=config["users_selection"],
+            evaluation=config["evaluation"],
+            train_size=config["train_size"],
+            max_users=config["max_users"],
+            users_random_state=config["users_random_state"],
+            model_random_state=config["model_random_state"],
+            stratify=config["stratified"],
+            take_complement=config["take_complement_of_users"],
+            min_n_posrated=config["min_n_posrated"],
+            min_n_negrated=config["min_n_negrated"],
+            min_n_posrated_train=config["min_n_posrated_train"],
+            min_n_negrated_train=config["min_n_negrated_train"],
+            min_n_posrated_val=config["min_n_posrated_val"],
+            min_n_negrated_val=config["min_n_negrated_val"],
+            filter_for_negrated_ranking=config["filter_for_negrated_ranking"],
+        )
+        users_embeddings = None
 
     init_scores(config)
     wh = Weights_Handler(config)
@@ -228,7 +257,7 @@ if __name__ == "__main__":
     save_hyperparameters_combinations(config, hyperparameters_combinations)
 
     evaluator = Evaluator(config, hyperparameters_combinations, wh)
-    evaluator.evaluate_embedding(embedding, users_ratings)
+    evaluator.evaluate_embedding(embedding, users_ratings, users_negrated_ranking, users_embeddings)
     merge_users_infos(config, users_ids)
     merge_users_results(config, users_ids)
     merge_users_coefs(config, users_ids)

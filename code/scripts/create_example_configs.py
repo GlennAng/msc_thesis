@@ -51,6 +51,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
             "evaluation": "session_based",
             "train_size": 0.8,
             "n_negative_samples": 100,
+            "filter_for_negrated_ranking": False,
             "same_negrated_for_all_pos": False,
             "stratified": True,
             "k_folds": 5,
@@ -102,6 +103,22 @@ def create_example_config_tfidf_cross_val(embeddings_folder: Path = None) -> dic
     return example_config_tfidf
 
 
+def create_example_config_sliding_window(users_embeddings_dict_path: Path = None) -> dict:
+    example_config = create_example_config()
+    if users_embeddings_dict_path is None:
+        users_embeddings_dict_path = (
+            ProjectPaths.sequence_data_users_embeddings_path() / "finetuning_test_mean.pkl"
+        )
+    update_dict = {
+        "evaluation": "sliding_window",
+        "users_coefs_path": str(users_embeddings_dict_path.resolve()),
+        "n_cache": 0,
+        "filter_for_negrated_ranking": True,
+    }
+    example_config.update(update_dict)
+    return example_config
+
+
 def check_config(config: dict) -> bool:
     example_config = create_example_config()
     config_keys, example_config_keys = set(config.keys()), set(example_config.keys())
@@ -125,3 +142,6 @@ if __name__ == "__main__":
     example_config_tfidf_cross_val = create_example_config_tfidf_cross_val()
     with open(logreg_experiments_path / "example_config_tfidf_cross_val.json", "w") as f:
         json.dump(example_config_tfidf_cross_val, f, indent=4)
+    example_config_sliding_window = create_example_config_sliding_window()
+    with open(logreg_experiments_path / "example_config_sliding_window.json", "w") as f:
+        json.dump(example_config_sliding_window, f, indent=4)

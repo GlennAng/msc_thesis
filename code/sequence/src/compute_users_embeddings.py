@@ -5,8 +5,11 @@ import numpy as np
 import pandas as pd
 
 from ...logreg.src.embeddings.embedding import Embedding
+from ...logreg.src.training.get_users_ratings import (
+    USERS_SELECTIONS,
+    sequence_load_users_ratings,
+)
 from ...src.project_paths import ProjectPaths
-from .sequence_load_users_ratings import USERS_SELECTIONS, sequence_load_users_ratings
 
 pd.set_option("display.max_rows", None)
 
@@ -25,17 +28,17 @@ def compute_mean_pos_user_embedding(
 
 def compute_users_embeddings(
     users_ratings: pd.DataFrame,
-    sessions_ids_with_at_least_one_pos_val: dict,
+    users_val_sessions_ids: dict,
     embedding: Embedding,
     embed_function: callable,
     embed_function_params: dict = {},
 ) -> dict:
     users_embeddings = {}
     users_ids = users_ratings["user_id"].unique().tolist()
-    assert users_ids == list(sessions_ids_with_at_least_one_pos_val.keys())
+    assert users_ids == list(users_val_sessions_ids.keys())
     for user_id in users_ids:
         user_ratings = users_ratings[users_ratings["user_id"] == user_id]
-        user_sessions_ids = sessions_ids_with_at_least_one_pos_val[user_id]
+        user_sessions_ids = users_val_sessions_ids[user_id]
         user_embeddings = np.zeros((len(user_sessions_ids), embedding.matrix.shape[1]))
         for i, session_id in enumerate(user_sessions_ids):
             user_train_set = user_ratings[user_ratings["session_id"] < session_id].reset_index(
@@ -68,24 +71,18 @@ def save_users_embeddings_dict(
         pickle.dump(users_embeddings_dict, f)
 
 
-def get_sessions_ids_with_at_least_one_pos_val(users_ratings: pd.DataFrame) -> dict:
+def get_users_val_sessions_ids(users_ratings: pd.DataFrame) -> dict:
     users_ids = users_ratings["user_id"].unique().tolist()
     sessions_ids = {}
-    users_ratings_pos_val = users_ratings[
-        (users_ratings["rating"] > 0) & (users_ratings["split"] == "val")
-    ].reset_index(drop=True)
+    users_ratings_val = users_ratings[users_ratings["split"] == "val"].reset_index(drop=True)
     for user_id in users_ids:
-        user_ratings_pos_val = users_ratings_pos_val[
-            users_ratings_pos_val["user_id"] == user_id
-        ].reset_index(drop=True)
-        user_sessions_ids_with_at_least_one_pos_val = (
-            user_ratings_pos_val["session_id"].unique().tolist()
+        user_ratings_val = users_ratings_val[users_ratings_val["user_id"] == user_id].reset_index(
+            drop=True
         )
-        assert len(user_sessions_ids_with_at_least_one_pos_val) > 0
-        assert user_sessions_ids_with_at_least_one_pos_val == sorted(
-            user_sessions_ids_with_at_least_one_pos_val
-        )
-        sessions_ids[user_id] = user_sessions_ids_with_at_least_one_pos_val
+        user_sessions_ids_val = user_ratings_val["session_id"].unique().tolist()
+        assert len(user_sessions_ids_val) > 0
+        assert user_sessions_ids_val == sorted(user_sessions_ids_val)
+        sessions_ids[user_id] = user_sessions_ids_val
     return sessions_ids
 
 
@@ -118,21 +115,18 @@ if __name__ == "__main__":
     users_ratings, users_ids, users_negrated_ranking = sequence_load_users_ratings(
         selection=users_selection
     )
-    sessions_ids_with_at_least_one_pos_val = get_sessions_ids_with_at_least_one_pos_val(
-        users_ratings=users_ratings
-    )
-    assert users_ids == list(sessions_ids_with_at_least_one_pos_val.keys())
+    users_val_sessions_ids = get_users_val_sessions_ids(users_ratings=users_ratings)
+    assert users_ids == list(users_val_sessions_ids.keys())
 
     embedding_path = get_embedding_path(users_selection)
     embedding = Embedding(embedding_path)
     users_embeddings = compute_users_embeddings(
         users_ratings=users_ratings,
-        sessions_ids_with_at_least_one_pos_val=sessions_ids_with_at_least_one_pos_val,
+        users_val_sessions_ids=users_val_sessions_ids,
         embedding=embedding,
         embed_function=compute_mean_pos_user_embedding,
         embed_function_params={"n_last": None},
     )
-
     save_users_embeddings_dict(
         users_embeddings=users_embeddings,
         users_selection=users_selection,

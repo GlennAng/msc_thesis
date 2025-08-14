@@ -944,6 +944,7 @@ class Evaluation(Enum):
     CROSS_VALIDATION = auto()
     TRAIN_TEST_SPLIT = auto()
     SESSION_BASED = auto()
+    SLIDING_WINDOW = auto()
 
 
 def get_evaluation_from_arg(evaluation_arg: str) -> Evaluation:
