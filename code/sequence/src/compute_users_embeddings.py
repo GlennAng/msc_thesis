@@ -1,10 +1,12 @@
+import pickle
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
 from ...logreg.src.embeddings.embedding import Embedding
-from ...logreg.src.training.evaluation import get_val_negative_samples_ids, get_cache_papers_ids_full
 from ...src.project_paths import ProjectPaths
-from .sequence_get_users_ratings import sequence_get_users_ratings
+from .sequence_load_users_ratings import USERS_SELECTIONS, sequence_load_users_ratings
 
 pd.set_option("display.max_rows", None)
 
@@ -21,57 +23,119 @@ def compute_mean_pos_user_embedding(
     return pos_ratings.mean(axis=0)
 
 
-def compute_logreg_user_embedding(
-    user_train_set_embeddings: np.ndarray, user_train_set_ratings: np.ndarray,
-) -> np.ndarray:
-    pass
-
-def logreg_get_cache_papers_ids_full() -> tuple:
-    return get_cache_papers_ids_full(
-        
-
-
-    )
-
-
-if __name__ == "__main__":
-
-    embedding = Embedding(
-        ProjectPaths.logreg_embeddings_path()
-        / "after_pca"
-        / "gte_large_256_session_based_categories_l2_unit_100"
-    )
-
-    users_ratings, users_ids, users_negrated_ranking = sequence_get_users_ratings(
-        selection="session_based"
-    )
-    users_ratings_pos_val = users_ratings[
-        (users_ratings["rating"] > 0) & (users_ratings["split"] == "val")
-    ].reset_index(drop=True)
+def compute_users_embeddings(
+    users_ratings: pd.DataFrame,
+    sessions_ids_with_at_least_one_pos_val: dict,
+    embedding: Embedding,
+    embed_function: callable,
+    embed_function_params: dict = {},
+) -> dict:
+    users_embeddings = {}
+    users_ids = users_ratings["user_id"].unique().tolist()
+    assert users_ids == list(sessions_ids_with_at_least_one_pos_val.keys())
     for user_id in users_ids:
-        user_ratings = users_ratings[users_ratings["user_id"] == user_id].reset_index(drop=True)
-        user_ratings_pos_val = users_ratings_pos_val[
-            users_ratings_pos_val["user_id"] == user_id
-        ].reset_index(drop=True)
-        user_ratings_pos_val = user_ratings_pos_val.drop(
-            columns=["n_negrated_still_to_come", "rating", "split"]
-        )
-        user_sessions_ids_with_at_least_one_pos_val = (
-            user_ratings_pos_val["session_id"].unique().tolist()
-        )
-        user_trained_embeddings = np.zeros(
-            shape=(len(user_sessions_ids_with_at_least_one_pos_val), embedding.matrix.shape[1])
-        )
-        for i, session_id in enumerate(user_sessions_ids_with_at_least_one_pos_val):
+        user_ratings = users_ratings[users_ratings["user_id"] == user_id]
+        user_sessions_ids = sessions_ids_with_at_least_one_pos_val[user_id]
+        user_embeddings = np.zeros((len(user_sessions_ids), embedding.matrix.shape[1]))
+        for i, session_id in enumerate(user_sessions_ids):
             user_train_set = user_ratings[user_ratings["session_id"] < session_id].reset_index(
                 drop=True
             )
-            user_train_set_papers_ids = user_train_set["paper_id"].unique().tolist()
+            user_train_set_papers_ids = user_train_set["paper_id"].tolist()
             user_train_set_ratings = user_train_set["rating"].to_numpy(dtype=np.int64)
             user_train_set_embeddings = embedding.matrix[
                 embedding.get_idxs(user_train_set_papers_ids)
             ]
-            user_trained_embedding = compute_mean_pos_user_embedding(
-                user_train_set_embeddings, user_train_set_ratings, n_last=5
+            user_embeddings[i] = embed_function(
+                user_train_set_embeddings, user_train_set_ratings, **embed_function_params
             )
-            user_trained_embeddings[i] = user_trained_embedding
+        users_embeddings[user_id] = {
+            "sessions_ids": user_sessions_ids,
+            "sessions_embeddings": user_embeddings,
+        }
+    return users_embeddings
+
+
+def save_users_embeddings_dict(
+    users_embeddings: dict, users_selection: str, embedding_path: Path, save_path: Path
+) -> None:
+    users_embeddings_dict = {
+        "users_embeddings": users_embeddings,
+        "users_selection": users_selection,
+        "embedding_path": embedding_path,
+    }
+    with open(save_path, "wb") as f:
+        pickle.dump(users_embeddings_dict, f)
+
+
+def get_sessions_ids_with_at_least_one_pos_val(users_ratings: pd.DataFrame) -> dict:
+    users_ids = users_ratings["user_id"].unique().tolist()
+    sessions_ids = {}
+    users_ratings_pos_val = users_ratings[
+        (users_ratings["rating"] > 0) & (users_ratings["split"] == "val")
+    ].reset_index(drop=True)
+    for user_id in users_ids:
+        user_ratings_pos_val = users_ratings_pos_val[
+            users_ratings_pos_val["user_id"] == user_id
+        ].reset_index(drop=True)
+        user_sessions_ids_with_at_least_one_pos_val = (
+            user_ratings_pos_val["session_id"].unique().tolist()
+        )
+        assert len(user_sessions_ids_with_at_least_one_pos_val) > 0
+        assert user_sessions_ids_with_at_least_one_pos_val == sorted(
+            user_sessions_ids_with_at_least_one_pos_val
+        )
+        sessions_ids[user_id] = user_sessions_ids_with_at_least_one_pos_val
+    return sessions_ids
+
+
+def get_embedding_path(users_selection: str) -> Path:
+    if users_selection not in USERS_SELECTIONS:
+        raise ValueError(f"Unknown users selection: {users_selection}")
+    if users_selection == "finetuning_test":
+        return (
+            ProjectPaths.logreg_embeddings_path()
+            / "after_pca"
+            / "gte_large_256_test_categories_l2_unit_100"
+        )
+    elif users_selection == "finetuning_val":
+        return (
+            ProjectPaths.logreg_embeddings_path()
+            / "after_pca"
+            / "gte_large_256_val_categories_l2_unit_100"
+        )
+    elif users_selection == "session_based":
+        return (
+            ProjectPaths.logreg_embeddings_path()
+            / "after_pca"
+            / "gte_large_256_session_based_categories_l2_unit_100"
+        )
+
+
+if __name__ == "__main__":
+
+    users_selection = "finetuning_test"
+    users_ratings, users_ids, users_negrated_ranking = sequence_load_users_ratings(
+        selection=users_selection
+    )
+    sessions_ids_with_at_least_one_pos_val = get_sessions_ids_with_at_least_one_pos_val(
+        users_ratings=users_ratings
+    )
+    assert users_ids == list(sessions_ids_with_at_least_one_pos_val.keys())
+
+    embedding_path = get_embedding_path(users_selection)
+    embedding = Embedding(embedding_path)
+    users_embeddings = compute_users_embeddings(
+        users_ratings=users_ratings,
+        sessions_ids_with_at_least_one_pos_val=sessions_ids_with_at_least_one_pos_val,
+        embedding=embedding,
+        embed_function=compute_mean_pos_user_embedding,
+        embed_function_params={"n_last": None},
+    )
+
+    save_users_embeddings_dict(
+        users_embeddings=users_embeddings,
+        users_selection=users_selection,
+        embedding_path=embedding_path,
+        save_path=ProjectPaths.sequence_data_users_embeddings_path() / "finetuning_test_mean.pkl",
+    )

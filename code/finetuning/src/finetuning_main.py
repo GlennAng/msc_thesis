@@ -95,6 +95,8 @@ def parse_arguments() -> dict:
     parser.add_argument("--info_nce_temperature_explicit_negatives", type=float, default=2.5)
     parser.add_argument("--info_nce_temperature_batch_negatives", type=float, default=2.5)
     parser.add_argument("--info_nce_temperature_negative_samples", type=float, default=2.5)
+    parser.add_argument("--categories_cosine_term", action="store_true", default=False)
+    parser.add_argument("--categories_cosine_term_weight", type=float, default=1.0)
     parser.add_argument("--n_batches_total", type=int, default=50000)
     parser.add_argument("--n_batches_per_val", type=int, default=2000)
     parser.add_argument("--val_metric", type=str, default="ndcg_all")
@@ -316,10 +318,13 @@ def compute_info_nce_loss(
     batch_negatives_scores: torch.Tensor,
     sorted_unique_user_idx_tensor: torch.Tensor,
     args_dict: dict,
+    train_negatives_cosine_loss: float=None,
 ) -> float:
     temperature_explicit_negatives = args_dict["info_nce_temperature_explicit_negatives"]
     temperature_batch_negatives = args_dict["info_nce_temperature_batch_negatives"]
     temperature_negative_samples = args_dict["info_nce_temperature_negative_samples"]
+    categories_cosine_weight = args_dict["categories_cosine_term_weight"]
+    
     enumerated_users_dict = {
         user_idx.item(): i for i, user_idx in enumerate(sorted_unique_user_idx_tensor)
     }
@@ -356,7 +361,13 @@ def compute_info_nce_loss(
                 torch.cat((pos_score.unsqueeze(0), negatives_scores_dict[pos_user_idx])), dim=0
             )[0]
         )
-    return torch.mean(torch.stack(losses))
+    
+    info_nce_loss = torch.mean(torch.stack(losses))
+    
+    if train_negatives_cosine_loss is not None:
+        return info_nce_loss + categories_cosine_weight * train_negatives_cosine_loss
+    else:
+        return info_nce_loss
 
 
 def generate_batch_negatives_indices(
@@ -473,11 +484,12 @@ def process_batch(
             },
         )
         train_negative_samples_scores = None
+        train_negatives_cosine_loss = None
         if train_negative_samples_batch is not None:
             n_negative_samples_per_user = "all"
             if args_dict["separate_train_negative_samples"]:
                 n_negative_samples_per_user = args_dict["n_train_negative_samples"]
-            train_negative_samples_scores = finetuning_model(
+            train_negative_samples_scores, train_negatives_cosine_loss = finetuning_model(
                 eval_type="negative_samples",
                 tensors_dict={
                     "input_ids_tensor": train_negative_samples_batch["input_ids"],
@@ -487,6 +499,7 @@ def process_batch(
                     "category_l2_tensor": train_negative_samples_batch["category_l2"],
                 },
                 n_negative_samples_per_user=n_negative_samples_per_user,
+                categories_cosine_term=args_dict["categories_cosine_term"],
             )
         if args_dict["loss_function"] == "bcel":
             rating_tensor = train_dataset_batch["rating"].float().to(finetuning_model.device)
@@ -504,12 +517,15 @@ def process_batch(
                 batch_negatives_scores=batch_negatives_scores,
                 sorted_unique_user_idx_tensor=sorted_unique_user_idx_tensor,
                 args_dict=args_dict,
+                train_negatives_cosine_loss=train_negatives_cosine_loss,
             )
         loss.backward()
         optimizer.step()
         if scheduler is not None:
             scheduler.step()
-        return loss.item()
+        if train_negatives_cosine_loss is not None:
+            train_negatives_cosine_loss = train_negatives_cosine_loss.item()
+        return loss.item(), train_negatives_cosine_loss
 
 
 def run_training(
@@ -530,6 +546,7 @@ def run_training(
         logger=logger,
     )
     train_losses, val_scores = [], [(0, val_scores_batch)]
+    cosine_losses = []
 
     finetuning_model.train()
     train_dataset_iter = iter(train_dataset_dataloader)
@@ -541,7 +558,7 @@ def run_training(
         train_negative_samples_batch = None
         if train_negative_samples_dataloader is not None:
             train_negative_samples_batch = next(train_negative_samples_iter)
-        train_loss = process_batch(
+        train_loss, cosine_loss = process_batch(
             finetuning_model=finetuning_model,
             args_dict=args_dict,
             optimizer=optimizer,
@@ -551,6 +568,7 @@ def run_training(
             batch_idx=i,
         )
         train_losses.append((i, train_loss))
+        cosine_losses.append((i, cosine_loss)) if cosine_loss is not None else None
         n_batches_processed_so_far = i + 1
         check_val = (
             n_batches_processed_so_far % args_dict["n_batches_per_val"] == 0
@@ -571,6 +589,11 @@ def run_training(
                 loss for _, loss in train_losses[-args_dict["n_batches_per_val"] :]
             ]
             log_string(logger, f"AVERAGED TRAIN LOSS: {round_number(np.mean(train_losses_chunk))}.")
+            if cosine_losses[0] is not None:
+                cosine_losses_chunk = [
+                    loss for _, loss in cosine_losses[-args_dict["n_batches_per_val"] :]
+                ]
+                log_string(logger, f"AVERAGED COSINE LOSS: {round_number(np.mean(cosine_losses_chunk))}.")
             log_string(logger, f"LEARNING RATE: {optimizer.param_groups[0]['lr']}\n")
             val_scores_batch, baseline_metric, early_stopping_counter, _ = process_val(
                 finetuning_model,

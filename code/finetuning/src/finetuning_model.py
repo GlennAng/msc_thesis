@@ -18,6 +18,7 @@ from .finetuning_preprocessing import (
 
 EVAL_BATCH_SIZE = 512
 FINETUNING_DTYPE = torch.float32
+CS_ID = 4
 
 
 class FinetuningModel(nn.Module):
@@ -87,6 +88,7 @@ class FinetuningModel(nn.Module):
         eval_type: str,
         tensors_dict: dict,
         n_negative_samples_per_user: int = "all",
+        categories_cosine_term: bool = False,
     ) -> torch.Tensor:
         """
         tensors_dict: Dictionary containing the following keys:
@@ -116,6 +118,8 @@ class FinetuningModel(nn.Module):
                 negative_samples_embeddings=papers_embeddings,
                 sorted_unique_users_idx_tensor=tensors_dict["sorted_unique_user_idx_tensor"],
                 n_negative_samples_per_user=n_negative_samples_per_user,
+                categories_cosine_term=categories_cosine_term,
+                category_l1_tensor=tensors_dict["category_l1_tensor"],
             )
         else:
             return self._compute_train_val_scores(
@@ -163,6 +167,8 @@ class FinetuningModel(nn.Module):
         negative_samples_embeddings: torch.Tensor,
         sorted_unique_users_idx_tensor: torch.Tensor,
         n_negative_samples_per_user: int = "all",
+        categories_cosine_term: bool = False,
+        category_l1_tensor: torch.Tensor = None,
     ) -> torch.Tensor:
         sorted_unique_users_embeddings = self.users_embeddings(sorted_unique_users_idx_tensor)
         if n_negative_samples_per_user == "all":
@@ -184,7 +190,34 @@ class FinetuningModel(nn.Module):
                 negative_samples_batches.transpose(1, 2),
             ).squeeze(1)
         dot_products = dot_products + sorted_unique_users_embeddings[:, -1].unsqueeze(1)
-        return dot_products
+        categories_dot_products = None
+        if categories_cosine_term:
+            categories_dot_products = self._compute_categories_repulsion_loss(
+                negative_samples_embeddings, category_l1_tensor)
+        return dot_products, categories_dot_products
+
+    def _compute_categories_repulsion_loss(
+        self,
+        negative_samples_embeddings: torch.Tensor,
+        category_l1_tensor: torch.Tensor,
+        margin: float = 0.4
+    ) -> torch.Tensor:
+        non_cs_mask = category_l1_tensor != CS_ID
+        if non_cs_mask.sum() <= 1:
+            return torch.tensor(0.0, device=negative_samples_embeddings.device)
+        non_cs_embeddings = negative_samples_embeddings[non_cs_mask]
+        non_cs_categories = category_l1_tensor[non_cs_mask]
+        category_mask = non_cs_categories.unsqueeze(0) != non_cs_categories.unsqueeze(1)
+        diagonal_mask = ~torch.eye(len(non_cs_categories), dtype=torch.bool, device=category_mask.device)
+        mask = category_mask & diagonal_mask
+        normalized_embeddings = F.normalize(non_cs_embeddings, p=2, dim=1)
+        similarity_matrix = torch.mm(normalized_embeddings, normalized_embeddings.t())
+        different_category_similarities = similarity_matrix[mask]
+        if different_category_similarities.numel() > 0:
+            penalties = torch.clamp(different_category_similarities - margin, min=0)
+            return penalties.mean()
+        else:
+            return torch.tensor(0.0, device=negative_samples_embeddings.device)
 
     def _compute_train_val_scores(
         self,
@@ -397,7 +430,7 @@ class FinetuningModel(nn.Module):
                 return self(
                     eval_type="negative_samples",
                     tensors_dict=tensors_dict,
-                ).cpu()
+                )[0].cpu()
 
     def get_memory_footprint(self) -> dict:
         memory_info = {}

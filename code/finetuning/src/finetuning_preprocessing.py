@@ -954,3 +954,5 @@ if __name__ == "__main__":
     save_negative_samples_tokenized_train()
     load_negative_samples_tokenized_train()
     test_loading()
+
+    print(load_categories_to_idxs())

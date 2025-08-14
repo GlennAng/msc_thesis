@@ -11,9 +11,11 @@ from ...logreg.src.training.get_users_ratings import (
 )
 from ...src.project_paths import ProjectPaths
 
+USERS_SELECTIONS = ["finetuning_val", "finetuning_test", "session_based"]
 
-def sequence_get_users_ratings(selection: str) -> tuple:
-    if selection not in ["finetuning_val", "finetuning_test", "session_based"]:
+
+def sequence_load_users_ratings(selection: str) -> tuple:
+    if selection not in USERS_SELECTIONS:
         raise ValueError(f"Invalid selection: {selection}")
     if selection == "finetuning_val":
         path = ProjectPaths.data_sequence_session_based_ratings_val_users_path()
@@ -30,7 +32,7 @@ def sequence_get_users_ratings(selection: str) -> tuple:
 
 
 def sequence_save_users_ratings(selection: str) -> None:
-    if selection not in ["finetuning_val", "finetuning_test", "session_based"]:
+    if selection not in USERS_SELECTIONS:
         raise ValueError(f"Invalid selection: {selection}")
     if selection == "finetuning_val":
         path = ProjectPaths.data_sequence_session_based_ratings_val_users_path()
@@ -38,6 +40,9 @@ def sequence_save_users_ratings(selection: str) -> None:
         path = ProjectPaths.data_sequence_session_based_ratings_test_users_path()
     elif selection == "session_based":
         path = ProjectPaths.data_sequence_session_based_ratings_session_based_users_path()
+    if path.exists():
+        print(f"Users ratings for {selection} already exist at {path}. Skipping saving.")
+        return
     users_ratings, users_ids, users_negrated_ranking = get_users_ratings(
         users_selection=selection,
         evaluation=Evaluation.SESSION_BASED,
@@ -59,6 +64,5 @@ def sequence_save_users_ratings(selection: str) -> None:
 
 
 if __name__ == "__main__":
-    selections = ["finetuning_val", "finetuning_test", "session_based"]
-    for selection in selections:
+    for selection in USERS_SELECTIONS:
         sequence_save_users_ratings(selection)
