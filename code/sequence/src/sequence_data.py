@@ -12,6 +12,62 @@ from ...logreg.src.training.get_users_ratings import (
 from ...src.project_paths import ProjectPaths
 
 
+def get_users_val_sessions_ids(users_ratings: pd.DataFrame) -> dict:
+    users_ids = users_ratings["user_id"].unique().tolist()
+    sessions_ids = {}
+    users_ratings_val = users_ratings[users_ratings["split"] == "val"].reset_index(drop=True)
+    for user_id in users_ids:
+        user_ratings_val = users_ratings_val[users_ratings_val["user_id"] == user_id].reset_index(
+            drop=True
+        )
+        user_sessions_ids_val = user_ratings_val["session_id"].unique().tolist()
+        assert len(user_sessions_ids_val) > 0
+        assert user_sessions_ids_val == sorted(user_sessions_ids_val)
+        sessions_ids[user_id] = user_sessions_ids_val
+    return sessions_ids
+
+
+def get_embedding_path(users_selection: str) -> Path:
+    if users_selection not in USERS_SELECTIONS:
+        raise ValueError(f"Unknown users selection: {users_selection}")
+    if users_selection == "finetuning_test":
+        return (
+            ProjectPaths.logreg_embeddings_path()
+            / "after_pca"
+            / "gte_large_256_test_categories_l2_unit_100"
+        )
+    elif users_selection == "finetuning_val":
+        return (
+            ProjectPaths.logreg_embeddings_path()
+            / "after_pca"
+            / "gte_large_256_val_categories_l2_unit_100"
+        )
+    elif users_selection == "session_based":
+        return (
+            ProjectPaths.logreg_embeddings_path()
+            / "after_pca"
+            / "gte_large_256_session_based_categories_l2_unit_100"
+        )
+
+
+def save_users_embeddings_dict(
+    users_embeddings: dict, users_selection: str, save_path: Path, embedding_path: Path = None
+) -> None:
+    if embedding_path is None:
+        embedding_path = get_embedding_path(users_selection)
+    users_embeddings_dict = {
+        "users_embeddings": users_embeddings,
+        "users_selection": users_selection,
+        "embedding_path": embedding_path,
+    }
+    users_embeddings_dict = load_users_embeddings_dict(
+        users_embeddings_dict=users_embeddings_dict, check=True
+    )
+    with open(save_path, "wb") as f:
+        pickle.dump(users_embeddings_dict, f)
+    print(f"Users embeddings dictionary saved to {save_path}.")
+
+
 def load_users_embeddings_dict(
     path: Path = None, users_embeddings_dict: dict = None, check: bool = True
 ) -> dict:
@@ -45,7 +101,7 @@ def check_users_embeddings_dict(
     users_embeddings_dict: dict, users_ratings: pd.DataFrame = None
 ) -> bool:
     if users_ratings is None:
-        users_ratings = sequence_load_users_ratings(users_embeddings_dict["users_selection"])[0]
+        users_ratings = sequence_load_users_ratings(users_embeddings_dict["users_selection"])
     users_embeddings = users_embeddings_dict["users_embeddings"]
     users_ids = users_ratings["user_id"].unique().tolist()
     assert users_ids == list(users_embeddings.keys())
@@ -69,7 +125,7 @@ def load_users_embeddings_dict_logreg(path: Path) -> dict:
     assert len(users_ids) == users_embeddings_matrix.shape[0]
 
     users_embeddings = {}
-    users_ratings = sequence_load_users_ratings(selection=users_selection)[0]
+    users_ratings = sequence_load_users_ratings(selection=users_selection)
     val_mask = users_ratings["split"] == "val"
     if val_mask.any():
         min_session_ids = users_ratings[val_mask].groupby("user_id")["session_id"].min()
@@ -96,10 +152,28 @@ def load_users_embeddings_dict_logreg(path: Path) -> dict:
     return users_embeddings_dict
 
 
+def compare_users_embeddings_dicts(
+    users_embeddings_dict_1: dict, users_embeddings_dict_2: dict
+) -> None:
+    assert users_embeddings_dict_1["users_selection"] == users_embeddings_dict_2["users_selection"]
+    assert users_embeddings_dict_1["embedding_path"] == users_embeddings_dict_2["embedding_path"]
+    for user_id, user_embedding_1 in users_embeddings_dict_1["users_embeddings"].items():
+        user_embedding_2 = users_embeddings_dict_2["users_embeddings"][user_id]
+        assert user_embedding_1["sessions_ids"] == user_embedding_2["sessions_ids"]
+        np.testing.assert_array_equal(
+            user_embedding_1["sessions_embeddings"],
+            user_embedding_2["sessions_embeddings"],
+            err_msg=f"User {user_id} embeddings do not match",
+        )
+    print("Users embeddings dictionaries match.")
+
+
 if __name__ == "__main__":
-    users_embeddings_dict = load_users_embeddings_dict(
-        path=ProjectPaths.sequence_data_users_embeddings_path() / "finetuning_test_mean.pkl"
-    )
+    logreg_path = ProjectPaths.logreg_outputs_path() / "example_config"
     users_embeddings_dict_logreg = load_users_embeddings_dict_logreg(
-        path=ProjectPaths.logreg_outputs_path() / "example_config",
+        path=logreg_path,
     )
+    users_embeddings_dict_logreg_2 = load_users_embeddings_dict_logreg(
+        path=logreg_path,
+    )
+    compare_users_embeddings_dicts(users_embeddings_dict_logreg, users_embeddings_dict_logreg_2)

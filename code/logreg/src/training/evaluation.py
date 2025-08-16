@@ -22,6 +22,7 @@ from .algorithm import (
     get_ranking_scores,
     get_score,
 )
+from .get_users_ratings import N_NEGRATED_RANKING
 from .training_data import (
     LABEL_DTYPE,
     get_cache_papers_ids,
@@ -61,7 +62,6 @@ class Evaluator:
         self,
         embedding: Embedding,
         users_ratings: pd.DataFrame,
-        users_negrated_ranking: pd.DataFrame,
         users_embeddings: dict = None,
     ) -> None:
         self.embedding = embedding
@@ -94,7 +94,6 @@ class Evaluator:
                 users_ids=users_ids,
                 users_significant_categories=users_significant_categories,
                 users_ratings=users_ratings,
-                users_negrated_ranking=users_negrated_ranking,
                 users_embeddings=users_embeddings,
             )
         else:
@@ -102,7 +101,6 @@ class Evaluator:
                 users_ids=users_ids,
                 users_significant_categories=users_significant_categories,
                 users_ratings=users_ratings,
-                users_negrated_ranking=users_negrated_ranking,
                 users_embeddings=users_embeddings,
             )
 
@@ -140,7 +138,6 @@ class Evaluator:
         users_ids: list,
         users_significant_categories: pd.DataFrame,
         users_ratings: pd.DataFrame,
-        users_negrated_ranking: pd.DataFrame,
         users_embeddings: dict = None,
     ) -> None:
         for user_id in users_ids:
@@ -148,9 +145,6 @@ class Evaluator:
                 users_significant_categories["user_id"] == user_id
             ]["category"].tolist()
             user_ratings = users_ratings[users_ratings["user_id"] == user_id].reset_index(drop=True)
-            user_negrated_ranking = users_negrated_ranking[
-                users_negrated_ranking["user_id"] == user_id
-            ].reset_index(drop=True)
             user_embeddings = None
             if users_embeddings is not None:
                 user_embeddings = users_embeddings[user_id]
@@ -158,7 +152,6 @@ class Evaluator:
                 user_id=user_id,
                 user_significant_categories=user_significant_categories,
                 user_ratings=user_ratings,
-                user_negrated_ranking=user_negrated_ranking,
                 user_embeddings=user_embeddings,
             )
 
@@ -167,7 +160,6 @@ class Evaluator:
         users_ids: list,
         users_significant_categories: pd.DataFrame,
         users_ratings: pd.DataFrame,
-        users_negrated_ranking: pd.DataFrame,
         users_embeddings: dict = None,
     ) -> None:
         users_list = []
@@ -179,9 +171,6 @@ class Evaluator:
                         users_significant_categories["user_id"] == user_id
                     ]["category"].tolist(),
                     users_ratings[users_ratings["user_id"] == user_id].reset_index(drop=True),
-                    users_negrated_ranking[
-                        users_negrated_ranking["user_id"] == user_id
-                    ].reset_index(drop=True),
                     users_embeddings[user_id] if users_embeddings else None,
                 )
             )
@@ -190,10 +179,9 @@ class Evaluator:
                 user_id=user_id,
                 user_significant_categories=user_significant_categories,
                 user_ratings=user_ratings,
-                user_negrated_ranking=user_negrated_ranking,
                 user_embeddings=user_embeddings,
             )
-            for user_id, user_significant_categories, user_ratings, user_negrated_ranking, user_embeddings in users_list
+            for user_id, user_significant_categories, user_ratings, user_embeddings in users_list
         )
 
     def evaluate_user(
@@ -201,7 +189,6 @@ class Evaluator:
         user_id: int,
         user_significant_categories: list,
         user_ratings: pd.DataFrame,
-        user_negrated_ranking: pd.DataFrame,
         user_embeddings: dict = None,
     ) -> None:
         user_results_dict, user_predictions_dict = {}, {}
@@ -246,7 +233,6 @@ class Evaluator:
                 self.evaluate_user_split(
                     user_id=user_id,
                     user_ratings=user_ratings,
-                    user_negrated_ranking=user_negrated_ranking,
                     user_val_negative_samples=user_val_negative_samples,
                     user_cache_papers=user_cache_papers,
                     user_info=user_info,
@@ -258,7 +244,6 @@ class Evaluator:
                 self.evaluate_user_cross_validation(
                     user_id=user_id,
                     user_ratings=user_ratings,
-                    user_negrated_ranking=user_negrated_ranking,
                     user_val_negative_samples=user_val_negative_samples,
                     user_cache_papers=user_cache_papers,
                     user_info=user_info,
@@ -270,7 +255,6 @@ class Evaluator:
                 self.evaluate_user_sliding_window(
                     user_id=user_id,
                     user_ratings=user_ratings,
-                    user_negrated_ranking=user_negrated_ranking,
                     user_val_negative_samples=user_val_negative_samples,
                     user_cache_papers=user_cache_papers,
                     user_info=user_info,
@@ -298,19 +282,24 @@ class Evaluator:
         self,
         user_id: int,
         user_ratings: pd.DataFrame,
-        user_negrated_ranking: pd.DataFrame,
         user_val_negative_samples: dict,
         user_cache_papers: dict,
         user_info: dict,
         user_results_dict: dict,
         user_predictions_dict: dict,
     ) -> None:
-        train_ratings, val_ratings = split_ratings(user_ratings)
-        user_info["train_rated_ratio"] = len(train_ratings) / len(user_ratings)
+        train_ratings, val_ratings, removed_ratings = split_ratings(user_ratings)
+        n_train, n_val = len(train_ratings), len(val_ratings)
+        user_info["train_rated_ratio"] = n_train / (n_train + n_val)
+        train_negrated_ranking, val_negrated_ranking = split_negrated_ranking(
+            train_ratings, val_ratings, removed_ratings
+        )
+
         user_data_dict = self.load_user_data_dict(
             train_ratings=train_ratings,
             val_ratings=val_ratings,
-            user_negrated_ranking=user_negrated_ranking,
+            train_negrated_ranking=train_negrated_ranking,
+            val_negrated_ranking=val_negrated_ranking,
             cache_embedding_idxs=user_cache_papers["cache_embedding_idxs"],
             y_cache=user_cache_papers["y_cache"],
             random_state=self.config["model_random_state"],
@@ -318,7 +307,6 @@ class Evaluator:
         user_predictions_dict[0] = fill_user_predictions_dict(user_data_dict)
         timesort = self.config["evaluation"] == Evaluation.SESSION_BASED
         val_causal_mask = self.config["filter_for_negrated_ranking"]
-        train_negrated_ranking, val_negrated_ranking = split_negrated_ranking(user_negrated_ranking)
         train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
             ratings=train_ratings,
             negrated_ranking=train_negrated_ranking,
@@ -357,32 +345,33 @@ class Evaluator:
         self,
         user_id: int,
         user_ratings: pd.DataFrame,
-        user_negrated_ranking: pd.DataFrame,
         user_val_negative_samples: dict,
         user_cache_papers: dict,
         user_info: dict,
         user_results_dict: dict,
         user_predictions_dict: dict,
     ) -> None:
-        user_ratings["split"] = None
+        assert user_ratings["split"].isnull().all()
         split = self.cross_val.split(X=range(len(user_ratings)), y=user_ratings["rating"])
         train_rated_ratios = []
         for fold_idx, (fold_train_idxs, fold_val_idxs) in enumerate(split):
             user_ratings.loc[fold_train_idxs, "split"] = "train"
             user_ratings.loc[fold_val_idxs, "split"] = "val"
-            train_ratings, val_ratings = split_ratings(user_ratings)
+            train_ratings, val_ratings, _ = split_ratings(user_ratings)
             train_rated_ratios.append(len(train_ratings) / len(user_ratings))
+            train_negrated_ranking = train_ratings[train_ratings["rating"] == 0].reset_index(drop=True)
+            val_negrated_ranking = val_ratings[val_ratings["rating"] == 0].reset_index(drop=True)
+
             user_data_dict = self.load_user_data_dict(
                 train_ratings=train_ratings,
                 val_ratings=val_ratings,
+                train_negrated_ranking=train_negrated_ranking,
+                val_negrated_ranking=val_negrated_ranking,
                 cache_embedding_idxs=user_cache_papers["cache_embedding_idxs"],
                 y_cache=user_cache_papers["y_cache"],
                 random_state=self.config["model_random_state"],
             )
             user_predictions_dict[fold_idx] = fill_user_predictions_dict(user_data_dict)
-            train_negrated_ranking, val_negrated_ranking = split_negrated_ranking(
-                user_negrated_ranking
-            )
             train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
                 ratings=train_ratings,
                 negrated_ranking=train_negrated_ranking,
@@ -420,7 +409,6 @@ class Evaluator:
         self,
         user_id: int,
         user_ratings: pd.DataFrame,
-        user_negrated_ranking: pd.DataFrame,
         user_embeddings: dict,
         user_val_negative_samples: dict,
         user_cache_papers: dict,
@@ -622,21 +610,19 @@ class Evaluator:
         self,
         train_ratings: pd.DataFrame,
         val_ratings: pd.DataFrame,
-        user_negrated_ranking: pd.DataFrame,
+        train_negrated_ranking: pd.DataFrame,
+        val_negrated_ranking: pd.DataFrame,
         cache_embedding_idxs: np.ndarray,
         y_cache: np.ndarray,
         random_state: int,
     ) -> dict:
         train_data_dict = self.load_user_train_data_dict(
-            train_ratings, cache_embedding_idxs, y_cache, random_state
+            train_ratings, cache_embedding_idxs, y_cache, random_state, train_negrated_ranking
         )
-        val_data_dict = self.load_user_val_data_dict(train_ratings, val_ratings)
-        user_data_dict = {**train_data_dict, **val_data_dict}
-        user_negrated_ranking_ids = user_negrated_ranking["paper_id"].tolist()
-        user_data_dict["X_negrated_ranking"] = self.embedding.matrix[
-            self.embedding.get_idxs(user_negrated_ranking_ids)
-        ]
-        return user_data_dict
+        val_data_dict = self.load_user_val_data_dict(
+            train_ratings, val_ratings, val_negrated_ranking
+        )
+        return {**train_data_dict, **val_data_dict}
 
     def load_user_train_data_dict(
         self,
@@ -644,6 +630,7 @@ class Evaluator:
         cache_embedding_idxs: np.ndarray,
         y_cache: np.ndarray,
         random_state: int,
+        train_negrated_ranking: pd.DataFrame = None,
     ) -> dict:
         LABEL_NEGRATED, LABEL_POSRATED, LABEL_CACHE = 0, 1, 2
         rng = np.random.default_rng(random_state)
@@ -668,16 +655,25 @@ class Evaluator:
         neg_idxs = np.where(source_full == LABEL_NEGRATED)[0]
         cache_idxs = np.where(source_full == LABEL_CACHE)[0]
         X_train = self.embedding.matrix[embedding_idxs_full]
-        return {
+        train_data_dict = {
             "X_train": X_train,
             "y_train": y_full,
             "pos_idxs": pos_idxs,
             "neg_idxs": neg_idxs,
             "cache_idxs": cache_idxs,
         }
+        if train_negrated_ranking is not None:
+            X_train_negrated_ranking = self.embedding.matrix[
+                self.embedding.get_idxs(train_negrated_ranking["paper_id"].tolist())
+            ]
+            train_data_dict["X_train_negrated_ranking"] = X_train_negrated_ranking
+        return train_data_dict
 
     def load_user_val_data_dict(
-        self, train_ratings: pd.DataFrame, val_ratings: pd.DataFrame
+        self,
+        train_ratings: pd.DataFrame,
+        val_ratings: pd.DataFrame,
+        val_negrated_ranking: pd.DataFrame = None,
     ) -> dict:
         X_train_rated_papers_ids, X_val_papers_ids = (
             train_ratings["paper_id"].tolist(),
@@ -693,7 +689,7 @@ class Evaluator:
             "l2_train_rated": train_ratings["l2"].values,
             "l2_val": val_ratings["l2"].values,
         }
-        return {
+        val_data_dict = {
             "X_train_rated": X_train_rated,
             "y_train_rated": y_train_rated,
             "X_train_rated_papers_ids": X_train_rated_papers_ids,
@@ -702,6 +698,12 @@ class Evaluator:
             "X_val_papers_ids": X_val_papers_ids,
             "categories_dict": categories_dict,
         }
+        if val_negrated_ranking is not None:
+            X_val_negrated_ranking = self.embedding.matrix[
+                self.embedding.get_idxs(val_negrated_ranking["paper_id"].tolist())
+            ]
+            val_data_dict["X_val_negrated_ranking"] = X_val_negrated_ranking
+        return val_data_dict
 
     def save_user_info(self, user_id: int, user_info: dict) -> None:
         folder = self.config["outputs_dir"] / "tmp" / f"user_{user_id}"
@@ -840,22 +842,28 @@ def split_ratings(user_ratings: pd.DataFrame) -> tuple:
         raise ValueError("User ratings DataFrame must contain 'split' column.")
     train_mask = user_ratings["split"] == "train"
     val_mask = user_ratings["split"] == "val"
-    train_ratings = user_ratings.loc[train_mask].reset_index(drop=True)
-    val_ratings = user_ratings.loc[val_mask].reset_index(drop=True)
-    assert len(train_ratings) + len(val_ratings) == len(user_ratings)
+    removed_mask = user_ratings["split"] == "removed"
+    train_ratings = user_ratings.loc[train_mask]
+    val_ratings = user_ratings.loc[val_mask]
+    removed_ratings = user_ratings.loc[removed_mask]
+    assert len(train_ratings) + len(val_ratings) + len(removed_ratings) == len(user_ratings)
+    removed_ratings = removed_ratings[removed_ratings["rating"] == 0]
+    removed_ratings = removed_ratings.iloc[:N_NEGRATED_RANKING]
     assert train_ratings["time"].is_monotonic_increasing
     assert val_ratings["time"].is_monotonic_increasing
-    return train_ratings, val_ratings
+    assert removed_ratings["time"].is_monotonic_increasing
+    return train_ratings, val_ratings, removed_ratings
 
 
-def split_negrated_ranking(negrated_ranking: pd.DataFrame) -> tuple:
-    if "split" not in negrated_ranking.columns:
-        raise ValueError("Negrated ranking DataFrame must contain 'split' column.")
-    train_mask = negrated_ranking["split"] == "train"
-    train_negrated_ranking = negrated_ranking.loc[train_mask]
-    val_mask = negrated_ranking["split"] != "train"
-    val_negrated_ranking = negrated_ranking.loc[val_mask]
-    return train_negrated_ranking, val_negrated_ranking
+def split_negrated_ranking(
+    train_ratings: pd.DataFrame, val_ratings: pd.DataFrame, removed_ratings: pd.DataFrame
+) -> tuple:
+    train_negrated_ranking = train_ratings[train_ratings["rating"] == 0]
+    val_negrated_ranking = pd.concat([val_ratings[val_ratings["rating"] == 0], removed_ratings])
+    return (
+        train_negrated_ranking.reset_index(drop=True),
+        val_negrated_ranking.reset_index(drop=True),
+    )
 
 
 def index_negative_samples_ids(
@@ -887,19 +895,22 @@ def get_user_outputs_dict(
         user_data_dict["X_train_rated"]
     )
 
-    user_outputs_dict["y_negrated_ranking_logits"] = model.decision_function(
-        user_data_dict["X_negrated_ranking"]
-    )
-    user_outputs_dict["y_train_negrated_ranking_logits"] = user_outputs_dict[
-        "y_negrated_ranking_logits"
-    ][train_negrated_ranking_idxs]
-    user_outputs_dict["y_val_negrated_ranking_logits"] = user_outputs_dict[
-        "y_negrated_ranking_logits"
-    ][val_negrated_ranking_idxs]
-
     user_outputs_dict["y_val_pred"] = model.predict(user_data_dict["X_val"])
     user_outputs_dict["y_val_proba"] = model.predict_proba(user_data_dict["X_val"])[:, 1]
     user_outputs_dict["y_val_logits"] = model.decision_function(user_data_dict["X_val"])
+
+    y_train_negrated_ranking_logits = model.decision_function(
+        user_data_dict["X_train_negrated_ranking"]
+    )
+    y_val_negrated_ranking_logits = model.decision_function(
+        user_data_dict["X_val_negrated_ranking"]
+    )
+    user_outputs_dict["y_train_negrated_ranking_logits"] = y_train_negrated_ranking_logits[
+        train_negrated_ranking_idxs
+    ]
+    user_outputs_dict["y_val_negrated_ranking_logits"] = y_val_negrated_ranking_logits[
+        val_negrated_ranking_idxs
+    ]
 
     user_outputs_dict["y_negative_samples_pred"] = model.predict(negative_samples_embeddings)
     user_outputs_dict["y_negative_samples_proba"] = model.predict_proba(

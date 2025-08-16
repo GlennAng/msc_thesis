@@ -43,6 +43,7 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 | gte-large-en-v1.5 | 80.84 | 80.91 | 78.99 |
 | gte-large-en-v1.5 fine-tune | 83.14 | 83.25 | 80.16 |
 | Qwen3-Embedding-8B | 83.20 | 83.22 |82.62 |
+| gte-large-en-v1.5 fine-tune cat loss | 83.25 | 83.30 | 82.01 |
 
 
 # II. Experiment Setup

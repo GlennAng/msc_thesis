@@ -7,7 +7,6 @@ import time
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -132,9 +131,9 @@ def parse_arguments() -> dict:
         default=False,
     )
 
-    parser.add_argument("--lr_transformer_model", type=float, default=6e-6)
-    parser.add_argument("--lr_projection", type=float, default=6e-6)
-    parser.add_argument("--lr_users_embeddings", type=float, default=6e-6)
+    parser.add_argument("--lr_transformer_model", type=float, default=3e-6)
+    parser.add_argument("--lr_projection", type=float, default=3e-6)
+    parser.add_argument("--lr_users_embeddings", type=float, default=3e-6)
     parser.add_argument(
         "--lr_scheduler", type=str, default="constant", choices=["constant", "linear_decay"]
     )
@@ -568,7 +567,7 @@ def run_training(
             batch_idx=i,
         )
         train_losses.append((i, train_loss))
-        cosine_losses.append((i, cosine_loss)) if cosine_loss is not None else None
+        cosine_losses.append((i, cosine_loss) if cosine_loss is not None else None)
         n_batches_processed_so_far = i + 1
         check_val = (
             n_batches_processed_so_far % args_dict["n_batches_per_val"] == 0

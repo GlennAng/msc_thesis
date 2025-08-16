@@ -30,7 +30,7 @@ USERS_SELECTIONS = ["finetuning_val", "finetuning_test", "session_based"]
 pd.set_option("display.max_rows", None)
 
 
-def sequence_load_users_ratings(selection: str) -> tuple:
+def sequence_load_users_ratings(selection: str) -> pd.DataFrame | None:
     if selection not in USERS_SELECTIONS:
         raise ValueError(f"Invalid selection: {selection}")
     if selection == "finetuning_val":
@@ -40,15 +40,10 @@ def sequence_load_users_ratings(selection: str) -> tuple:
     elif selection == "session_based":
         path = ProjectPaths.data_sequence_session_based_ratings_session_based_users_path()
     if path.exists():
-        with open(path, "rb") as f:
-            users_ratings_dict = pickle.load(f)
-        users_ratings = users_ratings_dict["users_ratings"]
-        users_ids = users_ratings_dict["users_ids"]
-        users_negrated_ranking = users_ratings_dict["users_negrated_ranking"]
-        return users_ratings, users_ids, users_negrated_ranking
+        return pd.read_parquet(path, engine="pyarrow")
     else:
         return None
-    
+
 
 def sequence_save_users_ratings(selection: str) -> None:
     if selection not in USERS_SELECTIONS:
@@ -62,7 +57,7 @@ def sequence_save_users_ratings(selection: str) -> None:
     if path.exists():
         print(f"Users ratings for {selection} already exist at {path}. Skipping saving.")
         return
-    users_ratings, users_ids, users_negrated_ranking = get_users_ratings(
+    users_ratings = get_users_ratings(
         users_selection=selection,
         evaluation=Evaluation.SESSION_BASED,
         train_size=TRAIN_SIZE,
@@ -72,14 +67,9 @@ def sequence_save_users_ratings(selection: str) -> None:
         min_n_negrated_val=MIN_N_NEGRATED_VAL_USERS_SELECTION,
         filter_for_negrated_ranking=True,
     )
-    users_ratings_dict = {
-        "users_ratings": users_ratings,
-        "users_ids": users_ids,
-        "users_negrated_ranking": users_negrated_ranking,
-    }
-    with open(path, "wb") as f:
-        pickle.dump(users_ratings_dict, f)
-    print(f"Saved users ratings for {selection} to {path}. {len(users_ids)} users saved.")
+    n_users = users_ratings["user_id"].nunique()
+    users_ratings.to_parquet(path, index=False, compression="gzip")
+    print(f"Saved users ratings for {selection} to {path}. {n_users} users saved.")
 
 
 def get_train_test_split(
@@ -287,7 +277,7 @@ def select_users_random(
     )
 
 
-def get_session_based_users_ratings(users_selection: str) -> tuple:
+def get_session_based_users_ratings(users_selection: str) -> pd.DataFrame:
     if users_selection == "finetuning_val":
         users_ids = load_finetuning_users_ids(selection="val")
         path = ProjectPaths.data_session_based_ratings_val_users_path()
@@ -300,13 +290,10 @@ def get_session_based_users_ratings(users_selection: str) -> tuple:
     else:
         raise ValueError(f"Invalid users_selection: {users_selection}.")
     users_ratings = pd.read_parquet(path, engine="pyarrow")
-    users_ratings_removed_for_negrated_ranking = pd.DataFrame(columns=users_ratings.columns)
-    users_negrated_ranking = get_users_negrated_ranking(
-        users_ratings, users_ratings_removed_for_negrated_ranking,
-    )
-    assert np.all(users_ratings["user_id"].unique() == users_ids)
+    n_users = users_ratings["user_id"].nunique()
+    assert n_users == len(users_ids)
     print(f"{len(users_ids)} Users selected for {users_selection} Session-Based Evaluation.")
-    return users_ratings, users_ids, users_negrated_ranking
+    return users_ratings
 
 
 def filter_users_ratings_for_negrated_ranking(
@@ -327,53 +314,37 @@ def filter_users_ratings_for_negrated_ranking(
     return users_ratings_head, users_ratings_tail
 
 
-def get_users_negrated_ranking(
+def append_removed_for_negrated_ranking(
     users_ratings: pd.DataFrame,
     users_ratings_removed_for_negrated_ranking: pd.DataFrame,
 ) -> pd.DataFrame:
-    columns = [
-        column
-        for column in users_ratings.columns
-        if column not in ["rating", "n_negrated_still_to_come"]
-    ]
-    users_ratings_neg = users_ratings[users_ratings["rating"] == 0][columns].copy()
-    users_ratings_removed_for_negrated_ranking = users_ratings_removed_for_negrated_ranking.copy()
-    if "split" in columns:
-        users_ratings_removed_for_negrated_ranking["split"] = "removed"
-    users_ratings_removed_for_negrated_ranking_neg = users_ratings_removed_for_negrated_ranking[
-        users_ratings_removed_for_negrated_ranking["rating"] == 0
-    ][columns]
-    if len(users_ratings_removed_for_negrated_ranking_neg) > 0:
-        users_negrated_ranking = pd.concat(
-            [users_ratings_neg, users_ratings_removed_for_negrated_ranking_neg]
-        )
-        users_negrated_ranking = users_negrated_ranking.sort_values(
-            ["user_id", "time"]
-        ).reset_index(drop=True)
-    else:
-        users_negrated_ranking = users_ratings_neg
-    return users_negrated_ranking
+    if "split" not in users_ratings.columns:
+        users_ratings["split"] = None
+    if len(users_ratings_removed_for_negrated_ranking) == 0:
+        return users_ratings
+
+    assert "split" not in users_ratings_removed_for_negrated_ranking.columns
+    users_ratings_removed_for_negrated_ranking["split"] = "removed"
+    users_ratings = pd.concat(
+        [users_ratings, users_ratings_removed_for_negrated_ranking]
+    )
+    users_ratings = users_ratings.sort_values(["user_id", "time"])
+    return users_ratings
 
 
-def get_users_ratings(
+def get_users_ratings_from_files(
     users_selection: str,
     evaluation: Evaluation,
     train_size: float,
-    max_users: int = None,
-    users_random_state: int = 42,
-    model_random_state: int = 42,
-    stratify: bool = True,
-    min_n_posrated: int = 0,
-    min_n_negrated: int = 0,
-    take_complement: bool = False,
-    min_n_posrated_train: int = 0,
-    min_n_negrated_train: int = 0,
-    min_n_posrated_val: int = 0,
-    min_n_negrated_val: int = 0,
+    min_n_posrated_train: int,
+    min_n_negrated_train: int,
+    min_n_posrated_val: int,
+    min_n_negrated_val: int,
     filter_for_negrated_ranking: bool = False,
-) -> tuple:
+) -> pd.DataFrame | None:
     if all(
         [
+            users_selection in USERS_SELECTIONS,
             evaluation == Evaluation.SESSION_BASED,
             train_size == TRAIN_SIZE,
             min_n_posrated_train == MIN_N_POSRATED_TRAIN,
@@ -392,11 +363,10 @@ def get_users_ratings(
             path = ProjectPaths.data_session_based_ratings_session_based_users_path()
         if path and path.exists():
             return get_session_based_users_ratings(users_selection)
-
     if all(
         [
-            evaluation == Evaluation.SESSION_BASED,
             users_selection in USERS_SELECTIONS,
+            evaluation == Evaluation.SESSION_BASED,
             train_size == TRAIN_SIZE,
             min_n_posrated_train == MIN_N_POSRATED_TRAIN,
             min_n_negrated_train == MIN_N_NEGRATED_TRAIN,
@@ -408,20 +378,55 @@ def get_users_ratings(
         sequence_users_ratings = sequence_load_users_ratings(selection=users_selection)
         if sequence_users_ratings is not None:
             return sequence_users_ratings
+    return None
+    
+
+def get_users_ratings(
+    users_selection: str,
+    evaluation: Evaluation,
+    train_size: float,
+    max_users: int = None,
+    users_random_state: int = 42,
+    model_random_state: int = 42,
+    stratify: bool = True,
+    min_n_posrated: int = 0,
+    min_n_negrated: int = 0,
+    take_complement: bool = False,
+    min_n_posrated_train: int = 0,
+    min_n_negrated_train: int = 0,
+    min_n_posrated_val: int = 0,
+    min_n_negrated_val: int = 0,
+    filter_for_negrated_ranking: bool = False,
+) -> pd.DataFrame:
+    if evaluation in [Evaluation.TRAIN_TEST_SPLIT, Evaluation.CROSS_VALIDATION]:
+        if filter_for_negrated_ranking:
+            raise ValueError(
+                "Filtering for negrated ranking is not supported in train-test split or cross-validation."
+            )
+
+    users_ratings_from_files = get_users_ratings_from_files(
+        users_selection=users_selection,
+        evaluation=evaluation,
+        train_size=train_size,
+        min_n_posrated_train=min_n_posrated_train,
+        min_n_negrated_train=min_n_negrated_train,
+        min_n_posrated_val=min_n_posrated_val,
+        min_n_negrated_val=min_n_negrated_val,
+        filter_for_negrated_ranking=filter_for_negrated_ranking,
+    )
+    if users_ratings_from_files is not None:
+        return users_ratings_from_files
 
     test_size = 1.0 - train_size
     users_ratings = load_users_ratings()
     users_ratings, users_ratings_removed_for_negrated_ranking = (
         filter_users_ratings_for_negrated_ranking(users_ratings, filter_for_negrated_ranking)
     )
-    if not (evaluation == Evaluation.SESSION_BASED and filter_for_negrated_ranking):
-        users_ratings_removed_for_negrated_ranking = pd.DataFrame(columns=users_ratings.columns)
-
     if evaluation in [Evaluation.TRAIN_TEST_SPLIT, Evaluation.CROSS_VALIDATION]:
         users_ratings = filter_users_ratings_with_sufficient_votes(
             users_ratings, min_n_posrated, min_n_negrated
         )
-    elif evaluation == Evaluation.SESSION_BASED:
+    elif evaluation in [Evaluation.SESSION_BASED, Evaluation.SLIDING_WINDOW]:
         users_ratings = filter_users_ratings_with_sufficient_votes_session_based(
             users_ratings=users_ratings,
             test_size=test_size,
@@ -444,24 +449,23 @@ def get_users_ratings(
         users_ids_selected = select_users_random(
             users_ids_with_sufficient_votes, max_users, users_random_state, take_complement
         )
-    users_ratings = users_ratings[users_ratings["user_id"].isin(users_ids_selected)].reset_index(
-        drop=True
-    )
+
+    users_ratings = users_ratings[users_ratings["user_id"].isin(users_ids_selected)]
     assert np.all(users_ratings["user_id"].unique() == users_ids_selected)
     users_ratings_removed_for_negrated_ranking = users_ratings_removed_for_negrated_ranking[
         users_ratings_removed_for_negrated_ranking["user_id"].isin(users_ids_selected)
-    ].reset_index(drop=True)
+    ]
     assert set(users_ratings_removed_for_negrated_ranking["user_id"].unique()) <= set(
         users_ids_selected
     )
 
     if evaluation == Evaluation.TRAIN_TEST_SPLIT:
         users_ratings = get_train_test_split(users_ratings, test_size, model_random_state, stratify)
-    users_negrated_ranking = get_users_negrated_ranking(
+    users_ratings = append_removed_for_negrated_ranking(
         users_ratings=users_ratings,
         users_ratings_removed_for_negrated_ranking=users_ratings_removed_for_negrated_ranking,
     )
-    return users_ratings, users_ids_selected.tolist(), users_negrated_ranking
+    return users_ratings.reset_index(drop=True)
 
 
 def convert_users_selection_string(users_selection: str) -> list:
@@ -591,7 +595,7 @@ if __name__ == "__main__":
         elif users_type == "session_based":
             path = ProjectPaths.data_session_based_ratings_session_based_users_path()
         if not path.exists():
-            users_ratings, _, _ = get_users_ratings(
+            users_ratings = get_users_ratings(
                 users_selection=users_type,
                 evaluation=Evaluation.SESSION_BASED,
                 train_size=TRAIN_SIZE,

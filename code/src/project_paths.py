@@ -56,15 +56,15 @@ class ProjectPaths:
     
     @staticmethod
     def data_sequence_session_based_ratings_session_based_users_path():
-        return ProjectPaths.data_path() / "sequence_session_based_ratings_session_based_users.pkl"
+        return ProjectPaths.data_path() / "sequence_session_based_ratings_session_based_users.parquet"
     
     @staticmethod
     def data_sequence_session_based_ratings_test_users_path():
-        return ProjectPaths.data_path() / "sequence_session_based_ratings_test_users.pkl"
+        return ProjectPaths.data_path() / "sequence_session_based_ratings_test_users.parquet"
 
     @staticmethod
     def data_sequence_session_based_ratings_val_users_path():
-        return ProjectPaths.data_path() / "sequence_session_based_ratings_val_users.pkl"
+        return ProjectPaths.data_path() / "sequence_session_based_ratings_val_users.parquet"
 
     @staticmethod
     def finetuning_path():

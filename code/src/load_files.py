@@ -39,7 +39,7 @@ def load_users_ratings(
         if existing_columns:
             users_ratings = users_ratings[existing_columns]
         users_ratings = users_ratings[relevant_columns]
-    return users_ratings
+    return users_ratings.reset_index(drop=True)
 
 
 def load_papers_texts(
@@ -50,15 +50,13 @@ def load_papers_texts(
     papers_texts = pd.read_parquet(path, engine="pyarrow")
     assert papers_texts["paper_id"].is_monotonic_increasing
     if relevant_papers_ids is not None:
-        papers_texts = papers_texts[papers_texts["paper_id"].isin(relevant_papers_ids)].reset_index(
-            drop=True
-        )
+        papers_texts = papers_texts[papers_texts["paper_id"].isin(relevant_papers_ids)]
     assert not papers_texts.isnull().any().any()
     if relevant_columns is not None:
         existing_columns = [col for col in relevant_columns if col in papers_texts.columns]
         if existing_columns:
             papers_texts = papers_texts[existing_columns]
-    return papers_texts
+    return papers_texts.reset_index(drop=True)
 
 
 def load_papers(
@@ -69,13 +67,13 @@ def load_papers(
     papers = pd.read_parquet(path, engine="pyarrow")
     assert papers["paper_id"].is_monotonic_increasing
     if relevant_papers_ids is not None:
-        papers = papers[papers["paper_id"].isin(relevant_papers_ids)].reset_index(drop=True)
+        papers = papers[papers["paper_id"].isin(relevant_papers_ids)]
     assert not papers[["paper_id", "in_ratings", "in_cache"]].isnull().any().any()
     if relevant_columns is not None:
         existing_columns = [col for col in relevant_columns if col in papers.columns]
         if existing_columns:
             papers = papers[existing_columns]
-    return papers
+    return papers.reset_index(drop=True)
 
 
 def load_relevant_papers_ids(
@@ -106,7 +104,7 @@ def load_users_significant_categories(
     if relevant_users_ids is not None:
         users_significant_categories = users_significant_categories[
             users_significant_categories["user_id"].isin(relevant_users_ids)
-        ].reset_index(drop=True)
+        ]
     assert not users_significant_categories.isnull().any().any()
     if relevant_columns is not None:
         existing_columns = [
@@ -114,8 +112,7 @@ def load_users_significant_categories(
         ]
         if existing_columns:
             users_significant_categories = users_significant_categories[existing_columns]
-
-    return users_significant_categories
+    return users_significant_categories.reset_index(drop=True)
 
 
 def select_non_cs_users_ids(users_significant_categories: pd.DataFrame) -> list:
@@ -212,6 +209,6 @@ if __name__ == "__main__":
 
     if ProjectPaths.data_finetuning_users_ids_path().exists():
         finetuning_users_ids = load_finetuning_users_ids()
-        
+
     if ProjectPaths.data_session_based_users_ids_path().exists():
         session_based_users_ids = load_session_based_users_ids()

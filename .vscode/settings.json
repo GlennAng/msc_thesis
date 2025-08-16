@@ -1,0 +1,4 @@
+{
+    "python.defaultInterpreterPath": "/home/scholar/miniconda3/envs/glenn_msc_env/bin/python",
+    "python.terminal.activateEnvironment": true
+}

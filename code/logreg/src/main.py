@@ -107,12 +107,11 @@ def init_sliding_window(config: Dict[str, Any]) -> tuple:
     users_embeddings_dict = load_users_embeddings_dict(config["users_coefs_path"])
     config["users_selection"] = users_embeddings_dict["users_selection"]
     config["embedding_folder"] = users_embeddings_dict["embedding_path"]
-    users_ratings_tuple = sequence_load_users_ratings(
+    users_ratings = sequence_load_users_ratings(
         selection=users_embeddings_dict["users_selection"]
     )
-    users_ratings, users_ids, users_negrated_ranking = users_ratings_tuple
     users_embeddings = users_embeddings_dict["users_embeddings"]
-    return users_ratings, users_ids, users_negrated_ranking, users_embeddings
+    return users_ratings, users_embeddings
 
 
 def init_scores(config: Dict[str, Any]) -> None:
@@ -222,11 +221,11 @@ if __name__ == "__main__":
     create_outputs_folder(config)
 
     if config["evaluation"] == Evaluation.SLIDING_WINDOW:
-        users_ratings, users_ids, users_negrated_ranking, users_embeddings = init_sliding_window(
+        users_ratings, users_embeddings = init_sliding_window(
             config=config
         )
     else:
-        users_ratings, users_ids, users_negrated_ranking = get_users_ratings(
+        users_ratings = get_users_ratings(
             users_selection=config["users_selection"],
             evaluation=config["evaluation"],
             train_size=config["train_size"],
@@ -244,6 +243,8 @@ if __name__ == "__main__":
             filter_for_negrated_ranking=config["filter_for_negrated_ranking"],
         )
         users_embeddings = None
+    users_ids = list(users_ratings["user_id"].unique())
+    assert users_ids == sorted(users_ids)
 
     init_scores(config)
     wh = Weights_Handler(config)
@@ -257,7 +258,7 @@ if __name__ == "__main__":
     save_hyperparameters_combinations(config, hyperparameters_combinations)
 
     evaluator = Evaluator(config, hyperparameters_combinations, wh)
-    evaluator.evaluate_embedding(embedding, users_ratings, users_negrated_ranking, users_embeddings)
+    evaluator.evaluate_embedding(embedding, users_ratings, users_embeddings)
     merge_users_infos(config, users_ids)
     merge_users_results(config, users_ids)
     merge_users_coefs(config, users_ids)
