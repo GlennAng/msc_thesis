@@ -107,13 +107,12 @@ def create_example_config_sliding_window(users_embeddings_dict_path: Path = None
     example_config = create_example_config()
     if users_embeddings_dict_path is None:
         users_embeddings_dict_path = (
-            ProjectPaths.sequence_data_users_embeddings_path() / "finetuning_test_mean.pkl"
+            ProjectPaths.sequence_data_users_embeddings_path() / "logreg"
         )
     update_dict = {
         "evaluation": "sliding_window",
         "users_coefs_path": str(users_embeddings_dict_path.resolve()),
         "n_cache": 0,
-        "filter_for_negrated_ranking": True,
     }
     example_config.update(update_dict)
     return example_config

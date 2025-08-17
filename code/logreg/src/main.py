@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from ...scripts.create_example_configs import check_config
-from ...sequence.src.sequence_data import load_users_embeddings_dict
+from ...sequence.src.sequence_data import load_users_embeddings
 from ...src.project_paths import ProjectPaths
 from .embeddings.embedding import Embedding
 from .training.algorithm import (
@@ -22,7 +22,7 @@ from .training.algorithm import (
     get_evaluation_from_arg,
 )
 from .training.evaluation import Evaluator
-from .training.get_users_ratings import get_users_ratings, sequence_load_users_ratings
+from .training.get_users_ratings import get_users_ratings
 from .training.weights_handler import Weights_Handler, load_hyperparameter_range
 
 
@@ -103,14 +103,24 @@ def load_hyperparameters(config: Dict[str, Any], wh: Weights_Handler) -> list:
 
 def init_sliding_window(config: Dict[str, Any]) -> tuple:
     assert config["n_cache"] == 0
-    assert config["filter_for_negrated_ranking"]
-    users_embeddings_dict = load_users_embeddings_dict(config["users_coefs_path"])
-    config["users_selection"] = users_embeddings_dict["users_selection"]
-    config["embedding_folder"] = users_embeddings_dict["embedding_path"]
-    users_ratings = sequence_load_users_ratings(
-        selection=users_embeddings_dict["users_selection"]
+    users_embeddings, sw_config = load_users_embeddings(config["users_coefs_path"], check=True)
+    assert sw_config["filter_for_negrated_ranking"]
+    users_ratings = get_users_ratings(
+        users_selection=sw_config["users_selection"],
+        evaluation=Evaluation.SLIDING_WINDOW,
+        train_size=sw_config["train_size"],
+        min_n_posrated_train=sw_config["min_n_posrated_train"],
+        min_n_negrated_train=sw_config["min_n_negrated_train"],
+        min_n_posrated_val=sw_config["min_n_posrated_val"],
+        min_n_negrated_val=sw_config["min_n_negrated_val"],
+        filter_for_negrated_ranking=True,
     )
-    users_embeddings = users_embeddings_dict["users_embeddings"]
+    val_mask = users_ratings["split"] == "val"
+    val_ratings = users_ratings.loc[val_mask]
+    for user_id, user_embeddings in users_embeddings.items():
+        user_sessions_ids = user_embeddings["sessions_ids"]
+        user_val_ratings = val_ratings[val_ratings["user_id"] == user_id]
+        assert user_val_ratings["session_id"].unique().tolist() == user_sessions_ids
     return users_ratings, users_embeddings
 
 

@@ -345,7 +345,7 @@ def get_users_ratings_from_files(
     if all(
         [
             users_selection in USERS_SELECTIONS,
-            evaluation == Evaluation.SESSION_BASED,
+            evaluation in [Evaluation.SESSION_BASED, Evaluation.SLIDING_WINDOW],
             train_size == TRAIN_SIZE,
             min_n_posrated_train == MIN_N_POSRATED_TRAIN,
             min_n_negrated_train == MIN_N_NEGRATED_TRAIN,
@@ -366,7 +366,7 @@ def get_users_ratings_from_files(
     if all(
         [
             users_selection in USERS_SELECTIONS,
-            evaluation == Evaluation.SESSION_BASED,
+            evaluation in [Evaluation.SESSION_BASED, Evaluation.SLIDING_WINDOW],
             train_size == TRAIN_SIZE,
             min_n_posrated_train == MIN_N_POSRATED_TRAIN,
             min_n_negrated_train == MIN_N_NEGRATED_TRAIN,
