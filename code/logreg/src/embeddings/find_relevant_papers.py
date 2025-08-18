@@ -2,6 +2,11 @@ import pickle
 
 from tqdm import tqdm
 
+from ....sequence.src.compute_users_embeddings_logreg import (
+    LOGREG_CACHE_TYPE,
+    LOGREG_N_CACHE,
+    LOGREG_N_VAL_NEGATIVE_SAMPLES,
+)
 from ....src.load_files import (
     TEST_RANDOM_STATES,
     VAL_RANDOM_STATE,
@@ -14,9 +19,7 @@ from ....src.project_paths import ProjectPaths
 from ..training.training_data import get_cache_papers_ids, get_categories_samples_ids
 
 
-def save_relevant_papers(
-    seeds: list, users_selection: str = "test", save: bool = True
-) -> list:
+def save_relevant_papers(seeds: list, users_selection: str = "test", save: bool = True) -> list:
     if users_selection in ["train", "test", "val"]:
         users_ids = load_finetuning_users_ids(selection=users_selection)
     elif users_selection == "session_based":
@@ -35,16 +38,16 @@ def save_relevant_papers(
     for random_state in tqdm(seeds):
         val_negative_samples_ids = get_categories_samples_ids(
             papers=papers,
-            n_categories_samples=100,
+            n_categories_samples=LOGREG_N_VAL_NEGATIVE_SAMPLES,
             random_state=random_state,
             papers_ids_to_exclude=papers[papers["in_ratings"]]["paper_id"].tolist(),
         )[1]
         print(f"Seed {random_state}: {len(val_negative_samples_ids)} negative samples collected.")
         relevant_papers_ids.update(val_negative_samples_ids)
         cache_papers_ids = get_cache_papers_ids(
-            cache_type="categories_cache",
+            cache_type=LOGREG_CACHE_TYPE,
             papers=papers,
-            n_cache=5000,
+            n_cache=LOGREG_N_CACHE,
             random_state=random_state,
         )
         print(f"Seed {random_state}: {len(cache_papers_ids)} cache papers collected.")

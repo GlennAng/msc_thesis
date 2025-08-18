@@ -705,7 +705,7 @@ def gather_finetuning_dataset(dataset_type: str, users_type: str) -> tuple:
             min_n_negrated_train=MIN_N_NEGRATED_TRAIN,
             min_n_posrated_val=MIN_N_POSRATED_VAL,
             min_n_negrated_val=MIN_N_NEGRATED_VAL_SPLIT,
-        )[0]
+        )
         if dataset_type == "train":
             users_ratings = users_ratings[users_ratings["split"] == "train"]
         elif dataset_type == "val":
@@ -954,5 +954,3 @@ if __name__ == "__main__":
     save_negative_samples_tokenized_train()
     load_negative_samples_tokenized_train()
     test_loading()
-
-    print(load_categories_to_idxs())

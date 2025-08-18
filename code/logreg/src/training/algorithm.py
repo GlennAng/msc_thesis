@@ -572,6 +572,8 @@ BOTTOM_1_POS_SCORES = [
     Score.SOFTMAX_BOTTOM_1_POS_1,
     Score.SOFTMAX_BOTTOM_1_POS_2,
 ]
+DERIVABLE_SCORES = [score for score in Score if SCORES_DICT[score]["derivable"]]
+NON_DERIVABLE_SCORES = [score for score in Score if not SCORES_DICT[score]["derivable"]]
 
 
 def get_score_from_arg(score_arg: str) -> Score:
@@ -717,9 +719,13 @@ def get_ranking_scores_split(
     for i, y_pos_logit in enumerate(y_pos_logits):
         y_negrated_ranking_logits_pos = y_negrated_ranking_logits[i]
         pos_rank = np.sum(y_negrated_ranking_logits_pos >= y_pos_logit) + 1
-        pos_rank_samples = np.sum(y_negative_samples_logits >= y_pos_logit) + 1
+        if y_negative_samples_logits.ndim == 2:
+            y_negative_samples_logits_i = y_negative_samples_logits[i]
+        else:
+            y_negative_samples_logits_i = y_negative_samples_logits
+        pos_rank_samples = np.sum(y_negative_samples_logits_i >= y_pos_logit) + 1
         y_negative_ranking_all_logits = np.concatenate(
-            (y_negrated_ranking_logits_pos, y_negative_samples_logits)
+            (y_negrated_ranking_logits_pos, y_negative_samples_logits_i)
         )
         pos_rank_all = np.sum(y_negative_ranking_all_logits >= y_pos_logit) + 1
         all_logits = np.concatenate((np.array([y_pos_logit]), y_negative_ranking_all_logits))
@@ -785,18 +791,19 @@ def get_ranking_scores(
     y_train_negrated_ranking_logits: np.ndarray,
     y_val_negrated_ranking_logits: np.ndarray,
     y_negative_samples_logits: np.ndarray,
+    y_negative_samples_logits_after_train: np.ndarray = None,
 ) -> dict:
-    y_train_pos_logits, y_val_pos_logits = (
-        y_train_rated_logits[y_train_rated > 0],
-        y_val_logits[y_val > 0],
-    )
+    y_train_pos_logits = y_train_rated_logits[y_train_rated > 0]
+    y_val_pos_logits = y_val_logits[y_val > 0]
     y_train_pos_logits_n, y_val_pos_logits_n = len(y_train_pos_logits), len(y_val_pos_logits)
-    assert (
-        y_train_pos_logits_n == y_train_negrated_ranking_logits.shape[0]
-        and y_val_pos_logits_n == y_val_negrated_ranking_logits.shape[0]
-    )
+    assert y_train_pos_logits_n == y_train_negrated_ranking_logits.shape[0]
+    assert y_val_pos_logits_n == y_val_negrated_ranking_logits.shape[0]
+    if y_negative_samples_logits_after_train is not None:
+        y_negative_samples_logits_train = y_negative_samples_logits_after_train
+    else:
+        y_negative_samples_logits_train = y_negative_samples_logits
     ranking_scores_train = get_ranking_scores_split(
-        y_train_pos_logits, y_train_negrated_ranking_logits, y_negative_samples_logits
+        y_train_pos_logits, y_train_negrated_ranking_logits, y_negative_samples_logits_train
     )
     ranking_scores_val = get_ranking_scores_split(
         y_val_pos_logits, y_val_negrated_ranking_logits, y_negative_samples_logits

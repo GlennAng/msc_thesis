@@ -94,7 +94,12 @@ def parse_arguments() -> dict:
     parser.add_argument("--info_nce_temperature_explicit_negatives", type=float, default=2.5)
     parser.add_argument("--info_nce_temperature_batch_negatives", type=float, default=2.5)
     parser.add_argument("--info_nce_temperature_negative_samples", type=float, default=2.5)
-    parser.add_argument("--categories_cosine_term", action="store_true", default=False)
+    parser.add_argument(
+        "--not_categories_cosine_term",
+        action="store_false",
+        dest="categories_cosine_term",
+        default=True,
+    )
     parser.add_argument("--categories_cosine_term_weight", type=float, default=1.0)
     parser.add_argument("--n_batches_total", type=int, default=50000)
     parser.add_argument("--n_batches_per_val", type=int, default=2000)
@@ -317,13 +322,13 @@ def compute_info_nce_loss(
     batch_negatives_scores: torch.Tensor,
     sorted_unique_user_idx_tensor: torch.Tensor,
     args_dict: dict,
-    train_negatives_cosine_loss: float=None,
+    train_negatives_cosine_loss: float = None,
 ) -> float:
     temperature_explicit_negatives = args_dict["info_nce_temperature_explicit_negatives"]
     temperature_batch_negatives = args_dict["info_nce_temperature_batch_negatives"]
     temperature_negative_samples = args_dict["info_nce_temperature_negative_samples"]
     categories_cosine_weight = args_dict["categories_cosine_term_weight"]
-    
+
     enumerated_users_dict = {
         user_idx.item(): i for i, user_idx in enumerate(sorted_unique_user_idx_tensor)
     }
@@ -360,9 +365,9 @@ def compute_info_nce_loss(
                 torch.cat((pos_score.unsqueeze(0), negatives_scores_dict[pos_user_idx])), dim=0
             )[0]
         )
-    
+
     info_nce_loss = torch.mean(torch.stack(losses))
-    
+
     if train_negatives_cosine_loss is not None:
         return info_nce_loss + categories_cosine_weight * train_negatives_cosine_loss
     else:
@@ -592,7 +597,9 @@ def run_training(
                 cosine_losses_chunk = [
                     loss for _, loss in cosine_losses[-args_dict["n_batches_per_val"] :]
                 ]
-                log_string(logger, f"AVERAGED COSINE LOSS: {round_number(np.mean(cosine_losses_chunk))}.")
+                log_string(
+                    logger, f"AVERAGED COSINE LOSS: {round_number(np.mean(cosine_losses_chunk))}."
+                )
             log_string(logger, f"LEARNING RATE: {optimizer.param_groups[0]['lr']}\n")
             val_scores_batch, baseline_metric, early_stopping_counter, _ = process_val(
                 finetuning_model,

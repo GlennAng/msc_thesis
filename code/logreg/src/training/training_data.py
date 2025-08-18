@@ -1,9 +1,13 @@
+import json
+import os
 import random
 from math import floor
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from ..embeddings.embedding import Embedding
 from .get_users_ratings import N_NEGRATED_RANKING
 
 FLOAT_PRECISION = 1e-10
@@ -42,7 +46,7 @@ def load_negrated_ranking_idxs_for_user_timesort(
 ) -> np.ndarray:
     assert len(pos_ratings) == negrated_ranking_idxs.shape[0]
     n_negrated = negrated_ranking_idxs.shape[1]
-    
+
     pos_times = pos_ratings["time"].values
     pos_session_ids = pos_ratings["session_id"].values
     neg_times = negrated_ranking["time"].values
@@ -312,6 +316,43 @@ def get_cache_papers_ids_categories_cache(
     return cache_papers_ids_flattened
 
 
+def get_val_negative_samples_ids(
+    papers: pd.DataFrame,
+    n_categories_samples: int,
+    random_state: int,
+    papers_ids_to_exclude: list,
+) -> list:
+    return get_categories_samples_ids(
+        papers=papers,
+        n_categories_samples=n_categories_samples,
+        random_state=random_state,
+        papers_ids_to_exclude=papers_ids_to_exclude,
+    )[0]
+
+
+def get_user_val_negative_samples(
+    val_negative_samples_ids: list,
+    n_negative_samples: int,
+    random_state: int,
+    user_categories_ratios: dict,
+    embedding: Embedding = None,
+) -> dict:
+    val_negative_samples_ids = get_user_categories_samples_ids(
+        categories_samples_ids=val_negative_samples_ids,
+        n_categories_samples=n_negative_samples,
+        random_state=random_state,
+        sort_samples=True,
+        user_categories_ratios=user_categories_ratios,
+    )
+    negative_samples_embeddings = None
+    if embedding is not None:
+        negative_samples_embeddings = embedding.matrix[embedding.get_idxs(val_negative_samples_ids)]
+    return {
+        "val_negative_samples_ids": val_negative_samples_ids,
+        "val_negative_samples_embeddings": negative_samples_embeddings,
+    }
+
+
 def get_cache_papers_ids_old_cache(
     papers: pd.DataFrame,
     n_cache: int,
@@ -378,6 +419,28 @@ def get_cache_papers_ids(
     return cache_papers_ids
 
 
+def get_cache_papers_ids_full(
+    papers: pd.DataFrame,
+    cache_type: str,
+    n_cache: int,
+    random_state: int,
+    n_categories_cache: int,
+) -> tuple:
+    cache_papers_ids = get_cache_papers_ids(
+        cache_type=cache_type,
+        papers=papers,
+        n_cache=n_cache,
+        random_state=random_state,
+    )
+    cache_papers_categories_ids = get_categories_samples_ids(
+        papers=papers,
+        n_categories_samples=n_categories_cache,
+        random_state=random_state,
+        papers_ids_to_exclude=cache_papers_ids,
+    )[0]
+    return cache_papers_categories_ids, cache_papers_ids
+
+
 def get_user_cache_papers_ids(
     cache_type: str,
     cache_papers_ids: list,
@@ -397,150 +460,115 @@ def get_user_cache_papers_ids(
     return user_cache_papers_ids
 
 
-def count_to_str(count: int) -> str:
-    return f"{count:,}"
-
-
-def get_categories_distribution(
-    papers_ids_to_categories: dict = None, print_results: bool = True
-) -> tuple:
-    unique_categories = set(papers_ids_to_categories.values())
-    categories_counts = {category: 0 for category in unique_categories}
-    n_total = 0
-    for _, value in papers_ids_to_categories.items():
-        categories_counts[value] += 1
-        n_total += 1
-    categories_counts = {category: count / n_total for category, count in categories_counts.items()}
-    if print_results:
-        categories_counts_copy = categories_counts.copy()
-        categories_counts_copy["Total"] = 1.0
-        categories_counts_copy = sorted(
-            categories_counts_copy.items(), key=lambda x: x[1], reverse=True
-        )
-        for category, count in categories_counts_copy:
-            print(f"{category}: {count:.2%} ({count_to_str(int(count * n_total))})")
-        print("____________________________________________________________")
-    return categories_counts, n_total
-
-
-def get_categories_distribution_database(
-    papers: pd.DataFrame, level: str = "l1", print_results: bool = True
-) -> tuple:
-    if level not in ["l1", "l2", "l3"]:
-        raise ValueError(f"Invalid level '{level}'. Must be one of 'l1', 'l2', or 'l3'.")
-    papers_ids_to_categories = papers.set_index("paper_id")[level].to_dict()
-    return get_categories_distribution(papers_ids_to_categories, print_results)
-
-
-def get_categories_distribution_ratings(
-    papers: pd.DataFrame, level: str = "l1", print_results: bool = True
-) -> tuple:
-    if level not in ["l1", "l2", "l3"]:
-        raise ValueError(f"Invalid level '{level}'. Must be one of 'l1', 'l2', or 'l3'.")
-    papers = papers[papers["in_ratings"]]
-    papers_ids_to_categories = papers.set_index("paper_id")[level].to_dict()
-    return get_categories_distribution(papers_ids_to_categories, print_results)
-
-
-def get_categories_distribution_old_cache(
-    papers: pd.DataFrame, level: str = "l1", print_results: bool = True
-) -> tuple:
-    if level not in ["l1", "l2", "l3"]:
-        raise ValueError(f"Invalid level '{level}'. Must be one of 'l1', 'l2', or 'l3'.")
-    cache_papers_ids = get_cache_papers_ids_old_cache(
-        papers=papers,
-        n_cache=5000,
-        random_state=42,
-        papers_ids_to_exclude=None,
+def get_user_cache_papers(
+    cache_type: str,
+    cache_papers_ids: list,
+    cache_papers_categories_ids: list,
+    n_categories_cache: int,
+    random_state: int,
+    papers_ids_to_exclude_from_cache: list,
+    user_categories_ratios: dict,
+    embedding: Embedding = None,
+) -> dict:
+    user_cache_papers_ids = get_user_cache_papers_ids(
+        cache_type=cache_type,
+        cache_papers_ids=cache_papers_ids,
     )
-    papers = papers[papers["paper_id"].isin(cache_papers_ids)]
-    if papers.empty:
-        raise ValueError("No papers found in the cache.")
-    papers_ids_to_categories = papers.set_index("paper_id")[level].to_dict()
-    return get_categories_distribution(papers_ids_to_categories, print_results)
-
-
-def get_categories_distribution_random_cache(
-    papers: pd.DataFrame, level: str = "l1", print_results: bool = True
-) -> tuple:
-    if level not in ["l1", "l2", "l3"]:
-        raise ValueError(f"Invalid level '{level}'. Must be one of 'l1', 'l2', or 'l3'.")
-    cache_papers_ids = get_cache_papers_ids_random_cache(
-        papers=papers,
-        n_cache=5000,
-        random_state=42,
-        papers_ids_to_exclude=None,
+    user_cache_papers_categories_ids = get_user_categories_samples_ids(
+        categories_samples_ids=cache_papers_categories_ids,
+        n_categories_samples=n_categories_cache,
+        random_state=random_state,
+        sort_samples=False,
+        user_categories_ratios=user_categories_ratios,
     )
-    papers = papers[papers["paper_id"].isin(cache_papers_ids)]
-    if papers.empty:
-        raise ValueError("No papers found in the cache.")
-    papers_ids_to_categories = papers.set_index("paper_id")[level].to_dict()
-    return get_categories_distribution(papers_ids_to_categories, print_results)
+    cache_papers_ids = sorted(
+        list(set(user_cache_papers_categories_ids) | set(user_cache_papers_ids))
+    )
+    cache_papers_ids = [
+        paper_id
+        for paper_id in cache_papers_ids
+        if paper_id not in papers_ids_to_exclude_from_cache
+    ]
+    assert user_cache_papers_ids == sorted(user_cache_papers_ids)
+    assert len(user_cache_papers_ids) == len(set(user_cache_papers_ids))
+    cache_n = len(cache_papers_ids)
+    y_cache = np.zeros(cache_n, dtype=LABEL_DTYPE)
+    cache_embedding_idxs = None
+    if embedding is not None:
+        cache_embedding_idxs = embedding.get_idxs(cache_papers_ids)
+    return {
+        "user_cache_papers_categories_ids": user_cache_papers_categories_ids,
+        "cache_embedding_idxs": cache_embedding_idxs,
+        "cache_n": cache_n,
+        "y_cache": y_cache,
+    }
 
 
-def get_categories_distribution_ratings_specific_users(
-    papers: pd.DataFrame,
-    users_ids: list,
-    users_ratings: pd.DataFrame,
-    level: str = "l1",
-    print_results: bool = True,
+def split_ratings(user_ratings: pd.DataFrame) -> tuple:
+    if "split" not in user_ratings.columns:
+        raise ValueError("User ratings DataFrame must contain 'split' column.")
+    train_mask = user_ratings["split"] == "train"
+    val_mask = user_ratings["split"] == "val"
+    removed_mask = user_ratings["split"] == "removed"
+    train_ratings = user_ratings.loc[train_mask]
+    val_ratings = user_ratings.loc[val_mask]
+    removed_ratings = user_ratings.loc[removed_mask]
+    assert len(train_ratings) + len(val_ratings) + len(removed_ratings) == len(user_ratings)
+    removed_ratings = removed_ratings[removed_ratings["rating"] == 0]
+    removed_ratings = removed_ratings.iloc[:N_NEGRATED_RANKING]
+    assert train_ratings["time"].is_monotonic_increasing
+    assert val_ratings["time"].is_monotonic_increasing
+    assert removed_ratings["time"].is_monotonic_increasing
+    return train_ratings, val_ratings, removed_ratings
+
+
+def split_negrated_ranking(
+    train_ratings: pd.DataFrame, val_ratings: pd.DataFrame, removed_ratings: pd.DataFrame
 ) -> tuple:
-    if level not in ["l1", "l2", "l3"]:
-        raise ValueError(f"Invalid level '{level}'. Must be one of 'l1', 'l2', or 'l3'.")
-    users_ratings = users_ratings[users_ratings["user_id"].isin(users_ids)].reset_index(drop=True)
-    users_ratings = users_ratings[users_ratings["rating"] == 1]
-    papers_users_ratings_ids = papers[papers["paper_id"].isin(users_ratings["paper_id"])]
-    papers = papers[papers["paper_id"].isin(papers_users_ratings_ids["paper_id"])]
-    papers_ids_to_categories = papers.set_index("paper_id")[level].to_dict()
-    return get_categories_distribution(papers_ids_to_categories, print_results)
-
-
-def get_categories_distribution_relevant_papers(
-    papers: pd.DataFrame,
-    level: str = "l1",
-    print_results: bool = True,
-) -> tuple:
-    from ....src.load_files import load_relevant_papers_ids
-
-    if level not in ["l1", "l2", "l3"]:
-        raise ValueError(f"Invalid level '{level}'. Must be one of 'l1', 'l2', or 'l3'.")
-    relevant_papers_ids = load_relevant_papers_ids()
-    papers = papers[papers["paper_id"].isin(relevant_papers_ids)]
-    papers_ids_to_categories = papers.set_index("paper_id")[level].to_dict()
-    return get_categories_distribution(papers_ids_to_categories, print_results)
-
-
-if __name__ == "__main__":
-
-    from ....src.load_files import (
-        load_papers,
-        load_session_based_users_ids,
-        load_users_ratings,
-        load_users_significant_categories,
+    train_negrated_ranking = train_ratings[train_ratings["rating"] == 0]
+    val_negrated_ranking = pd.concat([val_ratings[val_ratings["rating"] == 0], removed_ratings])
+    return (
+        train_negrated_ranking.reset_index(drop=True),
+        val_negrated_ranking.reset_index(drop=True),
     )
 
-    users_ids = load_session_based_users_ids()
-    users_ids_non_cs = load_session_based_users_ids(
-        select_non_cs_users_only=True,
-    )
-    users_ids_cs = sorted(list(set(users_ids) - set(users_ids_non_cs)))
-    papers = load_papers()
-    users_ratings = load_users_ratings(relevant_users_ids=users_ids)
-    users_significant_categories = load_users_significant_categories(relevant_users_ids=users_ids)
 
-    print("Categories Distribution for Database:")
-    get_categories_distribution_database(papers=papers, level="l1", print_results=True)
-    print("\nCategories Distribution for Ratings:")
-    get_categories_distribution_ratings(papers=papers, level="l1", print_results=True)
-    print("\nCategories Distribution for CS Users:")
-    get_categories_distribution_ratings_specific_users(
-        papers=papers, users_ids=users_ids_cs, users_ratings=users_ratings
-    )
-    print("\nCategories Distribution for Non-CS Users:")
-    get_categories_distribution_ratings_specific_users(
-        papers=papers, users_ids=users_ids_non_cs, users_ratings=users_ratings
-    )
-    print("\nCategories Distribution for Old Cache:")
-    get_categories_distribution_old_cache(papers=papers, level="l1", print_results=True)
-    print("\nCategories Distribution for Relevant Papers:")
-    get_categories_distribution_relevant_papers(papers=papers, level="l1", print_results=True)
+def store_user_info(user_ratings: pd.DataFrame, cache_n: int) -> dict:
+    user_info = {"n_cache": cache_n, "n_base": 0, "n_zerorated": 0}
+    posrated_n = len(user_ratings[user_ratings["rating"] == 1])
+    negrated_n = len(user_ratings[user_ratings["rating"] == 0])
+    assert posrated_n + negrated_n == len(user_ratings)
+    user_info.update({"n_posrated": posrated_n, "n_negrated": negrated_n})
+    return user_info
+
+
+def save_user_info(outputs_dir: Path, user_id: int, user_info: dict) -> None:
+    folder = outputs_dir / "tmp" / f"user_{user_id}"
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    json.dump(user_info, open(folder / "user_info.json", "w"), indent=1)
+
+
+def save_user_results(outputs_dir: Path, user_id: int, user_results_dict: dict) -> None:
+    folder = outputs_dir / "tmp" / f"user_{user_id}"
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    try:
+        json.dump(user_results_dict, open(folder / "user_results.json", "w"), indent=1)
+    except:
+        print(f"Error saving user {user_id} results.")
+        raise
+
+
+def save_user_predictions(outputs_dir: Path, user_id: int, user_predictions_dict: dict) -> None:
+    folder = outputs_dir / "users_predictions" / f"user_{user_id}"
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    json.dump(user_predictions_dict, open(folder / "user_predictions.json", "w"), indent=1)
+
+
+def save_user_coefs(outputs_dir: Path, user_id: int, user_coefs: np.ndarray) -> None:
+    folder = outputs_dir / "tmp" / f"user_{user_id}"
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    np.save(folder / "user_coefs.npy", user_coefs)

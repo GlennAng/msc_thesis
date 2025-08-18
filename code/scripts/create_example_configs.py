@@ -63,7 +63,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
             "logreg_solver": "lbfgs",
             "svm_kernel": None,
             "max_iter": 10000,
-            "n_jobs": -1,
+            "n_jobs": 1,
         }
     )
     example_config.update(
@@ -85,7 +85,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
 
 def create_example_config_cross_val(embeddings_folder: Path = None) -> dict:
     example_config = create_example_config(embeddings_folder)
-    example_config.update({"evaluation": "cross_validation", "train_size": 0.8})
+    example_config.update({"evaluation": "cross_validation", "train_size": 0.8, "n_jobs": -1})
     return example_config
 
 
