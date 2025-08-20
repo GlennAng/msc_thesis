@@ -30,7 +30,7 @@ class Neg_Type(Enum):
     ALL = auto()
 
 
-CONFIDENCE_THRESHOLD = 0.5
+CONFIDENCE_THRESHOLD = 0.05
 
 
 def cel_score(y_proba: np.ndarray, positive: bool) -> float:
@@ -187,12 +187,9 @@ def calculate_softmax_pos(softmax_array: np.ndarray) -> float:
 
 
 def calculate_softmax_ranking_neg(softmax_array: np.ndarray) -> float:
-    start_idx = 1
-    return (
-        np.mean(softmax_array[start_idx:N_NEGRATED_RANKING])
-        if len(softmax_array) > start_idx
-        else 0
-    )
+    if len(softmax_array) <= 1:
+        return 0
+    return np.mean(softmax_array[1:(N_NEGRATED_RANKING+1)])
 
 
 def calculate_softmax_top_1_samples(softmax_array: np.ndarray) -> float:
@@ -382,13 +379,6 @@ SCORES_DICT = {
         "page": 1,
         "calculator": calculate_confidence_fn,
     },
-    "CONFIDENCE_TOP_1_SAMPLES": {
-        "abbreviation": "C_T1\nSmpl",
-        "type": Score_Type.DEFAULT,
-        "increase_better": False,
-        "page": 1,
-        "calculator": calculate_confidence_top_1_samples,
-    },
     "POSITIVE_GT_ABOVE_THRESHOLD": {
         "abbreviation": f"PGTAT\n{CONFIDENCE_THRESHOLD}",
         "type": Score_Type.DEFAULT,
@@ -494,6 +484,13 @@ SCORES_DICT = {
         "increase_better": True,
         "page": 2,
         "calculator": calculate_confidence_bottom_1_pos,
+    },
+        "CONFIDENCE_TOP_1_SAMPLES": {
+        "abbreviation": "C_S↑1",
+        "type": Score_Type.DEFAULT,
+        "increase_better": False,
+        "page": 2,
+        "calculator": calculate_confidence_top_1_samples,
     },
     "SOFTMAX_POS_05": {
         "abbreviation": "SmP\n0.5",
