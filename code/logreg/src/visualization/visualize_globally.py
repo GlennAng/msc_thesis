@@ -6,13 +6,8 @@ import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
 from ....src.load_files import load_users_significant_categories
-from ..training.algorithm import (
-    SCORES_DICT,
-    Algorithm,
-    Evaluation,
-    Score,
-    get_score_from_arg,
-)
+from ..training.algorithm import Algorithm, Evaluation
+from ..training.scores_definitions import SCORES_DICT, Score, get_score_from_arg
 from .results_handling import (
     average_over_folds,
     average_over_n_most_extreme_users_for_all_hyperparameters_combinations,

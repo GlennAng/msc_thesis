@@ -1,18 +1,136 @@
-from turtle import shape
-
 import numpy as np
 import pandas as pd
+from scipy.special import softmax
 
 from ..embeddings.embedding import Embedding
-from .algorithm import (
-    DERIVABLE_SCORES,
-    NON_DERIVABLE_SCORES,
-    SCORES_DICT,
-    derive_score,
-    get_category_scores,
-    get_ranking_scores,
-    get_score,
+from .scores_definitions import (
+    SCORES_BY_TYPE,
+    Score,
+    Score_Type,
+    get_score_category,
+    get_score_default,
+    get_score_default_derivable,
 )
+
+BOTTOM_1_POS_SCORES = [
+    Score.SOFTMAX_BOTTOM_1_POS_05,
+    Score.SOFTMAX_BOTTOM_1_POS_1,
+    Score.SOFTMAX_BOTTOM_1_POS_2,
+]
+
+
+def get_ranking_scores_split(
+    y_pos_logits: np.ndarray,
+    y_negrated_ranking_logits: np.ndarray,
+    y_negative_samples_logits: np.ndarray,
+) -> dict:
+    ranking_scores = {}
+    for ranking_score in SCORES_BY_TYPE[Score_Type.RANKING]:
+        ranking_scores[f"{ranking_score.name.lower()}"] = np.zeros(max(1, len(y_pos_logits)))
+    for i, y_pos_logit in enumerate(y_pos_logits):
+        y_negrated_ranking_logits_pos = y_negrated_ranking_logits[i]
+        pos_rank = np.sum(y_negrated_ranking_logits_pos >= y_pos_logit) + 1
+        if y_negative_samples_logits.ndim == 2:
+            y_negative_samples_logits_i = y_negative_samples_logits[i]
+        else:
+            y_negative_samples_logits_i = y_negative_samples_logits
+        pos_rank_samples = np.sum(y_negative_samples_logits_i >= y_pos_logit) + 1
+        y_negative_ranking_all_logits = np.concatenate(
+            (y_negrated_ranking_logits_pos, y_negative_samples_logits_i)
+        )
+        pos_rank_all = np.sum(y_negative_ranking_all_logits >= y_pos_logit) + 1
+        all_logits = np.concatenate((np.array([y_pos_logit]), y_negative_ranking_all_logits))
+        softmax_05, softmax_1, softmax_2 = (
+            softmax(all_logits / 0.5),
+            softmax(all_logits),
+            softmax(all_logits / 2.0),
+        )
+        for ranking_score in SCORES_BY_TYPE[Score_Type.RANKING]:
+            if ranking_score in [
+                Score.SOFTMAX_POS_05,
+                Score.SOFTMAX_RANKING_NEG_05,
+                Score.SOFTMAX_TOP_1_SAMPLES_05,
+                Score.INFO_NCE_05,
+            ]:
+                ranking_scores[f"{ranking_score.name.lower()}"][i] = get_softmax_score(
+                    ranking_score, softmax_05
+                )
+            elif ranking_score in [
+                Score.SOFTMAX_POS_1,
+                Score.SOFTMAX_RANKING_NEG_1,
+                Score.SOFTMAX_TOP_1_SAMPLES_1,
+                Score.INFO_NCE_1,
+            ]:
+                ranking_scores[f"{ranking_score.name.lower()}"][i] = get_softmax_score(
+                    ranking_score, softmax_1
+                )
+            elif ranking_score in [
+                Score.SOFTMAX_POS_2,
+                Score.SOFTMAX_RANKING_NEG_2,
+                Score.SOFTMAX_TOP_1_SAMPLES_2,
+                Score.INFO_NCE_2,
+            ]:
+                ranking_scores[f"{ranking_score.name.lower()}"][i] = get_softmax_score(
+                    ranking_score, softmax_2
+                )
+            elif ranking_score in BOTTOM_1_POS_SCORES:
+                pass
+            else:
+                ranking_scores[f"{ranking_score.name.lower()}"][i] = get_ranking_score(
+                    ranking_score, pos_rank, pos_rank_samples, pos_rank_all
+                )
+    for bottom_1_pos_score in BOTTOM_1_POS_SCORES:
+        translated_name = bottom_1_pos_score.name.lower().replace("bottom_1_pos", "pos")
+        ranking_scores[f"{bottom_1_pos_score.name.lower()}"] = np.min(
+            ranking_scores[f"{translated_name}"]
+        )
+    ranking_scores_without_bottom_1_pos = [
+        score for score in SCORES_BY_TYPE[Score_Type.RANKING] if score not in BOTTOM_1_POS_SCORES
+    ]
+    for ranking_score in ranking_scores_without_bottom_1_pos:
+        ranking_scores[f"{ranking_score.name.lower()}"] = np.mean(
+            ranking_scores[f"{ranking_score.name.lower()}"]
+        )
+    return ranking_scores
+
+
+def get_softmax_score(ranking_score: Score, softmax_array: np.ndarray) -> float:
+    if ranking_score in [Score.SOFTMAX_POS_05, Score.SOFTMAX_POS_1, Score.SOFTMAX_POS_2]:
+        return softmax_array[0]
+    elif ranking_score in [
+        Score.SOFTMAX_RANKING_NEG_05,
+        Score.SOFTMAX_RANKING_NEG_1,
+        Score.SOFTMAX_RANKING_NEG_2,
+    ]:
+        return np.mean(softmax_array[1:5])
+    elif ranking_score in [
+        Score.SOFTMAX_TOP_1_SAMPLES_05,
+        Score.SOFTMAX_TOP_1_SAMPLES_1,
+        Score.SOFTMAX_TOP_1_SAMPLES_2,
+    ]:
+        return np.max(softmax_array[5:])
+    elif ranking_score in [Score.INFO_NCE_05, Score.INFO_NCE_1, Score.INFO_NCE_2]:
+        return -np.log(softmax_array[0] + 1e-10)
+
+
+def get_ranking_score(
+    ranking_score: Score, pos_rank: int, pos_rank_samples: int, pos_rank_all: int
+) -> float:
+    ranking_score_split = ranking_score.name.lower().split("_")
+    if ranking_score_split[-1] == "samples":
+        pos_rank = pos_rank_samples
+    elif ranking_score_split[-1] == "all":
+        pos_rank = pos_rank_all
+    if ranking_score in [Score.NDCG, Score.NDCG_SAMPLES, Score.NDCG_ALL]:
+        return 1.0 / np.log2(pos_rank + 1)
+    elif ranking_score in [Score.MRR, Score.MRR_SAMPLES, Score.MRR_ALL]:
+        return 1.0 / pos_rank
+    elif ranking_score in [
+        Score.HIT_RATE_AT_1,
+        Score.HIT_RATE_AT_1_SAMPLES,
+        Score.HIT_RATE_AT_1_ALL,
+    ]:
+        return float(pos_rank == 1)
 
 
 def fill_user_predictions_dict(val_data_dict: dict) -> dict:
@@ -31,6 +149,29 @@ def update_user_predictions_dict(user_predictions: dict) -> dict:
         "negative_samples_predictions": user_predictions["negative_samples_predictions"],
         "tfidf_coefs": user_predictions["tfidf_coefs"],
     }
+
+
+def gather_user_predictions(user_predictions: dict, user_outputs_dict: dict, i: int = 0) -> dict:
+    user_predictions = user_predictions.copy()
+    y_train_rated_proba = user_outputs_dict["y_train_rated_proba"].tolist()
+    if "train_predictions" not in user_predictions:
+        user_predictions["train_predictions"] = {}
+    user_predictions["train_predictions"][i] = y_train_rated_proba
+
+    y_val_proba = user_outputs_dict["y_val_proba"].tolist()
+    if "val_predictions" not in user_predictions:
+        user_predictions["val_predictions"] = {}
+    user_predictions["val_predictions"][i] = y_val_proba
+
+    if user_outputs_dict["y_negative_samples_proba"].ndim == 2:
+        y_negative_samples_proba = user_outputs_dict["y_negative_samples_proba_after_train"]
+    else:
+        y_negative_samples_proba = user_outputs_dict["y_negative_samples_proba"]
+    y_negative_samples_proba = y_negative_samples_proba.tolist()
+    if "negative_samples_predictions" not in user_predictions:
+        user_predictions["negative_samples_predictions"] = {}
+    user_predictions["negative_samples_predictions"][i] = y_negative_samples_proba
+    return user_predictions
 
 
 def load_user_data_dicts(
@@ -127,9 +268,11 @@ def load_user_val_data_dict(
         "X_train_rated": X_train_rated,
         "y_train_rated": y_train_rated,
         "X_train_rated_papers_ids": X_train_rated_papers_ids,
+        "time_train_rated": train_ratings["time"].values,
         "X_val": X_val,
         "y_val": y_val,
         "X_val_papers_ids": X_val_papers_ids,
+        "time_val": val_ratings["time"].values,
         "categories_dict": categories_dict,
     }
     if train_negrated_ranking is not None:
@@ -327,60 +470,47 @@ def get_user_outputs_dict_sliding_window(
 
 
 def score_user_models(
-    scores: dict,
+    scores_to_indices_dict: dict,
     val_data_dict: dict,
     user_models: list,
     negative_samples_embeddings: np.ndarray,
     train_negrated_ranking_idxs: np.ndarray,
     val_negrated_ranking_idxs: np.ndarray,
-    save_users_predictions: bool = False,
+    save_users_predictions_bool: bool = False,
 ) -> tuple:
-    user_results = {}
-    user_predictions = {
-        "train_predictions": {},
-        "val_predictions": {},
-        "negative_samples_predictions": {},
-    }
+    user_results, user_predictions = {}, {}
     for i, model in enumerate(user_models):
-        if len(val_data_dict["y_val"]) > 0:
-            user_outputs_dict = get_user_outputs_dict(
-                model=model,
-                val_data_dict=val_data_dict,
-                train_negrated_ranking_idxs=train_negrated_ranking_idxs,
-                val_negrated_ranking_idxs=val_negrated_ranking_idxs,
-                negative_samples_embeddings=negative_samples_embeddings,
-            )
-            scores = get_user_scores(
-                scores=scores, val_data_dict=val_data_dict, user_outputs_dict=user_outputs_dict
-            )
-            user_results[i] = scores
-            if save_users_predictions:
-                user_predictions["train_predictions"][i] = user_outputs_dict[
-                    "y_train_rated_proba"
-                ].tolist()
-                user_predictions["val_predictions"][i] = user_outputs_dict["y_val_proba"].tolist()
-                user_predictions["negative_samples_predictions"][i] = user_outputs_dict[
-                    "y_negative_samples_proba"
-                ].tolist()
+        if len(val_data_dict["y_val"]) <= 0:
+            break
+        user_outputs_dict = get_user_outputs_dict(
+            model=model,
+            val_data_dict=val_data_dict,
+            train_negrated_ranking_idxs=train_negrated_ranking_idxs,
+            val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+            negative_samples_embeddings=negative_samples_embeddings,
+        )
+        user_results[i] = get_user_scores(
+            scores_to_indices_dict=scores_to_indices_dict,
+            val_data_dict=val_data_dict,
+            user_outputs_dict=user_outputs_dict,
+        )
+        if save_users_predictions_bool:
+            user_predictions = gather_user_predictions(user_predictions, user_outputs_dict, i)
     return user_results, user_predictions
 
 
 def score_user_models_sliding_window(
     val_idxs_to_val_sessions_idxs: list,
     val_pos_idxs_to_val_sessions_idxs: list,
-    scores: dict,
+    scores_to_indices_dict: dict,
     val_data_dict: dict,
     user_models: list,
     negative_samples_embeddings: np.ndarray,
     train_negrated_ranking_idxs: np.ndarray,
     val_negrated_ranking_idxs: np.ndarray,
+    save_users_predictions_bool: bool,
 ) -> tuple:
-    user_results = {}
-    user_predictions = {
-        "train_predictions": {},
-        "val_predictions": {},
-        "negative_samples_predictions": {},
-    }
+    user_results, user_predictions = {}, {}
     user_outputs_dict = get_user_outputs_dict_sliding_window(
         val_idxs_to_val_sessions_idxs=val_idxs_to_val_sessions_idxs,
         val_pos_idxs_to_val_sessions_idxs=val_pos_idxs_to_val_sessions_idxs,
@@ -390,47 +520,237 @@ def score_user_models_sliding_window(
         train_negrated_ranking_idxs=train_negrated_ranking_idxs,
         val_negrated_ranking_idxs=val_negrated_ranking_idxs,
     )
-    scores = get_user_scores(
-        scores=scores, val_data_dict=val_data_dict, user_outputs_dict=user_outputs_dict
+    user_results[0] = get_user_scores(
+        scores_to_indices_dict=scores_to_indices_dict,
+        val_data_dict=val_data_dict,
+        user_outputs_dict=user_outputs_dict,
     )
-    user_results[0] = scores
+    if save_users_predictions_bool:
+        user_predictions = gather_user_predictions(user_predictions, user_outputs_dict, 0)
     return user_results, user_predictions
 
 
-def get_user_scores(
-    scores: dict,
-    val_data_dict: dict,
-    user_outputs_dict: dict,
-) -> tuple:
-    user_scores = [0] * len(scores)
+def fill_user_scores_with_score(
+    score: Score,
+    user_scores: list,
+    scores_to_indices_dict: dict,
+    train_score: float,
+    val_score: float,
+) -> None:
+    train_idx = scores_to_indices_dict[f"train_{score.name.lower()}"]
+    val_idx = scores_to_indices_dict[f"val_{score.name.lower()}"]
+    user_scores[train_idx] = train_score
+    user_scores[val_idx] = val_score
+
+
+def y_negative_samples_pred_proba(user_outputs_dict: dict) -> np.ndarray:
     if "y_negative_samples_pred_after_train" in user_outputs_dict:
         y_negative_samples_pred = user_outputs_dict["y_negative_samples_pred_after_train"]
     else:
         y_negative_samples_pred = user_outputs_dict["y_negative_samples_pred"]
+    assert y_negative_samples_pred.ndim == 1
     if "y_negative_samples_proba_after_train" in user_outputs_dict:
         y_negative_samples_proba = user_outputs_dict["y_negative_samples_proba_after_train"]
     else:
         y_negative_samples_proba = user_outputs_dict["y_negative_samples_proba"]
+    assert y_negative_samples_proba.ndim == 1
+    return y_negative_samples_pred, y_negative_samples_proba
 
-    for score in NON_DERIVABLE_SCORES:
-        if not SCORES_DICT[score]["ranking"]:
-            user_scores[scores[f"train_{score.name.lower()}"]] = get_score(
+
+def get_scores_default(
+    user_scores: list,
+    scores_to_indices_dict: dict,
+    val_data_dict: dict,
+    user_outputs_dict: dict,
+) -> None:
+    y_negative_samples_pred, y_negative_samples_proba = y_negative_samples_pred_proba(
+        user_outputs_dict=user_outputs_dict
+    )
+    for score in SCORES_BY_TYPE[Score_Type.DEFAULT]:
+        train_score, val_score = [
+            get_score_default(
                 score=score,
-                y_true=val_data_dict["y_train_rated"],
-                y_pred=user_outputs_dict["y_train_rated_pred"],
-                y_proba=user_outputs_dict["y_train_rated_proba"],
+                y_true=val_data_dict[f"y_{split}"],
+                y_pred=user_outputs_dict[f"y_{split}_pred"],
+                y_proba=user_outputs_dict[f"y_{split}_proba"],
                 y_negative_samples_pred=y_negative_samples_pred,
                 y_negative_samples_proba=y_negative_samples_proba,
             )
-            user_scores[scores[f"val_{score.name.lower()}"]] = get_score(
+            for split in ["train_rated", "val"]
+        ]
+        fill_user_scores_with_score(
+            score, user_scores, scores_to_indices_dict, train_score, val_score
+        )
+
+
+def get_scores_default_derivable(
+    user_scores: list,
+    scores_to_indices_dict: dict,
+) -> None:
+    for score in SCORES_BY_TYPE[Score_Type.DEFAULT_DERIVABLE]:
+        train_score, val_score = [
+            get_score_default_derivable(
                 score=score,
-                y_true=val_data_dict["y_val"],
-                y_pred=user_outputs_dict["y_val_pred"],
-                y_proba=user_outputs_dict["y_val_proba"],
-                y_negative_samples_pred=y_negative_samples_pred,
-                y_negative_samples_proba=y_negative_samples_proba,
+                user_scores=user_scores,
+                scores_to_indices_dict=scores_to_indices_dict,
+                val=is_validation,
             )
-    ranking_scores = get_ranking_scores(
+            for is_validation in [False, True]
+        ]
+        fill_user_scores_with_score(
+            score, user_scores, scores_to_indices_dict, train_score, val_score
+        )
+
+
+def get_scores_category_dfs(
+    y_train_rated: np.ndarray, y_val: np.ndarray, categories_dict: dict
+) -> dict:
+    train_rated_pos_mask, val_pos_mask = (y_train_rated == 1), (y_val == 1)
+    dfs = {
+        "l1_train_rated_pos": pd.Series(categories_dict["l1_train_rated"][train_rated_pos_mask]),
+        "l1_train_rated_neg": pd.Series(categories_dict["l1_train_rated"][~train_rated_pos_mask]),
+        "l2_train_rated_pos": pd.Series(categories_dict["l2_train_rated"][train_rated_pos_mask]),
+        "l2_train_rated_neg": pd.Series(categories_dict["l2_train_rated"][~train_rated_pos_mask]),
+        "l1_val_pos": pd.Series(categories_dict["l1_val"][val_pos_mask]),
+        "l1_val_neg": pd.Series(categories_dict["l1_val"][~val_pos_mask]),
+        "l2_val_pos": pd.Series(categories_dict["l2_val"][val_pos_mask]),
+        "l2_val_neg": pd.Series(categories_dict["l2_val"][~val_pos_mask]),
+    }
+    dfs["l1l2_train_rated_pos"] = pd.Series(
+        [f"{l1}_{l2}" for l1, l2 in zip(dfs["l1_train_rated_pos"], dfs["l2_train_rated_pos"])]
+    )
+    dfs["l1l2_train_rated_neg"] = pd.Series(
+        [f"{l1}_{l2}" for l1, l2 in zip(dfs["l1_train_rated_neg"], dfs["l2_train_rated_neg"])]
+    )
+    dfs["l1l2_val_pos"] = pd.Series(
+        [f"{l1}_{l2}" for l1, l2 in zip(dfs["l1_val_pos"], dfs["l2_val_pos"])]
+    )
+    dfs["l1l2_val_neg"] = pd.Series(
+        [f"{l1}_{l2}" for l1, l2 in zip(dfs["l1_val_neg"], dfs["l2_val_neg"])]
+    )
+    return dfs
+
+
+def get_scores_category(
+    user_scores: list,
+    scores_to_indices_dict: dict,
+    y_train_rated: np.ndarray,
+    y_val: np.ndarray,
+    categories_dict: dict,
+) -> None:
+    dfs = get_scores_category_dfs(
+        y_train_rated=y_train_rated,
+        y_val=y_val,
+        categories_dict=categories_dict,
+    )
+    for score in SCORES_BY_TYPE[Score_Type.CATEGORY]:
+        train_score, val_score = [
+            get_score_category(
+                score=score,
+                l1_pos=dfs[f"l1_{split}_pos"],
+                l1_neg=dfs[f"l1_{split}_neg"],
+                l1l2_pos=dfs[f"l1l2_{split}_pos"],
+                l1l2_neg=dfs[f"l1l2_{split}_neg"],
+            )
+            for split in ["train_rated", "val"]
+        ]
+        fill_user_scores_with_score(
+            score, user_scores, scores_to_indices_dict, train_score, val_score
+        )
+
+
+def get_scores_ranking_preprocessing(
+    y_train_rated: np.ndarray,
+    y_train_rated_logits: np.ndarray,
+    y_val: np.ndarray,
+    y_val_logits: np.ndarray,
+    y_negative_samples_logits: np.ndarray,
+    y_negative_samples_logits_after_train: np.ndarray = None,
+) -> tuple:
+    assert y_train_rated.shape == y_train_rated_logits.shape
+    train_pos_mask = y_train_rated > 0
+    y_train_rated_pos_logits = y_train_rated_logits[train_pos_mask]
+    assert y_val.shape == y_val_logits.shape
+    val_pos_mask = y_val > 0
+    y_val_pos_logits = y_val_logits[val_pos_mask]
+    if y_negative_samples_logits_after_train is not None:
+        y_negative_samples_train_logits = y_negative_samples_logits_after_train
+    else:
+        y_negative_samples_train_logits = y_negative_samples_logits
+    assert y_negative_samples_train_logits.ndim == 1
+    return y_train_rated_pos_logits, y_val_pos_logits, y_negative_samples_train_logits
+
+
+def get_scores_ranking(
+    user_scores: list,
+    scores_to_indices_dict: dict,
+    y_train_rated: np.ndarray,
+    y_train_rated_logits: np.ndarray,
+    y_val: np.ndarray,
+    y_val_logits: np.ndarray,
+    y_train_negrated_ranking_logits: np.ndarray,
+    y_val_negrated_ranking_logits: np.ndarray,
+    y_negative_samples_logits: np.ndarray,
+    y_negative_samples_logits_after_train: np.ndarray = None,
+) -> tuple:
+    y_train_rated_pos_logits, y_val_pos_logits, y_negative_samples_train_logits = (
+        get_scores_ranking_preprocessing(
+            y_train_rated=y_train_rated,
+            y_train_rated_logits=y_train_rated_logits,
+            y_val=y_val,
+            y_val_logits=y_val_logits,
+            y_negative_samples_logits=y_negative_samples_logits,
+            y_negative_samples_logits_after_train=y_negative_samples_logits_after_train,
+        )
+    )
+
+    ranking_scores_train = get_ranking_scores_split(
+        y_pos_logits=y_train_rated_pos_logits,
+        y_negrated_ranking_logits=y_train_negrated_ranking_logits,
+        y_negative_samples_logits=y_negative_samples_train_logits,
+    )
+    ranking_scores_val = get_ranking_scores_split(
+        y_pos_logits=y_val_pos_logits,
+        y_negrated_ranking_logits=y_val_negrated_ranking_logits,
+        y_negative_samples_logits=y_negative_samples_logits,
+    )
+    assert list(ranking_scores_train.keys()) == list(ranking_scores_val.keys())
+    ranking_scores_train = {f"train_{k}": v for k, v in ranking_scores_train.items()}
+    ranking_scores_val = {f"val_{k}": v for k, v in ranking_scores_val.items()}
+    ranking_scores = {**ranking_scores_train, **ranking_scores_val}
+    return ranking_scores
+
+
+def get_user_scores(
+    scores_to_indices_dict: dict,
+    val_data_dict: dict,
+    user_outputs_dict: dict,
+) -> tuple:
+    user_scores = [None] * len(scores_to_indices_dict)
+
+    get_scores_default(
+        user_scores=user_scores,
+        scores_to_indices_dict=scores_to_indices_dict,
+        val_data_dict=val_data_dict,
+        user_outputs_dict=user_outputs_dict,
+    )
+
+    get_scores_default_derivable(
+        user_scores=user_scores,
+        scores_to_indices_dict=scores_to_indices_dict,
+    )
+
+    get_scores_category(
+        user_scores=user_scores,
+        scores_to_indices_dict=scores_to_indices_dict,
+        y_train_rated=val_data_dict["y_train_rated"],
+        y_val=val_data_dict["y_val"],
+        categories_dict=val_data_dict["categories_dict"],
+    )
+
+    ranking_scores_before_avging_train, ranking_scores_before_avging_val = get_scores_ranking(
+        user_scores=user_scores,
+        scores_to_indices_dict=scores_to_indices_dict,
         y_train_rated=val_data_dict["y_train_rated"],
         y_train_rated_logits=user_outputs_dict["y_train_rated_logits"],
         y_val=val_data_dict["y_val"],
@@ -439,24 +759,9 @@ def get_user_scores(
         y_val_negrated_ranking_logits=user_outputs_dict["y_val_negrated_ranking_logits"],
         y_negative_samples_logits=user_outputs_dict["y_negative_samples_logits"],
         y_negative_samples_logits_after_train=user_outputs_dict.get(
-            "y_negative_samples_logits_after_train"
+            "y_negative_samples_logits_after_train", None
         ),
     )
-    for ranking_score in ranking_scores:
-        user_scores[scores[ranking_score]] = ranking_scores[ranking_score]
-    category_scores = get_category_scores(
-        y_train_rated=val_data_dict["y_train_rated"],
-        y_val=val_data_dict["y_val"],
-        categories_dict=val_data_dict["categories_dict"],
-    )
-    for category_score in category_scores:
-        user_scores[scores[category_score]] = category_scores[category_score]
-    user_scores_copy = user_scores.copy()
-    for score in DERIVABLE_SCORES:
-        user_scores[scores[f"train_{score.name.lower()}"]] = derive_score(
-            score, user_scores_copy, scores, validation=False
-        )
-        user_scores[scores[f"val_{score.name.lower()}"]] = derive_score(
-            score, user_scores_copy, scores, validation=True
-        )
+
+    #assert None not in user_scores
     return tuple(user_scores)

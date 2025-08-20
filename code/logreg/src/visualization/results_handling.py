@@ -2,7 +2,7 @@ from typing import Callable
 
 import pandas as pd
 
-from ..training.algorithm import SCORES_DICT, Score
+from ..training.scores_definitions import SCORES_DICT, Score
 
 
 def throw_if_missing(column_names: list, method_name: str) -> Callable:

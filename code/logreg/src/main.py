@@ -17,12 +17,12 @@ from ...src.project_paths import ProjectPaths
 from .embeddings.embedding import Embedding
 from .training.algorithm import (
     Evaluation,
-    Score,
     get_algorithm_from_arg,
     get_evaluation_from_arg,
 )
 from .training.evaluation import Evaluator
 from .training.get_users_ratings import get_users_ratings
+from .training.scores import Score
 from .training.weights_handler import Weights_Handler, load_hyperparameter_range
 
 
@@ -231,9 +231,7 @@ if __name__ == "__main__":
     create_outputs_folder(config)
 
     if config["evaluation"] == Evaluation.SLIDING_WINDOW:
-        users_ratings, users_embeddings = init_sliding_window(
-            config=config
-        )
+        users_ratings, users_embeddings = init_sliding_window(config=config)
     else:
         users_ratings = get_users_ratings(
             users_selection=config["users_selection"],

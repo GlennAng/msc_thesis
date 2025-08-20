@@ -14,7 +14,7 @@ from matplotlib.font_manager import FontProperties
 from wordcloud import WordCloud
 
 from ..embeddings.compute_tfidf import get_mean_embedding, train_vectorizer_for_user
-from ..training.algorithm import SCORES_DICT, Score
+from ..training.scores_definitions import SCORES_DICT, Score
 from .results_handling import average_over_users
 
 CATEGORIES_ABBREVIATiONS = {

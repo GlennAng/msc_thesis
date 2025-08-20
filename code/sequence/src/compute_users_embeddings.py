@@ -29,6 +29,11 @@ from .sequence_data import (
 
 EMBEDDING_DIM = 357
 VALID_EMBED_FUNCTIONS = ["mean_pos", "logreg"]
+VALID_EMBED_FUNCTIONS_RANDOMNESS = {
+    "mean_pos": False,
+    "logreg": True
+}
+assert set(VALID_EMBED_FUNCTIONS) == set(VALID_EMBED_FUNCTIONS_RANDOMNESS.keys())
 
 
 def parse_args() -> argparse.Namespace:

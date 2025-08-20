@@ -199,6 +199,9 @@ class Evaluator:
             user_categories_ratios=user_categories_ratios,
             embedding=self.embedding,
         )
+        val_negative_samples_embeddings = user_val_negative_samples[
+            "val_negative_samples_embeddings"
+        ]
         user_predictions_dict["negative_samples_ids"] = user_val_negative_samples[
             "val_negative_samples_ids"
         ]
@@ -226,7 +229,7 @@ class Evaluator:
                 self.evaluate_user_split(
                     user_id=user_id,
                     user_ratings=user_ratings,
-                    user_val_negative_samples=user_val_negative_samples,
+                    val_negative_samples_embeddings=val_negative_samples_embeddings,
                     user_cache_papers=user_cache_papers,
                     user_info=user_info,
                     user_results_dict=user_results_dict,
@@ -237,7 +240,7 @@ class Evaluator:
                 self.evaluate_user_cross_validation(
                     user_id=user_id,
                     user_ratings=user_ratings,
-                    user_val_negative_samples=user_val_negative_samples,
+                    val_negative_samples_embeddings=val_negative_samples_embeddings,
                     user_cache_papers=user_cache_papers,
                     user_info=user_info,
                     user_results_dict=user_results_dict,
@@ -248,7 +251,7 @@ class Evaluator:
                 self.evaluate_user_sliding_window(
                     user_ratings=user_ratings,
                     user_embeddings=user_embeddings,
-                    user_val_negative_samples=user_val_negative_samples,
+                    val_negative_samples_embeddings=val_negative_samples_embeddings,
                     user_info=user_info,
                     user_results_dict=user_results_dict,
                     user_predictions_dict=user_predictions_dict,
@@ -266,7 +269,7 @@ class Evaluator:
         self,
         user_id: int,
         user_ratings: pd.DataFrame,
-        user_val_negative_samples: dict,
+        val_negative_samples_embeddings: np.ndarray,
         user_cache_papers: dict,
         user_info: dict,
         user_results_dict: dict,
@@ -311,18 +314,16 @@ class Evaluator:
         )
         user_models = self.train_user_models(train_data_dict=train_data_dict, user_id=user_id)
         user_results, user_predictions = score_user_models(
-            scores=self.config["scores"],
+            scores_to_indices_dict=self.config["scores"],
             val_data_dict=val_data_dict,
             user_models=user_models,
-            negative_samples_embeddings=user_val_negative_samples[
-                "val_negative_samples_embeddings"
-            ],
+            negative_samples_embeddings=val_negative_samples_embeddings,
             train_negrated_ranking_idxs=train_negrated_ranking_idxs,
             val_negrated_ranking_idxs=val_negrated_ranking_idxs,
-            save_users_predictions=self.config["save_users_predictions"],
+            save_users_predictions_bool=self.config["save_users_predictions"],
         )
         user_results_dict[0] = user_results
-        user_predictions_dict[0] = user_predictions
+        user_predictions_dict[0].update(user_predictions)
         if self.config["save_users_coefs"]:
             assert len(user_models) == 1
             model = user_models[0]
@@ -333,7 +334,7 @@ class Evaluator:
         self,
         user_id: int,
         user_ratings: pd.DataFrame,
-        user_val_negative_samples: dict,
+        val_negative_samples_embeddings: np.ndarray,
         user_cache_papers: dict,
         user_info: dict,
         user_results_dict: dict,
@@ -385,12 +386,10 @@ class Evaluator:
                 scores=self.config["scores"],
                 val_data_dict=val_data_dict,
                 user_models=user_models,
-                negative_samples_embeddings=user_val_negative_samples[
-                    "val_negative_samples_embeddings"
-                ],
+                negative_samples_embeddings=val_negative_samples_embeddings,
                 train_negrated_ranking_idxs=train_negrated_ranking_idxs,
                 val_negrated_ranking_idxs=val_negrated_ranking_idxs,
-                save_users_predictions=self.config["save_users_predictions"],
+                save_users_predictions_bool=self.config["save_users_predictions"],
             )
             user_results_dict[fold_idx] = fold_results
             if self.config["save_users_predictions"]:
@@ -403,7 +402,7 @@ class Evaluator:
         self,
         user_ratings: pd.DataFrame,
         user_embeddings: dict,
-        user_val_negative_samples: dict,
+        val_negative_samples_embeddings: np.ndarray,
         user_info: dict,
         user_results_dict: dict,
         user_predictions_dict: dict,
@@ -415,7 +414,7 @@ class Evaluator:
             train_ratings, val_ratings, removed_ratings
         )
 
-        val_sessions_idxs = (val_ratings["session_id"] - val_ratings["session_id"].min())
+        val_sessions_idxs = val_ratings["session_id"] - val_ratings["session_id"].min()
         val_idxs_to_val_sessions_idxs = val_sessions_idxs.tolist()
         val_pos_idxs_to_val_sessions_idxs = val_sessions_idxs[val_ratings["rating"] > 0].tolist()
 
@@ -451,17 +450,16 @@ class Evaluator:
         user_results, user_predictions = score_user_models_sliding_window(
             val_idxs_to_val_sessions_idxs=val_idxs_to_val_sessions_idxs,
             val_pos_idxs_to_val_sessions_idxs=val_pos_idxs_to_val_sessions_idxs,
-            scores=self.config["scores"],
+            scores_to_indices_dict=self.config["scores"],
             val_data_dict=val_data_dict,
             user_models=models,
-            negative_samples_embeddings=user_val_negative_samples[
-                "val_negative_samples_embeddings"
-            ],
+            negative_samples_embeddings=val_negative_samples_embeddings,
             train_negrated_ranking_idxs=train_negrated_ranking_idxs,
             val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+            save_users_predictions_bool=self.config["save_users_predictions"],
         )
         user_results_dict[0] = user_results
-        user_predictions_dict[0] = user_predictions
+        user_predictions_dict[0].update(user_predictions)
 
     def load_user_model(self, user_coefs: np.ndarray) -> object:
         assert len(self.hyperparameters_combinations) == 1
