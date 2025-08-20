@@ -12,13 +12,22 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
+from ..training.get_users_ratings import N_NEGRATED_RANKING
+
 
 class Score_Type(Enum):
     DEFAULT = auto()
     DEFAULT_DERIVABLE = auto()
     RANKING = auto()
+    RANKING_BOTTOM_1_POS = auto()
     RANKING_TEMPORAL = auto()
     CATEGORY = auto()
+
+
+class Neg_Type(Enum):
+    NEGRATED = auto()
+    SAMPLES = auto()
+    ALL = auto()
 
 
 CONFIDENCE_THRESHOLD = 0.5
@@ -173,6 +182,40 @@ def calculate_confidence_bottom_1_pos(y_true: np.ndarray, y_proba: np.ndarray) -
     return np.min(y_proba[y_true == 1]) if np.sum(y_true == 1) > 0 else 0
 
 
+def calculate_softmax_pos(softmax_array: np.ndarray) -> float:
+    return softmax_array[0] if len(softmax_array) > 0 else 0
+
+
+def calculate_softmax_ranking_neg(softmax_array: np.ndarray) -> float:
+    start_idx = 1
+    return (
+        np.mean(softmax_array[start_idx:N_NEGRATED_RANKING])
+        if len(softmax_array) > start_idx
+        else 0
+    )
+
+
+def calculate_softmax_top_1_samples(softmax_array: np.ndarray) -> float:
+    start_idx = 1 + N_NEGRATED_RANKING
+    return np.max(softmax_array[start_idx:]) if len(softmax_array) > start_idx else 0
+
+
+def calculate_info_nce(softmax_array: np.ndarray) -> float:
+    return -np.log(softmax_array[0] + 1e-10) if len(softmax_array) > 0 else 0
+
+
+def calculate_ndcg(pos_rank: int) -> float:
+    return 1.0 / np.log2(pos_rank + 1) if pos_rank > 0 else 0.0
+
+
+def calculate_mrr(pos_rank: int) -> float:
+    return 1.0 / pos_rank if pos_rank > 0 else 0.0
+
+
+def calculate_hit_rate_at_1(pos_rank: int) -> float:
+    return float(pos_rank == 1)
+
+
 SCORES_DICT = {
     "POSITIVE_GT_RATIO": {
         "abbreviation": "PGTRo",
@@ -285,18 +328,24 @@ SCORES_DICT = {
         "type": Score_Type.RANKING,
         "increase_better": True,
         "page": 0,
+        "calculator": calculate_ndcg,
+        "neg_type": Neg_Type.NEGRATED,
     },
     "MRR": {
         "abbreviation": "MRR",
         "type": Score_Type.RANKING,
         "increase_better": True,
         "page": 0,
+        "calculator": calculate_mrr,
+        "neg_type": Neg_Type.NEGRATED,
     },
     "HIT_RATE_AT_1": {
         "abbreviation": "HR@1",
         "type": Score_Type.RANKING,
         "increase_better": True,
         "page": 0,
+        "calculator": calculate_hit_rate_at_1,
+        "neg_type": Neg_Type.NEGRATED,
     },
     "CONFIDENCE_ALL": {
         "abbreviation": "C_ALL",
@@ -373,6 +422,8 @@ SCORES_DICT = {
         "type": Score_Type.RANKING,
         "increase_better": True,
         "page": 1,
+        "calculator": calculate_ndcg,
+        "neg_type": Neg_Type.SAMPLES,
     },
     "NDCG_ALL": {
         "abbreviation": "NDCG\nAll",
@@ -380,12 +431,16 @@ SCORES_DICT = {
         "type": Score_Type.RANKING,
         "increase_better": True,
         "page": 1,
+        "calculator": calculate_ndcg,
+        "neg_type": Neg_Type.ALL,
     },
     "MRR_SAMPLES": {
         "abbreviation": "MRR\nSmpl",
         "type": Score_Type.RANKING,
         "increase_better": True,
         "page": 1,
+        "calculator": calculate_mrr,
+        "neg_type": Neg_Type.SAMPLES,
     },
     "MRR_ALL": {
         "abbreviation": "MRR\nAll",
@@ -393,18 +448,24 @@ SCORES_DICT = {
         "type": Score_Type.RANKING,
         "increase_better": True,
         "page": 1,
+        "calculator": calculate_mrr,
+        "neg_type": Neg_Type.ALL,
     },
     "HIT_RATE_AT_1_SAMPLES": {
         "abbreviation": "HR@1\nSmpl",
         "type": Score_Type.RANKING,
         "increase_better": True,
         "page": 1,
+        "calculator": calculate_hit_rate_at_1,
+        "neg_type": Neg_Type.SAMPLES,
     },
     "HIT_RATE_AT_1_ALL": {
         "abbreviation": "HR@1\nAll",
         "type": Score_Type.RANKING,
         "increase_better": True,
         "page": 1,
+        "calculator": calculate_hit_rate_at_1,
+        "neg_type": Neg_Type.ALL,
     },
     "CATEGORY_L1_MOST_FREQUENT_IDENTICAL": {
         "abbreviation": "L1\nMFI",
@@ -439,90 +500,117 @@ SCORES_DICT = {
         "type": Score_Type.RANKING,
         "increase_better": True,
         "page": 2,
+        "calculator": calculate_softmax_pos,
+        "temperature": "05",
     },
     "SOFTMAX_BOTTOM_1_POS_05": {
         "abbreviation": "SmP↓1\n0.5",
-        "type": Score_Type.RANKING,
+        "type": Score_Type.RANKING_BOTTOM_1_POS,
         "increase_better": True,
         "page": 2,
+        "lookup": "SOFTMAX_POS_05",
     },
     "SOFTMAX_RANKING_NEG_05": {
         "abbreviation": "SmRN\n0.5",
         "type": Score_Type.RANKING,
         "increase_better": False,
         "page": 2,
+        "calculator": calculate_softmax_ranking_neg,
+        "temperature": "05",
     },
     "SOFTMAX_TOP_1_SAMPLES_05": {
         "abbreviation": "SmS↑1\n0.5",
         "type": Score_Type.RANKING,
         "increase_better": False,
         "page": 2,
+        "calculator": calculate_softmax_top_1_samples,
+        "temperature": "05",
     },
     "INFO_NCE_05": {
         "abbreviation": "INCE\n0.5",
         "type": Score_Type.RANKING,
         "increase_better": False,
         "page": 2,
+        "calculator": calculate_info_nce,
+        "temperature": "05",
     },
     "SOFTMAX_POS_1": {
         "abbreviation": "SmP\n1.0",
         "type": Score_Type.RANKING,
         "increase_better": True,
         "page": 2,
+        "calculator": calculate_softmax_pos,
+        "temperature": "1",
     },
     "SOFTMAX_BOTTOM_1_POS_1": {
         "abbreviation": "SmP↓1\n1.0",
-        "type": Score_Type.RANKING,
+        "type": Score_Type.RANKING_BOTTOM_1_POS,
         "increase_better": True,
         "page": 2,
+        "lookup": "SOFTMAX_POS_1",
     },
     "SOFTMAX_RANKING_NEG_1": {
         "abbreviation": "SmRN\n1.0",
         "type": Score_Type.RANKING,
         "increase_better": False,
         "page": 2,
+        "calculator": calculate_softmax_ranking_neg,
+        "temperature": "1",
     },
     "SOFTMAX_TOP_1_SAMPLES_1": {
         "abbreviation": "SmS↑1\n1.0",
         "type": Score_Type.RANKING,
         "increase_better": False,
         "page": 2,
+        "calculator": calculate_softmax_top_1_samples,
+        "temperature": "1",
     },
     "INFO_NCE_1": {
         "abbreviation": "INCE\n1.0",
         "type": Score_Type.RANKING,
         "increase_better": False,
         "page": 2,
+        "calculator": calculate_info_nce,
+        "temperature": "1",
     },
     "SOFTMAX_POS_2": {
         "abbreviation": "SmP\n2.0",
         "type": Score_Type.RANKING,
         "increase_better": True,
         "page": 2,
+        "calculator": calculate_softmax_pos,
+        "temperature": "2",
     },
     "SOFTMAX_BOTTOM_1_POS_2": {
         "abbreviation": "SmP↓1\n2.0",
-        "type": Score_Type.RANKING,
+        "type": Score_Type.RANKING_BOTTOM_1_POS,
         "increase_better": True,
         "page": 2,
+        "lookup": "SOFTMAX_POS_2",
     },
     "SOFTMAX_RANKING_NEG_2": {
         "abbreviation": "SmRN\n2.0",
         "type": Score_Type.RANKING,
         "increase_better": False,
         "page": 2,
+        "calculator": calculate_softmax_ranking_neg,
+        "temperature": "2",
     },
     "SOFTMAX_TOP_1_SAMPLES_2": {
         "abbreviation": "SmS↑1\n2.0",
         "type": Score_Type.RANKING,
         "increase_better": False,
         "page": 2,
+        "calculator": calculate_softmax_top_1_samples,
+        "temperature": "2",
     },
     "INFO_NCE_2": {
         "abbreviation": "INCE\n2.0",
         "type": Score_Type.RANKING,
         "increase_better": False,
         "page": 2,
+        "calculator": calculate_info_nce,
+        "temperature": "2",
     },
     "NDCG_ALL_TEMPORAL": {
         "abbreviation": "NDCG\nTemp",
@@ -624,4 +712,30 @@ def get_score_category(
         kwargs["l1l2_pos"] = l1l2_pos
     if "l1l2_neg" in sig.parameters:
         kwargs["l1l2_neg"] = l1l2_neg
+    return func(**kwargs)
+
+
+def get_score_ranking(
+    score: Score,
+    rank_pos: int,
+    rank_pos_samples: int,
+    rank_pos_all: int,
+    softmax_dict: dict,
+) -> float:
+    func = SCORES_DICT[score]["calculator"]
+    sig = inspect.signature(func)
+    kwargs = {}
+    if "softmax_array" in sig.parameters:
+        temperature = SCORES_DICT[score]["temperature"]
+        kwargs["softmax_array"] = softmax_dict[temperature]
+    if "pos_rank" in sig.parameters:
+        neg_type = SCORES_DICT[score]["neg_type"]
+        if neg_type == Neg_Type.NEGRATED:
+            kwargs["pos_rank"] = rank_pos
+        elif neg_type == Neg_Type.SAMPLES:
+            kwargs["pos_rank"] = rank_pos_samples
+        elif neg_type == Neg_Type.ALL:
+            kwargs["pos_rank"] = rank_pos_all
+        else:
+            raise ValueError(f"Invalid neg_type {neg_type} for score {score.name}.")
     return func(**kwargs)

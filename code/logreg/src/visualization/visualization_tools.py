@@ -414,6 +414,15 @@ def get_best_global_hyperparameters_combination_tables(
         averaged_over_cs_users,
         averaged_over_non_cs_users,
     ]
+    for i in range(1, len(dfs)):
+        df = dfs[i]
+        if df.empty:
+            df = dfs[0].copy()
+            for col in df.columns:
+                if col != "combination_idx":
+                    df[col] = np.nan
+            assert not df.empty
+            dfs[i] = df
     tables = [[] for _ in range(max([SCORES_DICT[score]["page"] for score in Score]) + 1)]
     for _, score in enumerate(list(Score)):
         score_name = score.name.lower()
