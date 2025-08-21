@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy.special import softmax
+from sklearn.linear_model import LinearRegression
 
 from ..embeddings.embedding import Embedding
 from .scores_definitions import (
@@ -151,10 +152,12 @@ def load_user_val_data_dict(
         "y_train_rated": y_train_rated,
         "X_train_rated_papers_ids": X_train_rated_papers_ids,
         "time_train_rated": train_ratings["time"].values,
+        "session_id_train_rated": train_ratings["session_id"].values,
         "X_val": X_val,
         "y_val": y_val,
         "X_val_papers_ids": X_val_papers_ids,
         "time_val": val_ratings["time"].values,
+        "session_id_val": val_ratings["session_id"].values,
         "categories_dict": categories_dict,
     }
     if train_negrated_ranking is not None:
@@ -694,6 +697,70 @@ def get_scores_ranking_bottom_1_pos(
         )
 
 
+def get_scores_ranking_convert_temporal(
+    temporal_train_rated: np.ndarray, temporal_val: np.ndarray, score_type: Score_Type
+) -> tuple:
+    if score_type == Score_Type.RANKING_SESSION:
+        return temporal_train_rated, temporal_val
+    elif score_type == Score_Type.RANKING_TIME:
+        ns_per_day = 24 * 60 * 60 * 1_000_000_000
+        first_train_timestamp = temporal_train_rated[0]
+        temporal_train_rated_days = (temporal_train_rated - first_train_timestamp).astype("int64")
+        temporal_train_rated_days = temporal_train_rated_days / ns_per_day
+        first_val_timestamp = temporal_val[0]
+        temporal_val_days = (temporal_val - first_val_timestamp).astype("int64") / ns_per_day
+        return temporal_train_rated_days, temporal_val_days
+    else:
+        raise ValueError(f"Unsupported score_type: {score_type}.")
+    
+
+def get_scores_ranking_temporal_slope(
+    temporal_pos: np.ndarray, scores_ranking_before_avging: list
+) -> float:
+    y_scores = np.array(scores_ranking_before_avging)
+    assert y_scores.shape == temporal_pos.shape
+    assert len(temporal_pos) > 1
+    model = LinearRegression()
+    model.fit(temporal_pos.reshape(-1, 1), y_scores)
+    return float(model.coef_[0])
+
+
+def get_scores_ranking_temporal(
+    user_scores: list,
+    scores_to_indices_dict: dict,
+    scores_ranking_before_avging_train: dict,
+    scores_ranking_before_avging_val: dict,
+    y_train_rated: np.ndarray,
+    y_val: np.ndarray,
+    temporal_train_rated: np.ndarray,
+    temporal_val: np.ndarray,
+    score_type: Score_Type,
+) -> None:
+    assert y_train_rated.shape == temporal_train_rated.shape
+    assert y_val.shape == temporal_val.shape
+    temporal_train_rated, temporal_val = get_scores_ranking_convert_temporal(
+        temporal_train_rated, temporal_val, score_type
+    )
+    train_mask_pos = y_train_rated > 0
+    val_mask_pos = y_val > 0
+    temporal_train_rated_pos = temporal_train_rated[train_mask_pos]
+    temporal_val_pos = temporal_val[val_mask_pos]
+    assert np.all(np.diff(temporal_train_rated_pos) >= 0)
+    assert np.all(np.diff(temporal_val_pos) >= 0)
+
+    for score in SCORES_BY_TYPE[score_type]:
+        lookup = SCORES_DICT[score]["lookup"]
+        train_score = get_scores_ranking_temporal_slope(
+            temporal_train_rated_pos, scores_ranking_before_avging_train[lookup]
+        )
+        val_score = get_scores_ranking_temporal_slope(
+            temporal_val_pos, scores_ranking_before_avging_val[lookup]
+        )
+        fill_user_scores_with_score(
+            score, user_scores, scores_to_indices_dict, train_score, val_score
+        )
+
+
 def get_user_scores(
     scores_to_indices_dict: dict,
     val_data_dict: dict,
@@ -736,12 +803,35 @@ def get_user_scores(
         user_scores=user_scores,
         scores_to_indices_dict=scores_to_indices_dict,
         scores_ranking_before_avging_train=scores_ranking_before_avging_train,
-        scores_ranking_before_avging_val=scores_ranking_before_avging_val
+        scores_ranking_before_avging_val=scores_ranking_before_avging_val,
     )
     get_scores_ranking_bottom_1_pos(
         user_scores=user_scores,
         scores_to_indices_dict=scores_to_indices_dict,
         scores_ranking_before_avging_train=scores_ranking_before_avging_train,
-        scores_ranking_before_avging_val=scores_ranking_before_avging_val
+        scores_ranking_before_avging_val=scores_ranking_before_avging_val,
     )
+    get_scores_ranking_temporal(
+        user_scores=user_scores,
+        scores_to_indices_dict=scores_to_indices_dict,
+        scores_ranking_before_avging_train=scores_ranking_before_avging_train,
+        scores_ranking_before_avging_val=scores_ranking_before_avging_val,
+        y_train_rated=val_data_dict["y_train_rated"],
+        y_val=val_data_dict["y_val"],
+        temporal_train_rated=val_data_dict["time_train_rated"],
+        temporal_val=val_data_dict["time_val"],
+        score_type=Score_Type.RANKING_TIME,
+    )
+    get_scores_ranking_temporal(
+        user_scores=user_scores,
+        scores_to_indices_dict=scores_to_indices_dict,
+        scores_ranking_before_avging_train=scores_ranking_before_avging_train,
+        scores_ranking_before_avging_val=scores_ranking_before_avging_val,
+        y_train_rated=val_data_dict["y_train_rated"],
+        y_val=val_data_dict["y_val"],
+        temporal_train_rated=val_data_dict["session_id_train_rated"],
+        temporal_val=val_data_dict["session_id_val"],
+        score_type=Score_Type.RANKING_SESSION,
+    )
+    assert None not in user_scores, "Some user scores are None."
     return tuple(user_scores)

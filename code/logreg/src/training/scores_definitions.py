@@ -20,7 +20,8 @@ class Score_Type(Enum):
     DEFAULT_DERIVABLE = auto()
     RANKING = auto()
     RANKING_BOTTOM_1_POS = auto()
-    RANKING_TEMPORAL = auto()
+    RANKING_SESSION = auto()
+    RANKING_TIME = auto()
     CATEGORY = auto()
 
 
@@ -609,30 +610,58 @@ SCORES_DICT = {
         "calculator": calculate_info_nce,
         "temperature": "2",
     },
-    "NDCG_ALL_TEMPORAL": {
-        "abbreviation": "NDCG\nTemp",
-        "type": Score_Type.RANKING_TEMPORAL,
+    "NDCG_ALL_SESSION": {
+        "abbreviation": "NDCG\nSess",
+        "type": Score_Type.RANKING_SESSION,
         "increase_better": True,
         "page": 3,
         "lookup": "NDCG_ALL",
     },
-    "MRR_ALL_TEMPORAL": {
-        "abbreviation": "MRR\nTemp",
-        "type": Score_Type.RANKING_TEMPORAL,
+    "MRR_ALL_SESSION": {
+        "abbreviation": "MRR\nSess",
+        "type": Score_Type.RANKING_SESSION,
         "increase_better": True,
         "page": 3,
         "lookup": "MRR_ALL",
     },
-    "HIT_RATE_AT_1_TEMPORAL": {
-        "abbreviation": "HR@1\nTemp",
-        "type": Score_Type.RANKING_TEMPORAL,
+    "HIT_RATE_AT_1_SESSION": {
+        "abbreviation": "HR@1\nSess",
+        "type": Score_Type.RANKING_SESSION,
         "increase_better": True,
         "page": 3,
         "lookup": "HIT_RATE_AT_1_ALL",
     },
-    "INFO_NCE_TEMP": {
-        "abbreviation": "INCE\nTemp",
-        "type": Score_Type.RANKING_TEMPORAL,
+    "INFO_NCE_1_SESSION": {
+        "abbreviation": "INCE 1\nSess",
+        "type": Score_Type.RANKING_SESSION,
+        "increase_better": False,
+        "page": 3,
+        "lookup": "INFO_NCE_1",
+    },
+    "NDCG_ALL_TIME": {
+        "abbreviation": "NDCG\nTime",
+        "type": Score_Type.RANKING_TIME,
+        "increase_better": True,
+        "page": 3,
+        "lookup": "NDCG_ALL",
+    },
+    "MRR_ALL_TIME": {
+        "abbreviation": "MRR\nTime",
+        "type": Score_Type.RANKING_TIME,
+        "increase_better": True,
+        "page": 3,
+        "lookup": "MRR_ALL",
+    },
+    "HIT_RATE_AT_1_TIME": {
+        "abbreviation": "HR@1\nTime",
+        "type": Score_Type.RANKING_TIME,
+        "increase_better": True,
+        "page": 3,
+        "lookup": "HIT_RATE_AT_1_ALL",
+    },
+    "INFO_NCE_1_TIME": {
+        "abbreviation": "INCE 1\nTime",
+        "type": Score_Type.RANKING_TIME,
         "increase_better": False,
         "page": 3,
         "lookup": "INFO_NCE_1",
