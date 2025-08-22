@@ -100,7 +100,9 @@ def average_over_folds_with_std(results_before_avging_over_folds: pd.DataFrame) 
 
 
 @throw_if_fold_idx_present("average_over_users")
-def average_over_users(results_after_avging_over_folds: pd.DataFrame) -> pd.DataFrame:
+def average_over_users(
+    results_after_avging_over_folds: pd.DataFrame, medi: bool = False
+) -> pd.DataFrame:
     """
     output columns: ['combination_idx] + ['train_{score}_mean', 'val_{score}_mean',
     'train_{score}_std', 'val_{score}_std'] for each score in the DF
@@ -109,18 +111,25 @@ def average_over_users(results_after_avging_over_folds: pd.DataFrame) -> pd.Data
     non_group_columns = [
         column for column in results_after_avging_over_folds.columns if column not in group_columns
     ]
-    results_means = results_after_avging_over_folds.groupby(group_columns).mean().reset_index()
-    results_means = results_means.drop(columns=["user_id"])
-    results_means = results_means.rename(
-        columns={f"{score}": f"{score}_mean" for score in non_group_columns}
-    )
     results_stds = results_after_avging_over_folds.groupby(group_columns).std(ddof=1).reset_index()
     results_stds = results_stds.drop(columns=["user_id"])
     results_stds = results_stds.rename(
         columns={f"{score}": f"{score}_std" for score in non_group_columns}
     )
+    if medi:
+        results_avgs = results_after_avging_over_folds.groupby(group_columns).median().reset_index()
+        results_avgs = results_avgs.drop(columns=["user_id"])
+        results_avgs = results_avgs.rename(
+            columns={f"{score}": f"{score}_medi" for score in non_group_columns}
+        )
+    else:
+        results_avgs = results_after_avging_over_folds.groupby(group_columns).mean().reset_index()
+        results_avgs = results_avgs.drop(columns=["user_id"])
+        results_avgs = results_avgs.rename(
+            columns={f"{score}": f"{score}_mean" for score in non_group_columns}
+        )
     results_after_avging_over_users = pd.merge(
-        results_means, results_stds, on=group_columns, how="inner"
+        results_avgs, results_stds, on=group_columns, how="inner"
     )
     return results_after_avging_over_users
 

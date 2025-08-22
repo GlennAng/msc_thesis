@@ -21,7 +21,6 @@ class Score_Type(Enum):
     RANKING = auto()
     RANKING_BOTTOM_1_POS = auto()
     RANKING_SESSION = auto()
-    RANKING_TIME = auto()
     CATEGORY = auto()
 
 
@@ -610,61 +609,101 @@ SCORES_DICT = {
         "calculator": calculate_info_nce,
         "temperature": "2",
     },
-    "NDCG_ALL_SESSION": {
-        "abbreviation": "NDCG\nSess",
+    "NDCG_ALL_FIRST_SESSION": {
+        "abbreviation": "NDCG\nFirst S",
         "type": Score_Type.RANKING_SESSION,
         "increase_better": True,
         "page": 3,
         "lookup": "NDCG_ALL",
+        "selection": "first",
     },
-    "MRR_ALL_SESSION": {
-        "abbreviation": "MRR\nSess",
+    "NDCG_ALL_RANDOM_SESSION": {
+        "abbreviation": "NDCG\nRand S",
         "type": Score_Type.RANKING_SESSION,
-        "increase_better": True,
-        "page": 3,
-        "lookup": "MRR_ALL",
-    },
-    "HIT_RATE_AT_1_SESSION": {
-        "abbreviation": "HR@1\nSess",
-        "type": Score_Type.RANKING_SESSION,
-        "increase_better": True,
-        "page": 3,
-        "lookup": "HIT_RATE_AT_1_ALL",
-    },
-    "INFO_NCE_1_SESSION": {
-        "abbreviation": "INCE 1\nSess",
-        "type": Score_Type.RANKING_SESSION,
-        "increase_better": False,
-        "page": 3,
-        "lookup": "INFO_NCE_1",
-    },
-    "NDCG_ALL_TIME": {
-        "abbreviation": "NDCG\nTime",
-        "type": Score_Type.RANKING_TIME,
         "increase_better": True,
         "page": 3,
         "lookup": "NDCG_ALL",
+        "selection": "random",
     },
-    "MRR_ALL_TIME": {
-        "abbreviation": "MRR\nTime",
-        "type": Score_Type.RANKING_TIME,
+    "NDCG_ALL_LAST_SESSION": {
+        "abbreviation": "NDCG\nLast S",
+        "type": Score_Type.RANKING_SESSION,
+        "increase_better": True,
+        "page": 3,
+        "lookup": "NDCG_ALL",
+        "selection": "last",
+    },
+    "MRR_ALL_FIRST_SESSION": {
+        "abbreviation": "MRR\nFirst S",
+        "type": Score_Type.RANKING_SESSION,
         "increase_better": True,
         "page": 3,
         "lookup": "MRR_ALL",
+        "selection": "first",
     },
-    "HIT_RATE_AT_1_TIME": {
-        "abbreviation": "HR@1\nTime",
-        "type": Score_Type.RANKING_TIME,
+    "MRR_ALL_RANDOM_SESSION": {
+        "abbreviation": "MRR\nRand S",
+        "type": Score_Type.RANKING_SESSION,
+        "increase_better": True,
+        "page": 3,
+        "lookup": "MRR_ALL",
+        "selection": "random",
+    },
+    "MRR_ALL_LAST_SESSION": {
+        "abbreviation": "MRR\nLast S",
+        "type": Score_Type.RANKING_SESSION,
+        "increase_better": True,
+        "page": 3,
+        "lookup": "MRR_ALL",
+        "selection": "last",
+    },
+    "HIT_RATE_AT_1_ALL_FIRST_SESSION": {
+        "abbreviation": "HR@1\nFirst S",
+        "type": Score_Type.RANKING_SESSION,
         "increase_better": True,
         "page": 3,
         "lookup": "HIT_RATE_AT_1_ALL",
+        "selection": "first",
     },
-    "INFO_NCE_1_TIME": {
-        "abbreviation": "INCE 1\nTime",
-        "type": Score_Type.RANKING_TIME,
+    "HIT_RATE_AT_1_ALL_RANDOM_SESSION": {
+        "abbreviation": "HR@1\nRand S",
+        "type": Score_Type.RANKING_SESSION,
+        "increase_better": True,
+        "page": 3,
+        "lookup": "HIT_RATE_AT_1_ALL",
+        "selection": "random",
+    },
+    "HIT_RATE_AT_1_ALL_LAST_SESSION": {
+        "abbreviation": "HR@1\nLast S",
+        "type": Score_Type.RANKING_SESSION,
+        "increase_better": True,
+        "page": 3,
+        "lookup": "HIT_RATE_AT_1_ALL",
+        "selection": "last",
+    },
+    "INFO_NCE_1_FIRST_SESSION": {
+        "abbreviation": "INCE 1\nFirst S",
+        "type": Score_Type.RANKING_SESSION,
         "increase_better": False,
         "page": 3,
         "lookup": "INFO_NCE_1",
+        "selection": "first",
+    },
+    "INFO_NCE_1_RANDOM_SESSION": {
+        "abbreviation": "INCE 1\nRand S",
+        "type": Score_Type.RANKING_SESSION,
+        "increase_better": False,
+        "page": 3,
+        "lookup": "INFO_NCE_1",
+        "selection": "random",
+    },
+    "INFO_NCE_1_LAST_SESSION": {
+        "abbreviation": "INCE 1\nLast S",
+        "type": Score_Type.RANKING_SESSION,
+        "increase_better": False,
+        "page": 3,
+        "lookup": "INFO_NCE_1",
+        "selection": "last",
     },
 }
 Score = Enum("Score", list(SCORES_DICT.keys()))

@@ -374,70 +374,51 @@ def print_fourth_page(
 
 def get_best_global_hyperparameters_combination_tables(
     best_global_hyperparameters_combination_df: pd.DataFrame,
-    high_votes_users: np.ndarray,
-    low_votes_users: np.ndarray,
-    high_ratio_users: np.ndarray,
-    cs_users: np.ndarray,
-    non_cs_users: np.ndarray,
+    users_groups_dict: dict,
+    is_val: bool = True,
 ) -> tuple:
     averaged_over_all_users = average_over_users(best_global_hyperparameters_combination_df)
-    averaged_over_high_votes_users = average_over_users(
-        best_global_hyperparameters_combination_df.loc[
-            best_global_hyperparameters_combination_df["user_id"].isin(high_votes_users)
-        ]
+    avg_over_all_users_medi = average_over_users(
+        best_global_hyperparameters_combination_df, medi=True
     )
-    averaged_over_low_votes_users = average_over_users(
-        best_global_hyperparameters_combination_df.loc[
-            best_global_hyperparameters_combination_df["user_id"].isin(low_votes_users)
-        ]
-    )
-    averaged_over_high_ratio_users = average_over_users(
-        best_global_hyperparameters_combination_df.loc[
-            best_global_hyperparameters_combination_df["user_id"].isin(high_ratio_users)
-        ]
-    )
-    averaged_over_cs_users = average_over_users(
-        best_global_hyperparameters_combination_df.loc[
-            best_global_hyperparameters_combination_df["user_id"].isin(cs_users)
-        ]
-    )
-    averaged_over_non_cs_users = average_over_users(
-        best_global_hyperparameters_combination_df.loc[
-            best_global_hyperparameters_combination_df["user_id"].isin(non_cs_users)
-        ]
-    )
-    dfs = [
-        averaged_over_all_users,
-        averaged_over_high_votes_users,
-        averaged_over_low_votes_users,
-        averaged_over_high_ratio_users,
-        averaged_over_cs_users,
-        averaged_over_non_cs_users,
-    ]
-    for i in range(1, len(dfs)):
-        df = dfs[i]
+    averaged_over_users_groups_list = []
+    for users_group in users_groups_dict.values():
+        users_ids = users_group["users_ids"]
+        df = average_over_users(
+            best_global_hyperparameters_combination_df.loc[
+                best_global_hyperparameters_combination_df["user_id"].isin(users_ids)
+            ]
+        )
         if df.empty:
-            df = dfs[0].copy()
+            df = averaged_over_all_users.copy()
             for col in df.columns:
                 if col != "combination_idx":
                     df[col] = np.nan
             assert not df.empty
-            dfs[i] = df
+        averaged_over_users_groups_list.append(df)
+    averaged_over_users_groups_list = [averaged_over_all_users] + averaged_over_users_groups_list
+    is_val_string = "val" if is_val else "train"
     tables = [[] for _ in range(max([SCORES_DICT[score]["page"] for score in Score]) + 1)]
+    is_val_string = "val" if is_val else "train"
     for _, score in enumerate(list(Score)):
         score_name = score.name.lower()
         row = [SCORES_DICT[score]["abbreviation"]]
-        for i, df in enumerate(dfs):
-            row.append(format_number(df[f"val_{score_name}_mean"].values[0]))
-            row.append(format_number(df[f"train_{score_name}_mean"].values[0]))
+        for i, df in enumerate(averaged_over_users_groups_list):
+            row.append(format_number(df[f"{is_val_string}_{score_name}_mean"].values[0]))
             if i == 0:
-                row.append(format_number(df[f"val_{score_name}_std"].values[0]))
+                row.append(
+                    format_number(
+                        avg_over_all_users_medi[f"{is_val_string}_{score_name}_medi"].values[0]
+                    )
+                )
+                row.append(format_number(df[f"{is_val_string}_{score_name}_std"].values[0]))
         tables[SCORES_DICT[score]["page"]].append(row)
     return tables
 
 
 def print_fifth_page(
     pdf: PdfPages,
+    users_groups_dict: dict,
     title: str,
     legend_text: str,
     best_global_hyperparameters_combination_table: list,
@@ -447,11 +428,12 @@ def print_fifth_page(
     fig, ax = plt.subplots(figsize=PLOT_CONSTANTS["FIG_SIZE"])
     ax.axis("off")
     ax.text(0.5, 1.12, title, fontsize=15, ha="center", va="center", fontweight="bold")
-    groups = ["All", "HiVote", "LoVote", "HiPosi", "CS", "NonCS"]
+    groups = ["All"] + list(users_groups_dict.keys())
     columns = ["Score"]
     for group in groups:
-        columns.extend([group, f"{group}_T"])
+        columns.append(group)
         if group == "All":
+            columns.append("All_Medi")
             columns.append("All_σ")
     if save_path is not None:
         full_table = [columns] + best_global_hyperparameters_combination_table
@@ -461,7 +443,7 @@ def print_fifth_page(
         best_global_hyperparameters_combination_table,
         [-0.14, -0.025, 1.25, 1.11],
         columns,
-        [0.125] + (len(groups) * 2 + 1) * [0.15],
+        [0.125] + (len(columns) - 1) * [0.15],
         bold_row=0,
         grey_row=optimizer_row,
     )

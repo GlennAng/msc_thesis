@@ -361,6 +361,7 @@ def score_user_models(
     negative_samples_embeddings: np.ndarray,
     train_negrated_ranking_idxs: np.ndarray,
     val_negrated_ranking_idxs: np.ndarray,
+    random_state: int,
     save_users_predictions_bool: bool = False,
 ) -> tuple:
     user_results, user_predictions = {}, {}
@@ -378,6 +379,7 @@ def score_user_models(
             scores_to_indices_dict=scores_to_indices_dict,
             val_data_dict=val_data_dict,
             user_outputs_dict=user_outputs_dict,
+            random_state=random_state,
         )
         if save_users_predictions_bool:
             user_predictions = gather_user_predictions(user_predictions, user_outputs_dict, i)
@@ -393,7 +395,8 @@ def score_user_models_sliding_window(
     negative_samples_embeddings: np.ndarray,
     train_negrated_ranking_idxs: np.ndarray,
     val_negrated_ranking_idxs: np.ndarray,
-    save_users_predictions_bool: bool,
+    random_state: int,
+    save_users_predictions_bool: bool = False,
 ) -> tuple:
     user_results, user_predictions = {}, {}
     user_outputs_dict = get_user_outputs_dict_sliding_window(
@@ -409,6 +412,7 @@ def score_user_models_sliding_window(
         scores_to_indices_dict=scores_to_indices_dict,
         val_data_dict=val_data_dict,
         user_outputs_dict=user_outputs_dict,
+        random_state=random_state,
     )
     if save_users_predictions_bool:
         user_predictions = gather_user_predictions(user_predictions, user_outputs_dict, 0)
@@ -712,7 +716,7 @@ def get_scores_ranking_convert_temporal(
         return temporal_train_rated_days, temporal_val_days
     else:
         raise ValueError(f"Unsupported score_type: {score_type}.")
-    
+
 
 def get_scores_ranking_temporal_slope(
     temporal_pos: np.ndarray, scores_ranking_before_avging: list
@@ -761,10 +765,52 @@ def get_scores_ranking_temporal(
         )
 
 
+def get_scores_ranking_session(
+    user_scores: list,
+    scores_to_indices_dict: dict,
+    val_data_dict: dict,
+    scores_ranking_before_avging_train: dict,
+    scores_ranking_before_avging_val: dict,
+    random_state: int,
+) -> None:
+    relevant_idxs = {}
+    for split in ["train_rated", "val"]:
+        relevant_idxs[split] = {}
+        pos_mask = val_data_dict[f"y_{split}"] > 0
+        pos_sessions_ids = val_data_dict[f"session_id_{split}"][pos_mask]
+        distinct_sessions_ids = np.unique(pos_sessions_ids)
+        first_id = distinct_sessions_ids[0]
+        random_id = np.random.RandomState(random_state).choice(distinct_sessions_ids)
+        last_id = distinct_sessions_ids[-1]
+        first_mask = pos_sessions_ids == first_id
+        random_mask = pos_sessions_ids == random_id
+        last_mask = pos_sessions_ids == last_id
+        relevant_idxs[split]["first"] = np.where(first_mask)[0].tolist()
+        relevant_idxs[split]["random"] = np.where(random_mask)[0].tolist()
+        relevant_idxs[split]["last"] = np.where(last_mask)[0].tolist()
+
+    for score in SCORES_BY_TYPE[Score_Type.RANKING_SESSION]:
+        lookup = SCORES_DICT[score]["lookup"]
+        selection = SCORES_DICT[score]["selection"]
+
+        relevant_idxs_train = relevant_idxs["train_rated"][selection]
+        relevant_idxs_val = relevant_idxs["val"][selection]
+        values_train = scores_ranking_before_avging_train[lookup]
+        values_val = scores_ranking_before_avging_val[lookup]
+        relevant_values_train = np.array(values_train)[relevant_idxs_train]
+        relevant_values_val = np.array(values_val)[relevant_idxs_val]
+        train_score = float(np.mean(relevant_values_train))
+        val_score = float(np.mean(relevant_values_val))
+        fill_user_scores_with_score(
+            score, user_scores, scores_to_indices_dict, train_score, val_score
+        )
+
+
 def get_user_scores(
     scores_to_indices_dict: dict,
     val_data_dict: dict,
     user_outputs_dict: dict,
+    random_state: int,
 ) -> tuple:
     user_scores = [None] * len(scores_to_indices_dict)
 
@@ -811,27 +857,12 @@ def get_user_scores(
         scores_ranking_before_avging_train=scores_ranking_before_avging_train,
         scores_ranking_before_avging_val=scores_ranking_before_avging_val,
     )
-    get_scores_ranking_temporal(
+    get_scores_ranking_session(
         user_scores=user_scores,
         scores_to_indices_dict=scores_to_indices_dict,
+        val_data_dict=val_data_dict,
         scores_ranking_before_avging_train=scores_ranking_before_avging_train,
         scores_ranking_before_avging_val=scores_ranking_before_avging_val,
-        y_train_rated=val_data_dict["y_train_rated"],
-        y_val=val_data_dict["y_val"],
-        temporal_train_rated=val_data_dict["time_train_rated"],
-        temporal_val=val_data_dict["time_val"],
-        score_type=Score_Type.RANKING_TIME,
+        random_state=random_state,
     )
-    get_scores_ranking_temporal(
-        user_scores=user_scores,
-        scores_to_indices_dict=scores_to_indices_dict,
-        scores_ranking_before_avging_train=scores_ranking_before_avging_train,
-        scores_ranking_before_avging_val=scores_ranking_before_avging_val,
-        y_train_rated=val_data_dict["y_train_rated"],
-        y_val=val_data_dict["y_val"],
-        temporal_train_rated=val_data_dict["session_id_train_rated"],
-        temporal_val=val_data_dict["session_id_val"],
-        score_type=Score_Type.RANKING_SESSION,
-    )
-    assert None not in user_scores, "Some user scores are None."
     return tuple(user_scores)

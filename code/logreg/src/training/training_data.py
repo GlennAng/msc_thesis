@@ -539,6 +539,19 @@ def store_user_info(user_ratings: pd.DataFrame, cache_n: int) -> dict:
     negrated_n = len(user_ratings[user_ratings["rating"] == 0])
     assert posrated_n + negrated_n == len(user_ratings)
     user_info.update({"n_posrated": posrated_n, "n_negrated": negrated_n})
+
+    pos_ratings = user_ratings[user_ratings["rating"] > 0]
+    posrated_n_train, negrated_n_train = posrated_n, negrated_n
+    if "split" in user_ratings.columns and user_ratings["split"].notna().any():
+        pos_ratings = pos_ratings[pos_ratings["split"] == "val"]
+        train_ratings = user_ratings[user_ratings["split"] == "train"]
+        posrated_n_train = len(train_ratings[train_ratings["rating"] == 1])
+        negrated_n_train = len(train_ratings[train_ratings["rating"] == 0])
+    user_info.update({"n_posrated_train": posrated_n_train, "n_negrated_train": negrated_n_train})
+
+    user_info["n_pos_val_sessions"] = pos_ratings["session_id"].nunique()
+    max_time, min_time = pos_ratings["time"].max(), pos_ratings["time"].min()
+    user_info["pos_val_time_range_days"] = (max_time - min_time).days
     return user_info
 
 

@@ -320,6 +320,7 @@ class Evaluator:
             negative_samples_embeddings=val_negative_samples_embeddings,
             train_negrated_ranking_idxs=train_negrated_ranking_idxs,
             val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+            random_state=self.config["ranking_random_state"],
             save_users_predictions_bool=self.config["save_users_predictions"],
         )
         user_results_dict[0] = user_results
@@ -389,6 +390,7 @@ class Evaluator:
                 negative_samples_embeddings=val_negative_samples_embeddings,
                 train_negrated_ranking_idxs=train_negrated_ranking_idxs,
                 val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+                random_state=self.config["ranking_random_state"],
                 save_users_predictions_bool=self.config["save_users_predictions"],
             )
             user_results_dict[fold_idx] = fold_results
@@ -456,6 +458,7 @@ class Evaluator:
             negative_samples_embeddings=val_negative_samples_embeddings,
             train_negrated_ranking_idxs=train_negrated_ranking_idxs,
             val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+            random_state=self.config["ranking_random_state"],
             save_users_predictions_bool=self.config["save_users_predictions"],
         )
         user_results_dict[0] = user_results
