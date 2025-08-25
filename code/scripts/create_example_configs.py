@@ -113,7 +113,7 @@ def create_example_config_sliding_window(users_embeddings_dict_path: Path = None
         "evaluation": "sliding_window",
         "users_coefs_path": str(users_embeddings_dict_path.resolve()),
         "n_cache": 0,
-        "min_n_posrated_val": 0,
+        "min_n_negrated_val": 0,
         "filter_for_negrated_ranking": True,
     }
     example_config.update(update_dict)

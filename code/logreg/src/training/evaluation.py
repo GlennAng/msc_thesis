@@ -21,6 +21,7 @@ from .scores import (
     score_user_models_sliding_window,
     update_user_predictions_dict,
 )
+from .scores_definitions import Score
 from .training_data import (
     get_cache_papers_ids_full,
     get_user_cache_papers,
@@ -323,6 +324,9 @@ class Evaluator:
             random_state=self.config["ranking_random_state"],
             save_users_predictions_bool=self.config["save_users_predictions"],
         )
+        user_info["val_set_cosine_similarity_sliding"] = user_results[0][
+            self.config["scores"][f"train_{Score.VAL_SET_COSINE_SIMILARITY_SLIDING.name.lower()}"]
+        ]
         user_results_dict[0] = user_results
         user_predictions_dict[0].update(user_predictions)
         if self.config["save_users_coefs"]:
@@ -461,6 +465,10 @@ class Evaluator:
             random_state=self.config["ranking_random_state"],
             save_users_predictions_bool=self.config["save_users_predictions"],
         )
+
+        user_info["val_set_cosine_similarity_sliding"] = user_results[0][
+            self.config["scores"][f"train_{Score.VAL_SET_COSINE_SIMILARITY_SLIDING.name.lower()}"]
+        ]
         user_results_dict[0] = user_results
         user_predictions_dict[0].update(user_predictions)
 

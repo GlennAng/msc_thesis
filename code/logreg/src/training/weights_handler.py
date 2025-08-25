@@ -299,9 +299,9 @@ class Weights_Handler:
         cache_n: int,
     ) -> tuple:
         if self.global_weights_scheme == Weights_Scheme.CACHE_V:
-            if train_posrated_n == 0 or train_negrated_n == 0 or cache_n == 0:
+            if train_posrated_n == 0:
                 raise ValueError(
-                    "Global Weights Scheme 'CACHE_V' requires non-zero values for train_posrated_n, train_negrated_n and cache_n."
+                    "Global Weights Scheme 'CACHE_V' requires non-zero values for train_posrated_n"
                 )
             correction = train_posrated_n + base_n + train_negrated_n + zerorated_n + cache_n
             w_p = w_b = correction / (train_posrated_n + base_n)

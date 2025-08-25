@@ -21,6 +21,7 @@ class Score_Type(Enum):
     RANKING = auto()
     RANKING_BOTTOM_1_POS = auto()
     RANKING_SESSION = auto()
+    RANKING_SESSION_INFO = auto()
     CATEGORY = auto()
 
 
@@ -705,7 +706,120 @@ SCORES_DICT = {
         "lookup": "INFO_NCE_1",
         "selection": "last",
     },
+    "N_TRAIN_SESSIONS": {
+        "abbreviation": "N Train\nSs",
+        "type": Score_Type.RANKING_SESSION_INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "n_train_sessions",
+    },
+    "N_VAL_SESSIONS": {
+        "abbreviation": "N Val\nSs",
+        "type": Score_Type.RANKING_SESSION_INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "n_val_sessions",
+    },
+    "N_TRAIN_POS_SESSIONS": {
+        "abbreviation": "N Train\nPos Ss",
+        "type": Score_Type.RANKING_SESSION_INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "n_train_pos_sessions",
+    },
+    "N_VAL_POS_SESSIONS": {
+        "abbreviation": "N Val\nPos Ss",
+        "type": Score_Type.RANKING_SESSION_INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "n_val_pos_sessions",
+    },
+    "N_TRAIN_POSRATED": {
+        "abbreviation": "N Train\nPos R",
+        "type": Score_Type.RANKING_SESSION_INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "n_train_posrated",
+    },
+    "N_VAL_POSRATED": {
+        "abbreviation": "N Val\nPos R",
+        "type": Score_Type.RANKING_SESSION_INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "n_val_posrated",
+    },
+    "N_TRAIN_POS_DAYS": {
+        "abbreviation": "N Train\nPos Day",
+        "type": Score_Type.RANKING_SESSION_INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "n_train_pos_days",
+    },
+    "N_VAL_POS_DAYS": {
+        "abbreviation": "N Val\nPos Day",
+        "type": Score_Type.RANKING_SESSION_INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "n_val_pos_days",
+    },
+    "SINGLE_TRAIN_SESSION": {
+        "abbreviation": "Single\nTrain S",
+        "type": Score_Type.RANKING_SESSION_INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "single_train_session",
+    },
+    "SINGLE_VAL_SESSION": {
+        "abbreviation": "Single\nVal S",
+        "type": Score_Type.RANKING_SESSION_INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "single_val_session",
+    },
+    "N_TRAIN_POSRATED_FIRST_SESSION": {
+        "abbreviation": "N Train\nPos FS",
+        "type": Score_Type.RANKING_SESSION_INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "n_train_posrated_first_session",
+    },
+    "N_TRAIN_POSRATED_LAST_SESSION": {
+        "abbreviation": "N Train\nPos LS",
+        "type": Score_Type.RANKING_SESSION_INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "n_train_posrated_last_session",
+    },
+    "TRAIN_SET_COSINE_SIMILARITY": {
+        "abbreviation": "Train\nCosine",
+        "type": Score_Type.RANKING_SESSION_INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "train_set_cosine_similarity",    
+    },
+    "VAL_SET_COSINE_SIMILARITY": {
+        "abbreviation": "Val\nCosine",
+        "type": Score_Type.RANKING_SESSION_INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "val_set_cosine_similarity",
+    },
+    "TRAIN_SET_COSINE_SIMILARITY_SLIDING": {
+        "abbreviation": "Train\nCos Sli",
+        "type": Score_Type.RANKING_SESSION_INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "train_set_cosine_similarity_sliding",
+    },
+    "VAL_SET_COSINE_SIMILARITY_SLIDING": {
+        "abbreviation": "Val\nCos Sli",
+        "type": Score_Type.RANKING_SESSION_INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "val_set_cosine_similarity_sliding",
+    },
 }
+
 Score = Enum("Score", list(SCORES_DICT.keys()))
 SCORES_DICT = {Score[key]: value for key, value in SCORES_DICT.items()}
 for score in SCORES_DICT:

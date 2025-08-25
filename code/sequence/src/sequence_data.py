@@ -53,11 +53,6 @@ def get_embedding_path(users_selection: str) -> Path:
 def save_users_embeddings(users_embeddings: dict, args_dict: dict) -> None:
     output_folder = args_dict["output_folder"]
     output_folder.mkdir(parents=True, exist_ok=True)
-    for key, value in args_dict.items():
-        if isinstance(value, Path):
-            args_dict[key] = str(value)
-    with open(output_folder / "config.json", "w") as f:
-        json.dump(args_dict, f)
     if args_dict["single_val_session"]:
         users_ids = list(users_embeddings.keys())
         assert users_ids == sorted(users_ids)
@@ -79,22 +74,17 @@ def save_users_embeddings(users_embeddings: dict, args_dict: dict) -> None:
     print(f"Users embeddings saved to {output_folder}.")
 
 
-def load_users_embeddings(path: Path, check: bool = True) -> tuple:
+def load_users_embeddings(path: Path, check: bool = True) -> dict:
     if not isinstance(path, Path):
         path = Path(path).resolve()
     with open(path / "users_embeddings.pkl", "rb") as f:
         users_embeddings = pickle.load(f)
-    config = json.load(open(path / "config.json"))
     if check:
-        check_users_embeddings(users_embeddings, config)
-    return users_embeddings, config
+        check_users_embeddings(users_embeddings)
+    return users_embeddings
 
 
-def check_users_embeddings(users_embeddings: dict, config: dict) -> None:
-    assert isinstance(config, dict)
-    assert config["users_selection"] in USERS_SELECTIONS
-    assert Path(config["embedding_path"]).resolve().exists()
-
+def check_users_embeddings(users_embeddings: dict) -> None:
     assert isinstance(users_embeddings, dict)
     users_ids = list(users_embeddings.keys())
     assert users_ids == sorted(users_ids)

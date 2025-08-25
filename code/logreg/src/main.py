@@ -103,18 +103,24 @@ def load_hyperparameters(config: Dict[str, Any], wh: Weights_Handler) -> list:
 
 def init_sliding_window(config: Dict[str, Any]) -> tuple:
     assert config["n_cache"] == 0
-    users_embeddings, sw_config = load_users_embeddings(config["users_coefs_path"], check=True)
-    assert sw_config["filter_for_negrated_ranking"]
+    assert config["filter_for_negrated_ranking"]
+    users_embeddings = load_users_embeddings(config["users_coefs_path"], check=True)
     users_ratings = get_users_ratings(
-        users_selection=sw_config["users_selection"],
+        users_selection=config["users_selection"],
         evaluation=Evaluation.SLIDING_WINDOW,
-        train_size=sw_config["train_size"],
-        min_n_posrated_train=sw_config["min_n_posrated_train"],
-        min_n_negrated_train=sw_config["min_n_negrated_train"],
-        min_n_posrated_val=sw_config["min_n_posrated_val"],
-        min_n_negrated_val=sw_config["min_n_negrated_val"],
+        train_size=config["train_size"],
+        min_n_posrated_train=config["min_n_posrated_train"],
+        min_n_negrated_train=config["min_n_negrated_train"],
+        min_n_posrated_val=config["min_n_posrated_val"],
+        min_n_negrated_val=config["min_n_negrated_val"],
         filter_for_negrated_ranking=True,
     )
+    users_ids = list(users_ratings["user_id"].unique())
+    users_embeddings = {
+        user_id: user_embeddings
+        for user_id, user_embeddings in users_embeddings.items()
+        if user_id in users_ids
+    }
     val_mask = users_ratings["split"] == "val"
     val_ratings = users_ratings.loc[val_mask]
     for user_id, user_embeddings in users_embeddings.items():

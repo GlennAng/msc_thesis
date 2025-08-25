@@ -1,5 +1,3 @@
-# I. Embedding Models
-
 We provide code for automatically computing and evaluating papers embeddings for the following text embedding models:
 - **specter2_base:** Model Size 0.1B parameters, Dimension 768.
 - **gte-base-en-v1.5:** Model Size 0.1B parameters, Dimension 768.
@@ -22,7 +20,7 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 | Qwen3-Embedding-4B | **78.99** | **86.67** | **82.18** | 0.8477 |
 | Qwen3-Embedding-8B | 78.93 | **86.67** | **82.18** | **0.8467** |
 
-## Session-based Evaluation
+## Session-based Evaluation (no filter)
 
 | Model Name | Bal. Acc. | NDCG | MRR | InfoNCE |
 |------------|------------------|------|-----|---------|
@@ -34,16 +32,83 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 | Qwen3-Embedding-4B | 73.35 | 82.70 | 76.93 | 1.0650 |
 | Qwen3-Embedding-8B | **73.67** | **83.03** | **77.37** | **1.0385** |
 
-## Test Users
 
-## Session-based Evaluation
+## Session-based Evaluation NDCG (still no filter but on Test Users only)
 
-| Model Name | NDCG | NDCG CS | NDCG Non-CS
+| Model Name | Total | CS Users | Non-CS Users
 |------------|------------------|------|-----|
 | gte-large-en-v1.5 | 80.84 | 80.91 | 78.99 |
 | gte-large-en-v1.5 fine-tune | 83.14 | 83.25 | 80.16 |
-| Qwen3-Embedding-8B | 83.20 | 83.22 |82.62 |
-| gte-large-en-v1.5 fine-tune cat loss | 83.25 | 83.30 | 82.01 |
+| Qwen3-Embedding-8B | 83.20 | 83.22 | **82.62** |
+| gte-large-en-v1.5 fine-tune cat loss | **83.25** | **83.30** | 82.01 |
+
+## Cosine Similarity Changes between Physics and other Categories
+| Category | before Fine-tuning | after Fine-tuning w/o Cat Loss | after Fine-tuning w/ Cat Loss |
+|------------|------------------|------|-----|
+| Computer Science | 20.49 | 17.42 | 13.93
+| Medicine | 25.19 | 48.59 | 30.99
+| Linguistics | 29.50 | 64.11 | 37.62
+| Psychology | 33.03 | 56.22 | 37.37
+| Biology | 39.34 | 61.23 | 39.98
+| Astronomy | 39.49 | 68.05 | 43.71
+| Physics | 57.12 | 82.87 | 64.80
+
+## Session-based Evaluation NDCG (filtering, predicting whole Validation Set at once vs. Sliding Window)
+*First/Last Sess:* The first/last Validation Session with at least one Upvote in it  
+*HiSess:* The 100 Users who have the largest number of Validation Sessions with at least one Upvote in it
+
+| Model Name | Total | First Sess | Last Sess | HiSess Total | HiSess First Sess | HiSess Last Sess 
+|------------|------------------|------|-----|-----|-----|-----|
+| LogReg w/o Sliding Window | 80.39 | 80.82 | 80.29 | 82.27 | 84.57 | 81.69
+| LogReg w/ Sliding Window | 81.02 | 80.83 | 81.67 | 83.33 | 84.79 | 84.04
+| MeanPos w/o Sliding Window | 77.46 | 78.19 | 77.39 | 77.28 | 77.34 | 75.88
+| MeanPos w/ Sliding Window | 77.77 | 78.19 | 78.02 | 77.97 | 77.34 | 77.81
+
+
+## LogReg Sliding Window NDCG (drop ratings which are too old (but at least 10 Train Positives))
+We are looking for justification to use the entire context, otherwise one can reduce training time at same performance.  
+
+| Max. Number of Days | Total | First Sess | Last Sess | HiSess Total | HiSess First Sess | HiSess Last Sess 
+|------------|------------------|------|-----|-----|-----|-----|
+| 30 | 80.89 | 80.69 | 81.65 | 82.64 | 83.49 | 82.56
+| 60 | 80.98 | 80.57 | 81.83 | 83.13 | 83.15 | 83.96
+| 100 | 81.10 | 80.67 | **82.08** | 83.58 | 84.31 | **84.85**
+| 250 | **81.19** | 80.90 | 82.00 | **83.72** | 84.77 | 84.72
+| 500 | 81.13 | **80.91** | 81.80 | 83.48 | **85.02** | 84.31
+| Infinity | 81.02 | 80.83 | 81.67 | 83.33 | 84.79 | 84.04
+
+## MeanPos Sliding Window NDCG (drop ratings which are too old (but at least 1 Train Positive))
+| Max. Number of Sessions | Total | First Sess | Last Sess
+|------------|------------------|------|-----
+| 1 | 74.62 | 76.45 | 74.19
+| 3 | 78.09 | 78.42 | 78.47
+| 5 | 78.29 | **78.49** | **79.16**
+| 10 | **78.30** | 78.44 | 78.73
+| 20 | 78.13 | 78.40 | 78.64
+| 50 | 77.77 | 78.18 | 78.07
+| Infinity | 77.77 | 78.19 | 78.02
+
+## Strong Users Group: The 100 Users with the largest Sliding Validation Positive Session Cosine Similarities
+- NDCG: 86.08 (Average 81.02)
+- NDCG First Val Session: 87.34 (Average 80.83)
+- NDCG Last Val Session: 85.51 (Average 81.67)
+- Training Positives: 51.8 (Average 78.3)
+- Validation Positive Sessions: 5.1 (Average 6.0)
+- Validation Positive Days: 55.8 (Average 50.1)
+- Train Cosine Sliding Window: 46.8 (Average 34.31)
+- Validation Cosine Sliding Window: 53.29 (Average 34.27)
+
+## High Sessions vs High Votes
+HiSess: 19.7 Val Pos Sessions, 32.9 Val Pos Ratings, 138.4 Val Pos Days, 33.67 Val Cosine  
+HiVotes: 6.9 Val Pos Sessions, 58.4 Val Pos Ratings, 50.1 Val Pos Days, 31.41 Val Cosine
+
+MeanPos:  
+HiSess (NDCG): Total 80.28, First S 79.57, Last S 82.53, Random S 82.15  
+HiVotes (NDCG): Total 78.29, First S 83.08, Last S 79.96, Random S 79.27
+
+LogReg:  
+HiSess (NDCG): Total 83.39, First S 83.48, Last S 84.17, Random S: 86.62  
+HiVotes (NDCG): Total 81.02, First S 84.24, Last S 83.09, Random S: 83.21
 
 
 # II. Experiment Setup

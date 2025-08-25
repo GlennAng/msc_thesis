@@ -196,6 +196,7 @@ class User_Visualizer:
         hyperparameters_combination = str(args["hyperparameters_combination"])
         fold_train_predictions = fold_predictions["train_predictions"][hyperparameters_combination]
         fold_val_predictions = fold_predictions["val_predictions"][hyperparameters_combination]
+        print(fold_predictions["train_time"][0])
         negative_samples_predictions = fold_predictions["negative_samples_predictions"][
             hyperparameters_combination
         ]

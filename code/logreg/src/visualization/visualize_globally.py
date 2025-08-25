@@ -47,8 +47,9 @@ OPTIMIZATION_CONSTANTS = {
     "N_TAIL_USERS": 15,
     "N_PRINT_BEST_HYPERPARAMETERS_COMBINATIONS": 25,
     "PCNT_HI_POS_VAL_SESSIONS": 0.1,
-    "PCNT_HI_POS_VAL_TIME": 0.1,
     "PCNT_HI/LO_TRAIN_VOTES": 0.1,
+    "PCNT_HI_POS_VAL_TIME": 0.1,
+    "PCNT_HI_VAL_COS_SIM_SLIDE": 0.1,
     "PCNT_HI/LO_POS_TRAIN_RATIO": 0.1,
 }
 
@@ -197,7 +198,7 @@ class Global_Visualizer:
         if self.n_users == N_USERS_SESSION_BASED:
             n_hi_lo_pos_val_sessions_users = 100
         else:
-            percentage = OPTIMIZATION_CONSTANTS["PCNT_HI/LO_POS_VAL_SESSIONS"]
+            percentage = OPTIMIZATION_CONSTANTS["PCNT_HI_POS_VAL_SESSIONS"]
             n_hi_lo_pos_val_sessions_users = self.get_n_high_low_users(percentage)
         hi_pos_val_sessions_users = self.users_info.nlargest(
             n_hi_lo_pos_val_sessions_users, "n_pos_val_sessions"
@@ -209,23 +210,6 @@ class Global_Visualizer:
         users_groups_dict["HiSess"] = {
             "users_ids": hi_pos_val_sessions_users,
             "legend": hi_lo_pos_val_sessions_legend,
-        }
-        users_groups_dict["HiSLoTim"] = {}
-
-    def extract_high_pos_val_time_users(self, users_groups_dict: dict) -> None:
-        if self.n_users == N_USERS_SESSION_BASED:
-            n_hi_pos_val_time_users = 100
-        else:
-            percentage = OPTIMIZATION_CONSTANTS["PCNT_HI_POS_VAL_TIME"]
-            n_hi_pos_val_time_users = self.get_n_high_low_users(percentage)
-        hi_pos_val_time_users = self.users_info.nlargest(
-            n_hi_pos_val_time_users, "pos_val_time_range_days"
-        )["user_id"].values
-        hi_pos_val_time_legend = f"HiTime: The {n_hi_pos_val_time_users} Users with the highest"
-        hi_pos_val_time_legend += " Time amount between Validation Positives."
-        users_groups_dict["HiTime"] = {
-            "users_ids": hi_pos_val_time_users,
-            "legend": hi_pos_val_time_legend,
         }
 
     def extract_high_low_train_votes_users(self, users_groups_dict: dict) -> None:
@@ -249,6 +233,38 @@ class Global_Visualizer:
             "legend": hi_lo_train_votes_legend,
         }
         users_groups_dict["LoVotes"] = {"users_ids": lo_train_votes_users}
+
+    def extract_high_pos_val_time_users(self, users_groups_dict: dict) -> None:
+        if self.n_users == N_USERS_SESSION_BASED:
+            n_hi_pos_val_time_users = 100
+        else:
+            percentage = OPTIMIZATION_CONSTANTS["PCNT_HI_POS_VAL_TIME"]
+            n_hi_pos_val_time_users = self.get_n_high_low_users(percentage)
+        hi_pos_val_time_users = self.users_info.nlargest(
+            n_hi_pos_val_time_users, "pos_val_time_range_days"
+        )["user_id"].values
+        hi_pos_val_time_legend = f"HiTime: The {n_hi_pos_val_time_users} Users with the highest"
+        hi_pos_val_time_legend += " Time amount between Validation Positives."
+        users_groups_dict["HiTime"] = {
+            "users_ids": hi_pos_val_time_users,
+            "legend": hi_pos_val_time_legend,
+        }
+
+    def extract_high_val_cos_sim_slide(self, users_groups_dict: dict) -> None:
+        if self.n_users == N_USERS_SESSION_BASED:
+            n_hi_val_cos_sim_slide_users = 100
+        else:
+            percentage = OPTIMIZATION_CONSTANTS["PCNT_HI_VAL_COS_SIM_SLIDE"]
+            n_hi_val_cos_sim_slide_users = self.get_n_high_low_users(percentage)
+        hi_val_cos_sim_slide_users = self.users_info.nlargest(
+            n_hi_val_cos_sim_slide_users, "val_set_cosine_similarity_sliding"
+        )["user_id"].values
+        hi_val_cos_sim_slide_legend = f"HiCosSl: The {n_hi_val_cos_sim_slide_users} Users with the highest"
+        hi_val_cos_sim_slide_legend += " Cosine Similarity (Sliding Window) between Validation Positives."
+        users_groups_dict["HiCosSl"] = {
+            "users_ids": hi_val_cos_sim_slide_users,
+            "legend": hi_val_cos_sim_slide_legend,
+        }
 
     def extract_high_low_pos_train_ratio_users(self, users_groups_dict: dict) -> None:
         if self.n_users == N_USERS_SESSION_BASED:
@@ -304,12 +320,34 @@ class Global_Visualizer:
     def extract_high_low_users(self) -> None:
         users_groups_dict = {}
         self.extract_high_pos_val_sessions_users(users_groups_dict)
-        self.extract_high_pos_val_time_users(users_groups_dict)
         self.extract_high_low_train_votes_users(users_groups_dict)
+        self.extract_high_pos_val_time_users(users_groups_dict)
+        self.extract_high_val_cos_sim_slide(users_groups_dict)
         self.extract_high_low_pos_train_ratio_users(users_groups_dict)
         self.extract_cs_non_cs_users(users_groups_dict)
         self.extract_tail_users(users_groups_dict)
         self.users_groups_dict = users_groups_dict
+
+        hi_sessions_users = [
+            uid
+            for uid in users_groups_dict["HiSess"]["users_ids"]
+            if uid not in users_groups_dict["HiVotes"]["users_ids"]
+        ]
+        hi_sessions_legend = f"HiSess: The {len(hi_sessions_users)} Users in high Sessions but not high Votes."
+        hi_votes_users = [
+            uid
+            for uid in users_groups_dict["HiVotes"]["users_ids"]
+            if uid not in users_groups_dict["HiSess"]["users_ids"]
+        ]
+        hi_votes_legend = f"HiVotes: The {len(hi_votes_users)} Users in high Votes but not high Sessions."
+        self.users_groups_dict["HiSess"] = {
+            "users_ids": hi_sessions_users,
+            "legend": hi_sessions_legend,
+        }
+        self.users_groups_dict["HiVotes"] = {
+            "users_ids": hi_votes_users,
+            "legend": hi_votes_legend,
+        }
 
         hi_ss_lo_tim_users = [
             uid

@@ -1302,8 +1302,9 @@ def plot_papers(pdf: PdfPages, table_data: list, table_name: str, word_scores: d
     ax.axis("off")
     ax.text(0.5, 1.12, table_name, fontsize=12, ha="center", va="center", weight="bold")
     for i in range(len(table_data)):
-        s = f"#{table_data[i][0]}:   ID: {table_data[i][1]},   Class 1 Proba: {table_data[i][2]},   "
-        s += f"L1: {table_data[i][3]},   L2: {table_data[i][4]}."
+        s = f"#{table_data[i][0]}:   ID: {table_data[i][1]},   Proba: {table_data[i][2]},   "
+        s += f"Cat: {table_data[i][3]}, {table_data[i][4]}"
+        
         ax.text(
             0.5,
             1.0675 - i * 0.175,
