@@ -12,7 +12,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from ..training.get_users_ratings import N_NEGRATED_RANKING
+from ..training.users_ratings import N_NEGRATED_RANKING
 
 
 class Score_Type(Enum):
@@ -21,7 +21,7 @@ class Score_Type(Enum):
     RANKING = auto()
     RANKING_BOTTOM_1_POS = auto()
     RANKING_SESSION = auto()
-    RANKING_SESSION_INFO = auto()
+    INFO = auto()
     CATEGORY = auto()
 
 
@@ -618,13 +618,13 @@ SCORES_DICT = {
         "lookup": "NDCG_ALL",
         "selection": "first",
     },
-    "NDCG_ALL_RANDOM_SESSION": {
-        "abbreviation": "NDCG\nRand S",
+    "NDCG_ALL_MIDDLE_SESSION": {
+        "abbreviation": "NDCG\nMid S",
         "type": Score_Type.RANKING_SESSION,
         "increase_better": True,
         "page": 3,
         "lookup": "NDCG_ALL",
-        "selection": "random",
+        "selection": "middle",
     },
     "NDCG_ALL_LAST_SESSION": {
         "abbreviation": "NDCG\nLast S",
@@ -642,13 +642,13 @@ SCORES_DICT = {
         "lookup": "MRR_ALL",
         "selection": "first",
     },
-    "MRR_ALL_RANDOM_SESSION": {
-        "abbreviation": "MRR\nRand S",
+    "MRR_ALL_MIDDLE_SESSION": {
+        "abbreviation": "MRR\nMid S",
         "type": Score_Type.RANKING_SESSION,
         "increase_better": True,
         "page": 3,
         "lookup": "MRR_ALL",
-        "selection": "random",
+        "selection": "middle",
     },
     "MRR_ALL_LAST_SESSION": {
         "abbreviation": "MRR\nLast S",
@@ -666,13 +666,13 @@ SCORES_DICT = {
         "lookup": "HIT_RATE_AT_1_ALL",
         "selection": "first",
     },
-    "HIT_RATE_AT_1_ALL_RANDOM_SESSION": {
-        "abbreviation": "HR@1\nRand S",
+    "HIT_RATE_AT_1_ALL_MIDDLE_SESSION": {
+        "abbreviation": "HR@1\nMid S",
         "type": Score_Type.RANKING_SESSION,
         "increase_better": True,
         "page": 3,
         "lookup": "HIT_RATE_AT_1_ALL",
-        "selection": "random",
+        "selection": "middle",
     },
     "HIT_RATE_AT_1_ALL_LAST_SESSION": {
         "abbreviation": "HR@1\nLast S",
@@ -690,13 +690,13 @@ SCORES_DICT = {
         "lookup": "INFO_NCE_1",
         "selection": "first",
     },
-    "INFO_NCE_1_RANDOM_SESSION": {
-        "abbreviation": "INCE 1\nRand S",
+    "INFO_NCE_1_MIDDLE_SESSION": {
+        "abbreviation": "INCE 1\nMid S",
         "type": Score_Type.RANKING_SESSION,
         "increase_better": False,
         "page": 3,
         "lookup": "INFO_NCE_1",
-        "selection": "random",
+        "selection": "middle",
     },
     "INFO_NCE_1_LAST_SESSION": {
         "abbreviation": "INCE 1\nLast S",
@@ -708,112 +708,112 @@ SCORES_DICT = {
     },
     "N_TRAIN_SESSIONS": {
         "abbreviation": "N Train\nSs",
-        "type": Score_Type.RANKING_SESSION_INFO,
+        "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
         "lookup_key": "n_train_sessions",
     },
     "N_VAL_SESSIONS": {
         "abbreviation": "N Val\nSs",
-        "type": Score_Type.RANKING_SESSION_INFO,
+        "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
         "lookup_key": "n_val_sessions",
     },
     "N_TRAIN_POS_SESSIONS": {
         "abbreviation": "N Train\nPos Ss",
-        "type": Score_Type.RANKING_SESSION_INFO,
+        "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
         "lookup_key": "n_train_pos_sessions",
     },
     "N_VAL_POS_SESSIONS": {
         "abbreviation": "N Val\nPos Ss",
-        "type": Score_Type.RANKING_SESSION_INFO,
+        "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
         "lookup_key": "n_val_pos_sessions",
     },
     "N_TRAIN_POSRATED": {
         "abbreviation": "N Train\nPos R",
-        "type": Score_Type.RANKING_SESSION_INFO,
+        "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
         "lookup_key": "n_train_posrated",
     },
     "N_VAL_POSRATED": {
         "abbreviation": "N Val\nPos R",
-        "type": Score_Type.RANKING_SESSION_INFO,
+        "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
         "lookup_key": "n_val_posrated",
     },
     "N_TRAIN_POS_DAYS": {
         "abbreviation": "N Train\nPos Day",
-        "type": Score_Type.RANKING_SESSION_INFO,
+        "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
         "lookup_key": "n_train_pos_days",
     },
     "N_VAL_POS_DAYS": {
         "abbreviation": "N Val\nPos Day",
-        "type": Score_Type.RANKING_SESSION_INFO,
+        "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
         "lookup_key": "n_val_pos_days",
     },
     "SINGLE_TRAIN_SESSION": {
         "abbreviation": "Single\nTrain S",
-        "type": Score_Type.RANKING_SESSION_INFO,
+        "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
         "lookup_key": "single_train_session",
     },
     "SINGLE_VAL_SESSION": {
         "abbreviation": "Single\nVal S",
-        "type": Score_Type.RANKING_SESSION_INFO,
+        "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
         "lookup_key": "single_val_session",
     },
     "N_TRAIN_POSRATED_FIRST_SESSION": {
         "abbreviation": "N Train\nPos FS",
-        "type": Score_Type.RANKING_SESSION_INFO,
+        "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
         "lookup_key": "n_train_posrated_first_session",
     },
     "N_TRAIN_POSRATED_LAST_SESSION": {
         "abbreviation": "N Train\nPos LS",
-        "type": Score_Type.RANKING_SESSION_INFO,
+        "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
         "lookup_key": "n_train_posrated_last_session",
     },
     "TRAIN_SET_COSINE_SIMILARITY": {
         "abbreviation": "Train\nCosine",
-        "type": Score_Type.RANKING_SESSION_INFO,
+        "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
         "lookup_key": "train_set_cosine_similarity",    
     },
     "VAL_SET_COSINE_SIMILARITY": {
         "abbreviation": "Val\nCosine",
-        "type": Score_Type.RANKING_SESSION_INFO,
+        "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
         "lookup_key": "val_set_cosine_similarity",
     },
     "TRAIN_SET_COSINE_SIMILARITY_SLIDING": {
         "abbreviation": "Train\nCos Sli",
-        "type": Score_Type.RANKING_SESSION_INFO,
+        "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
         "lookup_key": "train_set_cosine_similarity_sliding",
     },
     "VAL_SET_COSINE_SIMILARITY_SLIDING": {
         "abbreviation": "Val\nCos Sli",
-        "type": Score_Type.RANKING_SESSION_INFO,
+        "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
         "lookup_key": "val_set_cosine_similarity_sliding",

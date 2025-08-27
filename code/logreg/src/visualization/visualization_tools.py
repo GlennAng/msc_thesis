@@ -187,17 +187,6 @@ def get_cache_type_str(cache_type: str, n_cache: int, n_categories_cache: int) -
     return s
 
 
-def get_users_selection_str(users_selection: str, users_ids: list) -> str:
-    s = "User Selection Criterion among those who qualified: "
-    if isinstance(users_selection, str):
-        s += f"{users_selection.capitalize()}."
-    else:
-        s += "Specifically chosen."
-        if len(users_ids) <= 100:
-            s += f"\n{users_ids}."
-    return s
-
-
 def print_first_page(pdf: PdfPages, config_str: str) -> None:
     fig, ax = plt.subplots(figsize=PLOT_CONSTANTS["FIG_SIZE"])
     ax.axis("off")
@@ -304,7 +293,7 @@ def get_hyperparameters_combinations_table(
 
 
 def print_third_page(
-    pdf: PdfPages, n_users: int, users_info_table: list, users_selection: str, users_ids: list
+    pdf: PdfPages, n_users: int, users_info_table: list, users_ids: list
 ) -> None:
     fig, ax = plt.subplots(figsize=PLOT_CONSTANTS["FIG_SIZE"])
     ax.axis("off")

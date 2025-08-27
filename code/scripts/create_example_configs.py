@@ -10,12 +10,11 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
         embeddings_folder = (
             ProjectPaths.logreg_embeddings_path()
             / "after_pca"
-            / "gte_large_256_session_based_categories_l2_unit_100"
+            / "gte_large_256_categories_l2_unit_100"
         )
     example_config = {}
     example_config.update(
         {
-            "users_random_state": 42,
             "model_random_state": 42,
             "cache_random_state": 42,
             "ranking_random_state": 42,
@@ -24,18 +23,12 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
     example_config.update(
         {"save_users_predictions": False, "save_users_coefs": False, "save_tfidf_coefs": False}
     )
-    example_config.update({"load_users_coefs": False, "users_coefs_path": None})
-    example_config.update(
-        {"users_selection": "session_based", "max_users": None, "take_complement_of_users": False}
-    )
     example_config.update(
         {
-            "min_n_posrated": 20,
-            "min_n_negrated": 20,
-            "min_n_posrated_train": 16,
-            "min_n_negrated_train": 16,
-            "min_n_posrated_val": 4,
-            "min_n_negrated_val": 4,
+            "users_ratings_selection": "session_based_no_filtering",
+            "relevant_users_ids": None,
+            "load_users_coefs": False,
+            "users_coefs_path": None,
         }
     )
     example_config.update(
@@ -49,9 +42,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
     example_config.update(
         {
             "evaluation": "session_based",
-            "train_size": 0.8,
             "n_negative_samples": 100,
-            "filter_for_negrated_ranking": False,
             "same_negrated_for_all_pos": False,
             "stratified": True,
             "k_folds": 5,
@@ -85,7 +76,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
 
 def create_example_config_cross_val(embeddings_folder: Path = None) -> dict:
     example_config = create_example_config(embeddings_folder)
-    example_config.update({"evaluation": "cross_validation", "train_size": 0.8, "n_jobs": -1})
+    example_config.update({"evaluation": "cross_validation", "n_jobs": -1})
     return example_config
 
 
@@ -99,22 +90,18 @@ def create_example_config_tfidf(embeddings_folder: Path = None) -> dict:
 
 def create_example_config_tfidf_cross_val(embeddings_folder: Path = None) -> dict:
     example_config_tfidf = create_example_config_tfidf(embeddings_folder)
-    example_config_tfidf.update({"evaluation": "cross_validation", "train_size": 0.8})
+    example_config_tfidf.update({"evaluation": "cross_validation", "n_jobs": -1})
     return example_config_tfidf
 
 
 def create_example_config_sliding_window(users_embeddings_dict_path: Path = None) -> dict:
     example_config = create_example_config()
     if users_embeddings_dict_path is None:
-        users_embeddings_dict_path = (
-            ProjectPaths.sequence_data_users_embeddings_path() / "logreg"
-        )
+        users_embeddings_dict_path = ProjectPaths.sequence_data_users_embeddings_path() / "logreg"
     update_dict = {
         "evaluation": "sliding_window",
         "users_coefs_path": str(users_embeddings_dict_path.resolve()),
         "n_cache": 0,
-        "min_n_negrated_val": 0,
-        "filter_for_negrated_ranking": True,
     }
     example_config.update(update_dict)
     return example_config

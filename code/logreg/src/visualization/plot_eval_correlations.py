@@ -83,8 +83,8 @@ def plot_correlation(
     plt.savefig(save_path, format="png", dpi=300, bbox_inches="tight")
 
 models = ["SPECTER2", "GTE-Base", "GTE-Large", "Qwen3-0.6B", "Qwen3-4B", "Qwen3-8B"]
-session_based_ndcg = [79.85, 79.34, 80.31, 79.86, 82.21, 82.66]
-cross_val_ndcg = [83.74, 83.89, 84.35, 84.37, 85.83, 85.89]
+session_based_ndcg = [80.54, 79.80, 80.55, 80.55, 82.88, 83.20]
+cross_val_ndcg = [84.80, 84.97, 85.32, 85.37, 86.85, 86.82]
 v_measure = [0.5849, 0.5836, 0.6028, 0.5943, 0.6029, 0.6138]
 
 plot_correlation(

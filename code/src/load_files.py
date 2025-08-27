@@ -76,18 +76,6 @@ def load_papers(
     return papers.reset_index(drop=True)
 
 
-def load_relevant_papers_ids(
-    path: Path = ProjectPaths.data_relevant_papers_ids_path(),
-) -> list:
-    with open(path, "rb") as f:
-        relevant_papers_ids = pickle.load(f)
-    assert isinstance(relevant_papers_ids, list)
-    assert len(relevant_papers_ids) == len(set(relevant_papers_ids))
-    assert relevant_papers_ids == sorted(relevant_papers_ids)
-    print(f"Loaded {len(relevant_papers_ids)} relevant papers IDs.")
-    return relevant_papers_ids
-
-
 def load_users_significant_categories(
     path: Path = ProjectPaths.data_users_significant_categories_path(),
     relevant_users_ids: list = None,
@@ -128,13 +116,20 @@ def select_non_cs_users_ids(users_significant_categories: pd.DataFrame) -> list:
 
 
 def load_finetuning_users_ids(
-    selection: str = "all", select_non_cs_users_only: bool = False
+    selection: str = "all", select_non_cs_users_only: bool = False, old: bool = False
 ) -> dict:
-    path = ProjectPaths.data_finetuning_users_ids_path()
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Finetuning Users IDs file not found at {path}. Run 'get_users_ratings.py' to create it."
-        )
+    if old:
+        path = ProjectPaths.data_finetuning_users_ids_old_path()
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Finetuning Users IDs (old) file not found at {path}. Run 'users_ratings_old.py' to create it."
+            )
+    else:
+        path = ProjectPaths.data_finetuning_users_ids_path()
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Finetuning Users IDs file not found at {path}. Run 'users_ratings.py' to create it."
+            )
     with open(path, "rb") as f:
         finetuning_users_ids = pickle.load(f)
     assert isinstance(finetuning_users_ids, dict)
@@ -200,9 +195,6 @@ if __name__ == "__main__":
     papers = load_papers()
     assert (papers["paper_id"] == papers_texts["paper_id"]).all()
 
-    if ProjectPaths.data_relevant_papers_ids_path().exists():
-        relevant_papers_ids = load_relevant_papers_ids()
-        assert set(relevant_papers_ids) <= set(papers["paper_id"])
 
     users_ratings = load_users_ratings()
     users_significant_categories = load_users_significant_categories()

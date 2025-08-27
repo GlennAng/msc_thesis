@@ -11,8 +11,10 @@ import torch.nn.functional as F
 from adapters import AutoAdapterModel
 from transformers import AutoModel, AutoTokenizer
 
-from ....src.load_files import load_papers_texts, load_relevant_papers_ids
+from ....src.load_files import TEST_RANDOM_STATES, VAL_RANDOM_STATE, load_papers_texts
+from ..training.users_ratings import UsersRatingsSelection
 from .embedding import Embedding
+from .find_relevant_papers import find_relevant_papers_ids
 
 MAX_TRIES = 20
 
@@ -220,7 +222,18 @@ if __name__ == "__main__":
     relevant_papers_ids = papers_texts["paper_id"].tolist()
     if not args.all_papers:
         print("Finding relevant papers IDs...")
-        relevant_papers_ids = load_relevant_papers_ids()
+        relevant_papers_ids_no_filtering = find_relevant_papers_ids(
+            users_ratings_selection=UsersRatingsSelection.SESSION_BASED_NO_FILTERING,
+            seeds=TEST_RANDOM_STATES + [VAL_RANDOM_STATE],
+            include_old_cache=True,
+        )
+        relevant_papers_ids_filtering = find_relevant_papers_ids(
+            users_ratings_selection=UsersRatingsSelection.SESSION_BASED_FILTERING,
+            seeds=TEST_RANDOM_STATES + [VAL_RANDOM_STATE],
+            include_old_cache=False
+        )
+        relevant_papers_ids = set(relevant_papers_ids_no_filtering + relevant_papers_ids_filtering)
+        relevant_papers_ids = sorted(list(relevant_papers_ids))
         print(f"Found {len(relevant_papers_ids)} relevant papers.")
     if args.existing_embedding:
         embedding = Embedding(Path(args.existing_embedding).resolve())
@@ -232,13 +245,13 @@ if __name__ == "__main__":
     papers_texts = papers_texts[["paper_id", "title", "abstract"]].values.tolist()
     max_sequence_length = args.max_sequence_length + (20 if is_qwen_instruct else 0)
     tokenize_and_encode_papers_in_batches(
-        embeddings_folder,
-        papers_texts,
-        device,
-        model,
-        tokenizer,
-        args.max_batch_size,
-        max_sequence_length,
-        args.model_path,
+        embeddings_folder=embeddings_folder,
+        papers=papers_texts,
+        device=device,
+        model=model,
+        tokenizer=tokenizer,
+        max_batch_size=args.max_batch_size,
+        max_sequence_length=max_sequence_length,
+        model_path=args.model_path,
     )
     print(f"Embeddings computation finished. Results saved in {embeddings_folder}.")

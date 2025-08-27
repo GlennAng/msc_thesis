@@ -78,7 +78,7 @@ def run_val_users(embeddings_path: Path, selection: str = "session_based") -> No
         config_val_users = create_example_config(embeddings_path)
     else:
         config_val_users = create_example_config_cross_val(embeddings_path)
-    config_val_users["users_selection"] = "finetuning_val"
+    config_val_users["relevant_users_ids"] = "finetuning_val"
     with open(config_val_users_path, "w") as f:
         json.dump(config_val_users, f, indent=4)
     subprocess.run(
@@ -105,7 +105,7 @@ def run_test_users(embeddings_path: Path, selection: str = "session_based") -> N
         config_test_users = create_example_config(embeddings_path)
     else:
         config_test_users = create_example_config_cross_val(embeddings_path)
-    config_test_users["users_selection"] = "finetuning_test"
+    config_test_users["relevant_users_ids"] = "finetuning_test"
     with open(config_test_users_path, "w") as f:
         json.dump(config_test_users, f, indent=4)
     subprocess.run(

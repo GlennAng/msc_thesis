@@ -30,7 +30,6 @@ from .visualization_tools import (
     get_hyperparameters_ranges_str,
     get_plot_df,
     get_users_info_table,
-    get_users_selection_str,
     load_outputs_files,
     plot_hyperparameter_for_all_combinations,
     print_fifth_page,
@@ -42,14 +41,13 @@ from .visualization_tools import (
     print_third_page,
 )
 
-N_USERS_SESSION_BASED = 1076
+N_USERS_SESSION_BASED_NO_FILTERING = 1070
 OPTIMIZATION_CONSTANTS = {
     "N_TAIL_USERS": 15,
     "N_PRINT_BEST_HYPERPARAMETERS_COMBINATIONS": 25,
     "PCNT_HI_POS_VAL_SESSIONS": 0.1,
     "PCNT_HI/LO_TRAIN_VOTES": 0.1,
     "PCNT_HI_POS_VAL_TIME": 0.1,
-    "PCNT_HI_VAL_COS_SIM_SLIDE": 0.1,
     "PCNT_HI/LO_POS_TRAIN_RATIO": 0.1,
 }
 
@@ -195,13 +193,13 @@ class Global_Visualizer:
         return max(1, min(n_high_low_users, self.n_users))
 
     def extract_high_pos_val_sessions_users(self, users_groups_dict: dict) -> None:
-        if self.n_users == N_USERS_SESSION_BASED:
+        if self.n_users == N_USERS_SESSION_BASED_NO_FILTERING:
             n_hi_lo_pos_val_sessions_users = 100
         else:
             percentage = OPTIMIZATION_CONSTANTS["PCNT_HI_POS_VAL_SESSIONS"]
             n_hi_lo_pos_val_sessions_users = self.get_n_high_low_users(percentage)
         hi_pos_val_sessions_users = self.users_info.nlargest(
-            n_hi_lo_pos_val_sessions_users, "n_pos_val_sessions"
+            n_hi_lo_pos_val_sessions_users, "n_sessions_pos_val"
         )["user_id"].values
         hi_lo_pos_val_sessions_legend = (
             f"HiSess: The {n_hi_lo_pos_val_sessions_users} Users with the highest"
@@ -213,7 +211,7 @@ class Global_Visualizer:
         }
 
     def extract_high_low_train_votes_users(self, users_groups_dict: dict) -> None:
-        if self.n_users == N_USERS_SESSION_BASED:
+        if self.n_users == N_USERS_SESSION_BASED_NO_FILTERING:
             n_hi_lo_train_votes_users = 100
         else:
             percentage = OPTIMIZATION_CONSTANTS["PCNT_HI/LO_TRAIN_VOTES"]
@@ -235,13 +233,13 @@ class Global_Visualizer:
         users_groups_dict["LoVotes"] = {"users_ids": lo_train_votes_users}
 
     def extract_high_pos_val_time_users(self, users_groups_dict: dict) -> None:
-        if self.n_users == N_USERS_SESSION_BASED:
+        if self.n_users == N_USERS_SESSION_BASED_NO_FILTERING:
             n_hi_pos_val_time_users = 100
         else:
             percentage = OPTIMIZATION_CONSTANTS["PCNT_HI_POS_VAL_TIME"]
             n_hi_pos_val_time_users = self.get_n_high_low_users(percentage)
         hi_pos_val_time_users = self.users_info.nlargest(
-            n_hi_pos_val_time_users, "pos_val_time_range_days"
+            n_hi_pos_val_time_users, "time_range_days_pos_val"
         )["user_id"].values
         hi_pos_val_time_legend = f"HiTime: The {n_hi_pos_val_time_users} Users with the highest"
         hi_pos_val_time_legend += " Time amount between Validation Positives."
@@ -250,24 +248,9 @@ class Global_Visualizer:
             "legend": hi_pos_val_time_legend,
         }
 
-    def extract_high_val_cos_sim_slide(self, users_groups_dict: dict) -> None:
-        if self.n_users == N_USERS_SESSION_BASED:
-            n_hi_val_cos_sim_slide_users = 100
-        else:
-            percentage = OPTIMIZATION_CONSTANTS["PCNT_HI_VAL_COS_SIM_SLIDE"]
-            n_hi_val_cos_sim_slide_users = self.get_n_high_low_users(percentage)
-        hi_val_cos_sim_slide_users = self.users_info.nlargest(
-            n_hi_val_cos_sim_slide_users, "val_set_cosine_similarity_sliding"
-        )["user_id"].values
-        hi_val_cos_sim_slide_legend = f"HiCosSl: The {n_hi_val_cos_sim_slide_users} Users with the highest"
-        hi_val_cos_sim_slide_legend += " Cosine Similarity (Sliding Window) between Validation Positives."
-        users_groups_dict["HiCosSl"] = {
-            "users_ids": hi_val_cos_sim_slide_users,
-            "legend": hi_val_cos_sim_slide_legend,
-        }
 
     def extract_high_low_pos_train_ratio_users(self, users_groups_dict: dict) -> None:
-        if self.n_users == N_USERS_SESSION_BASED:
+        if self.n_users == N_USERS_SESSION_BASED_NO_FILTERING:
             n_hi_lo_pos_train_ratio_users = 100
         else:
             percentage = OPTIMIZATION_CONSTANTS["PCNT_HI/LO_POS_TRAIN_RATIO"]
@@ -322,7 +305,6 @@ class Global_Visualizer:
         self.extract_high_pos_val_sessions_users(users_groups_dict)
         self.extract_high_low_train_votes_users(users_groups_dict)
         self.extract_high_pos_val_time_users(users_groups_dict)
-        self.extract_high_val_cos_sim_slide(users_groups_dict)
         self.extract_high_low_pos_train_ratio_users(users_groups_dict)
         self.extract_cs_non_cs_users(users_groups_dict)
         self.extract_tail_users(users_groups_dict)
@@ -333,13 +315,17 @@ class Global_Visualizer:
             for uid in users_groups_dict["HiSess"]["users_ids"]
             if uid not in users_groups_dict["HiVotes"]["users_ids"]
         ]
-        hi_sessions_legend = f"HiSess: The {len(hi_sessions_users)} Users in high Sessions but not high Votes."
+        hi_sessions_legend = (
+            f"HiSess: The {len(hi_sessions_users)} Users in high Sessions but not high Votes."
+        )
         hi_votes_users = [
             uid
             for uid in users_groups_dict["HiVotes"]["users_ids"]
             if uid not in users_groups_dict["HiSess"]["users_ids"]
         ]
-        hi_votes_legend = f"HiVotes: The {len(hi_votes_users)} Users in high Votes but not high Sessions."
+        hi_votes_legend = (
+            f"HiVotes: The {len(hi_votes_users)} Users in high Votes but not high Sessions."
+        )
         self.users_groups_dict["HiSess"] = {
             "users_ids": hi_sessions_users,
             "legend": hi_sessions_legend,
@@ -479,54 +465,34 @@ class Global_Visualizer:
             config_string.append(
                 "Evaluation Method: Session-Based (with Time Sorting for Ranking Negatives)."
             )
+        config_string.append(f"Users Ratings Selection: {self.config['users_ratings_selection']}.")
+        if self.config["relevant_users_ids"] is not None:
+            urs_appendix = " (specifically chosen)."
+        else:
+            urs_appendix = " (all chosen)."
+        config_string.append(f"Number of selected Users: {self.n_users}{urs_appendix}")
         if self.config["evaluation"] != Evaluation.SESSION_BASED:
             config_string.append(
                 "Same Ranking Negatives for all Positives? "
                 f"{'Yes' if self.config['same_negrated_for_all_pos'] else 'No'}."
             )
-        config_string.append(f"Desired Train Size: {self.config['train_size']}.")
         config_string.append(
             f"Were the Training Sets stratified? {'Yes' if self.config['stratified'] else 'No'}."
         )
-        urs, mrs, crs, rrs = (
-            self.config["users_random_state"],
+        mrs, crs, rrs = (
             self.config["model_random_state"],
             self.config["cache_random_state"],
             self.config["ranking_random_state"],
         )
-        config_string.append(
-            f"Random States:  Users: {urs}  |  Model: {mrs}  |  Cache: {crs}  |  Ranking: {rrs}."
-        )
+        config_string.append(f"Random States:  Model: {mrs}  |  Cache: {crs}  |  Ranking: {rrs}.")
         config_string.append("\n")
         config_string.append(
             get_cache_type_str(
                 self.config["cache_type"], self.config["n_cache"], self.config["n_categories_cache"]
             )
         )
-        config_string.append(
-            f"Number of Negative Samples per User: {self.config['n_negative_samples']}."
-        )
-        config_string.append("\n")
-        if self.config["evaluation"] in [Evaluation.CROSS_VALIDATION, Evaluation.TRAIN_TEST_SPLIT]:
-            config_string.append(
-                "Minimum Number of required negative / positive Votes per User: "
-                f"{self.config['min_n_negrated']} / {self.config['min_n_posrated']}."
-            )
-        elif self.config["evaluation"] == Evaluation.SESSION_BASED:
-            config_string.append(
-                "Minimum Number of required negative / positive Training Votes per User: "
-                f"{self.config['min_n_negrated_train']} / {self.config['min_n_posrated_train']}."
-            )
-            config_string.append(
-                "Minimum Number of required negative / positive Validation Votes per User: "
-                f"{self.config['min_n_negrated_val']} / {self.config['min_n_posrated_val']}."
-            )
         if self.config["categories_dim"] is not None:
             config_string.append(f"Categories Scale: {self.config['categories_scale']}.")
-        config_string.append(f"Number of selected Users: {self.n_users}.")
-        config_string.append(
-            get_users_selection_str(self.config["users_selection"], self.users_ids)
-        )
 
         return "\n\n".join(config_string)
 
@@ -541,7 +507,7 @@ class Global_Visualizer:
     def generate_third_page(self, pdf: PdfPages) -> None:
         users_info_table = get_users_info_table(self.users_info)
         print_third_page(
-            pdf, self.n_users, users_info_table, self.config["users_selection"], self.users_ids
+            pdf, self.n_users, users_info_table, self.users_ids
         )
 
     def generate_fourth_page(self, pdf: PdfPages) -> None:

@@ -21,8 +21,11 @@ from .training.algorithm import (
     get_evaluation_from_arg,
 )
 from .training.evaluation import Evaluator
-from .training.get_users_ratings import get_users_ratings
 from .training.scores import Score
+from .training.users_ratings import (
+    get_users_ratings_selection_from_arg,
+    load_users_ratings_from_selection,
+)
 from .training.weights_handler import Weights_Handler, load_hyperparameter_range
 
 
@@ -37,16 +40,8 @@ def config_assertions(config: Dict[str, Any]) -> None:
     assert config["logreg_solver"] == "lbfgs", "Config: logreg_solver must be 'lbfgs'."
     assert config["max_iter"] == 10000, "Config: max_iter must be 10000."
     assert config["weights"] == "global:cache_v", "Config: weights must be 'global:cache_v'."
-    assert config["users_selection"] in [
-        "random",
-        "finetuning_test",
-        "finetuning_train",
-        "finetuning_val",
-        "session_based",
-    ] or isinstance(config["users_selection"], list)
     if config["evaluation"] in ["cross_validation", "train_test_split"]:
         assert config["stratified"]
-        assert not config["filter_for_negrated_ranking"]
 
 
 def load_config(config_path: Path) -> Dict[str, Any]:
@@ -69,6 +64,9 @@ def load_config(config_path: Path) -> Dict[str, Any]:
 def convert_enums(config: Dict[str, Any]) -> None:
     config["algorithm"] = get_algorithm_from_arg(config["algorithm"])
     config["evaluation"] = get_evaluation_from_arg(config["evaluation"])
+    config["users_ratings_selection"] = get_users_ratings_selection_from_arg(
+        config["users_ratings_selection"]
+    )
 
 
 def create_outputs_folder(config: Dict[str, Any]) -> None:
@@ -239,22 +237,9 @@ if __name__ == "__main__":
     if config["evaluation"] == Evaluation.SLIDING_WINDOW:
         users_ratings, users_embeddings = init_sliding_window(config=config)
     else:
-        users_ratings = get_users_ratings(
-            users_selection=config["users_selection"],
-            evaluation=config["evaluation"],
-            train_size=config["train_size"],
-            max_users=config["max_users"],
-            users_random_state=config["users_random_state"],
-            model_random_state=config["model_random_state"],
-            stratify=config["stratified"],
-            take_complement=config["take_complement_of_users"],
-            min_n_posrated=config["min_n_posrated"],
-            min_n_negrated=config["min_n_negrated"],
-            min_n_posrated_train=config["min_n_posrated_train"],
-            min_n_negrated_train=config["min_n_negrated_train"],
-            min_n_posrated_val=config["min_n_posrated_val"],
-            min_n_negrated_val=config["min_n_negrated_val"],
-            filter_for_negrated_ranking=config["filter_for_negrated_ranking"],
+        users_ratings = load_users_ratings_from_selection(
+            users_ratings_selection=config["users_ratings_selection"],
+            relevant_users_ids=config["relevant_users_ids"],
         )
         users_embeddings = None
     users_ids = list(users_ratings["user_id"].unique())

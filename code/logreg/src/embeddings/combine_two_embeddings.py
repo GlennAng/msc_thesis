@@ -5,8 +5,6 @@ from pathlib import Path
 import numpy as np
 
 from .embedding import Embedding
-from .filter_relevant_embeddings import filter_relevant_embeddings
-from ....src.load_files import load_relevant_papers_ids
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
@@ -43,10 +41,3 @@ if __name__ == "__main__":
     np.save(matrix_path, combined_matrix)
     with open(papers_ids_to_idxs_path, "wb") as f:
         pickle.dump(combined_papers_to_idxs, f)
-
-    embedding = Embedding(first_embedding_path)
-    filter_relevant_embeddings(
-        embedding=embedding,
-        papers_ids=load_relevant_papers_ids(),
-        dir_path=first_embedding_path,
-    )

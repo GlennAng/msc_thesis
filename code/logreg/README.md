@@ -8,50 +8,50 @@ We provide code for automatically computing and evaluating papers embeddings for
 
 Here is an overview of their results (256-dimensional with 100-dimensional category embeddings attached):
 
-## Cross-Validation
-
-| Model Name | Bal. Acc. | NDCG | MRR | InfoNCE |
-|------------|------------------|------|-----|---------|
-| tf-idf | 73.65 | 81.92 | 75.88 | 1.3559 |
-| specter2_base | 76.92 | 84.61 | 79.43 | 0.9540 |
-| gte-base-en-v1.5 | 77.16 | 84.70 | 79.55 | 0.9571 |
-| gte-large-en-v1.5 | 77.66 | 85.14 | 80.14 | 0.9334 |
-| Qwen3-Embedding-0.6B | 77.43 | 85.12 | 80.11 | 0.9273 |
-| Qwen3-Embedding-4B | **78.99** | **86.67** | **82.18** | 0.8477 |
-| Qwen3-Embedding-8B | 78.93 | **86.67** | **82.18** | **0.8467** |
-
 ## Session-based Evaluation (no filter)
 
 | Model Name | Bal. Acc. | NDCG | MRR | InfoNCE |
 |------------|------------------|------|-----|---------|
-| tf-idf | 63.88 | 73.74 | 65.18 | 1.8139 |
-| specter2_base | 71.35 | 80.43 | 73.93 | 1.1770 |
-| gte-base-en-v1.5 | 70.56 | 79.72 |73.00 | 1.2229 |
-| gte-large-en-v1.5 | 71.12 | 80.44 | 73.95 | 1.1923 |
-| Qwen3-Embedding-0.6B | 71.07 | 80.25 | 73.68 | 1.1790 |
-| Qwen3-Embedding-4B | 73.35 | 82.70 | 76.93 | 1.0650 |
-| Qwen3-Embedding-8B | **73.67** | **83.03** | **77.37** | **1.0385** |
+| tf-idf | 64.07 | 73.81 | 65.27 | 1.8260 |
+| specter2_base | 71.74 | 80.54 | 74.09 | 1.1775 |
+| gte-base-en-v1.5 | 70.98 | 79.80 |73.09 | 1.2266 |
+| gte-large-en-v1.5 | 71.60 | 80.55 | 74.09 | 1.1924 |
+| Qwen3-Embedding-0.6B | 71.59 | 80.55 | 74.09 | 1.1793 |
+| Qwen3-Embedding-4B | 73.80 | 82.88 | 77.18 | 1.0680 |
+| Qwen3-Embedding-8B | **74.07** | **83.20** | **77.59** | **1.0389** |
+
+## Cross-Validation
+
+| Model Name | Bal. Acc. | NDCG | MRR | InfoNCE |
+|------------|------------------|------|-----|---------|
+| tf-idf | 74.14 | 82.32 | 76.40 | 1.3369 |
+| specter2_base | 77.30 | 84.80 | 79.69 | 0.9444 |
+| gte-base-en-v1.5 | 77.58 | 84.97 | 79.91 | 0.9441 |
+| gte-large-en-v1.5 | 78.07 | 85.32 | 80.38 | 0.9240 |
+| Qwen3-Embedding-0.6B | 77.86 | 85.37 | 80.44 | 0.9150 |
+| Qwen3-Embedding-4B | **79.42** | **86.85** | **82.41** | **0.8381** |
+| Qwen3-Embedding-8B | 79.34 | 86.82 | 82.37 | 0.8382 |
 
 
-## Session-based Evaluation NDCG (still no filter but on Test Users only)
+## Fine-tuning Session-based Evaluation NDCG (still no filter but on Test Users only)
 
 | Model Name | Total | CS Users | Non-CS Users
 |------------|------------------|------|-----|
-| gte-large-en-v1.5 | 80.84 | 80.91 | 78.99 |
-| gte-large-en-v1.5 fine-tune | 83.14 | 83.25 | 80.16 |
-| Qwen3-Embedding-8B | 83.20 | 83.22 | **82.62** |
-| gte-large-en-v1.5 fine-tune cat loss | **83.25** | **83.30** | 82.01 |
+| gte-large-en-v1.5 | 80.32 | 80.21 | 82.54 |
+| Qwen3-Embedding-8B | 83.05 | 82.95 | **85.03** |
+| gte-large-en-v1.5 fine-tune no cat loss | 83.07 | 83.14 | 81.69 |
+| gte-large-en-v1.5 fine-tune cat loss | **83.26** | **83.22** | 84.13 |
 
 ## Cosine Similarity Changes between Physics and other Categories
 | Category | before Fine-tuning | after Fine-tuning w/o Cat Loss | after Fine-tuning w/ Cat Loss |
 |------------|------------------|------|-----|
-| Computer Science | 20.49 | 17.42 | 13.93
-| Medicine | 25.19 | 48.59 | 30.99
-| Linguistics | 29.50 | 64.11 | 37.62
-| Psychology | 33.03 | 56.22 | 37.37
-| Biology | 39.34 | 61.23 | 39.98
-| Astronomy | 39.49 | 68.05 | 43.71
-| Physics | 57.12 | 82.87 | 64.80
+| Computer Science | 20.44 | 15.64 | 17.11
+| Medicine | 25.19 | 49.77 | 32.49
+| Linguistics | 29.54 | 65.26 | 39.20
+| Psychology | 33.09 | 57.90 | 38.46
+| Biology | 39.36 | 63.55 | 41.62
+| Astronomy | 39.52 | 71.78 | 45.86
+| Physics | 57.18 | 86.15 | 64.87
 
 ## Session-based Evaluation NDCG (filtering, predicting whole Validation Set at once vs. Sliding Window)
 *First/Last Sess:* The first/last Validation Session with at least one Upvote in it  

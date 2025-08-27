@@ -23,10 +23,6 @@ class ProjectPaths:
         return ProjectPaths.data_path() / "papers_texts.parquet"
 
     @staticmethod
-    def data_relevant_papers_ids_path():
-        return ProjectPaths.data_path() / "relevant_papers_ids.pkl"
-
-    @staticmethod
     def data_users_significant_categories_path():
         return ProjectPaths.data_path() / "users_significant_categories.parquet"
 
@@ -37,34 +33,27 @@ class ProjectPaths:
     @staticmethod
     def data_finetuning_users_ids_path():
         return ProjectPaths.data_path() / "finetuning_users_ids.pkl"
+    
 
     @staticmethod
-    def data_session_based_users_ids_path():
-        return ProjectPaths.data_path() / "session_based_users_ids.pkl"
+    def data_finetuning_users_ids_old_path():
+        return ProjectPaths.data_path() / "finetuning_users_ids_old.pkl"
 
     @staticmethod
-    def data_session_based_ratings_session_based_users_path():
-        return ProjectPaths.data_path() / "session_based_ratings_session_based_users.parquet"
-
-    @staticmethod
-    def data_session_based_ratings_test_users_path():
-        return ProjectPaths.data_path() / "session_based_ratings_test_users.parquet"
-
-    @staticmethod
-    def data_session_based_ratings_val_users_path():
-        return ProjectPaths.data_path() / "session_based_ratings_val_users.parquet"
+    def data_session_based_no_filtering_ratings_path():
+        return ProjectPaths.data_path() / "session_based_no_filtering_ratings.parquet"
     
     @staticmethod
-    def data_sequence_session_based_ratings_session_based_users_path():
-        return ProjectPaths.data_path() / "sequence_session_based_ratings_session_based_users.parquet"
-    
-    @staticmethod
-    def data_sequence_session_based_ratings_test_users_path():
-        return ProjectPaths.data_path() / "sequence_session_based_ratings_test_users.parquet"
+    def data_session_based_no_filtering_ratings_old_path():
+        return ProjectPaths.data_path() / "session_based_no_filtering_ratings_old.parquet"
 
     @staticmethod
-    def data_sequence_session_based_ratings_val_users_path():
-        return ProjectPaths.data_path() / "sequence_session_based_ratings_val_users.parquet"
+    def data_session_based_filtering_ratings_path():
+        return ProjectPaths.data_path() / "session_based_filtering_ratings.parquet"
+
+    @staticmethod
+    def data_session_based_filtering_ratings_old_path():
+        return ProjectPaths.data_path() / "session_based_filtering_ratings_old.parquet"
 
     @staticmethod
     def finetuning_path():

@@ -11,15 +11,12 @@ from ...src.load_files import load_finetuning_users_ids
 from ...src.project_paths import ProjectPaths
 
 
-def create_finetuning_config_train(example_config: dict, train_users_ids: list) -> dict:
+def create_finetuning_config_train(example_config: dict) -> dict:
     finetuning_config_train = example_config.copy()
     finetuning_config_train.update(
         {
-            "users_selection": train_users_ids,
-            "min_n_posrated": 20,
-            "min_n_negrated": 20,
+            "users_ratings_selection": "finetuning_train",
             "evaluation": "train_test_split",
-            "train_size": 1.0,
             "save_users_coefs": True,
         }
     )
@@ -30,7 +27,8 @@ def create_finetuning_config_val(example_config: dict) -> dict:
     finetuning_config_val = example_config.copy()
     finetuning_config_val.update(
         {
-            "users_selection": "finetuning_val",
+            "users_ratings_selection": "session_based_no_filtering",
+            "relevant_users_ids": "finetuning_val",
             "evaluation": "session_based",
             "save_users_coefs": True,
         }
@@ -38,11 +36,11 @@ def create_finetuning_config_val(example_config: dict) -> dict:
     return finetuning_config_val
 
 
-def create_finetuning_configs(train_users_ids: list) -> None:
+def create_finetuning_configs() -> None:
     example_config = create_example_config(
         ProjectPaths.logreg_embeddings_path() / "after_pca" / "gte_large_256_categories_l2_unit_100"
     )
-    finetuning_config_train = create_finetuning_config_train(example_config, train_users_ids)
+    finetuning_config_train = create_finetuning_config_train(example_config)
     finetuning_config_val = create_finetuning_config_val(example_config)
     finetuning_config_path = ProjectPaths.logreg_experiments_path() / "finetuning_pretraining"
     os.makedirs(finetuning_config_path, exist_ok=True)
@@ -71,14 +69,10 @@ def load_outputs() -> tuple:
     )
     train_coefs = np.load(finetuning_outputs_path_train / "users_coefs.npy")
     val_coefs = np.load(finetuning_outputs_path_val / "users_coefs.npy")
-    assert train_coefs.shape[0] == len(train_users_ids)
-    assert val_coefs.shape[0] == len(val_users_ids)
     with open(finetuning_outputs_path_train / "users_coefs_ids_to_idxs.pkl", "rb") as f:
         train_users_ids_to_idxs = pickle.load(f)
     with open(finetuning_outputs_path_val / "users_coefs_ids_to_idxs.pkl", "rb") as f:
         val_users_ids_to_idxs = pickle.load(f)
-    assert len(train_users_ids_to_idxs) == len(train_users_ids)
-    assert len(val_users_ids_to_idxs) == len(val_users_ids)
     return train_coefs, val_coefs, train_users_ids_to_idxs, val_users_ids_to_idxs
 
 
@@ -88,6 +82,8 @@ def save_outputs(
     train_users_ids_to_idxs: dict,
     val_users_ids_to_idxs: dict,
 ) -> None:
+    train_users_ids = list(train_users_ids_to_idxs.keys())
+    val_users_ids = list(val_users_ids_to_idxs.keys())
     coefs_merged = np.concatenate((train_coefs, val_coefs), axis=0)
     assert coefs_merged.shape[0] == len(train_users_ids) + len(val_users_ids)
     val_users_ids_to_idxs_updated = {
@@ -110,14 +106,15 @@ def save_outputs(
         pickle.dump(users_ids_to_idxs, f)
     print(
         f"Saved users_coefs_ids_to_idxs.pkl with {len(users_ids_to_idxs)} entries at "
-        f"{state_dicts_path / "users_coefs_ids_to_idxs.pkl"}"
+        f"{state_dicts_path / 'users_coefs_ids_to_idxs.pkl'}"
     )
 
 
 if __name__ == "__main__":
-    finetuning_users_ids = load_finetuning_users_ids()
-    train_users_ids = finetuning_users_ids["train"]
-    val_users_ids = finetuning_users_ids["val"]
-    create_finetuning_configs(train_users_ids)
+    create_finetuning_configs()
     train_coefs, val_coefs, train_users_ids_to_idxs, val_users_ids_to_idxs = load_outputs()
+    n_train_users = len(load_finetuning_users_ids(selection="train"))
+    assert n_train_users == len(train_users_ids_to_idxs) and n_train_users == train_coefs.shape[0]
+    n_val_users = len(load_finetuning_users_ids(selection="val"))
+    assert n_val_users == len(val_users_ids_to_idxs) and n_val_users == val_coefs.shape[0]
     save_outputs(train_coefs, val_coefs, train_users_ids_to_idxs, val_users_ids_to_idxs)

@@ -369,7 +369,6 @@ def score_user_models(
     negative_samples_embeddings: np.ndarray,
     train_negrated_ranking_idxs: np.ndarray,
     val_negrated_ranking_idxs: np.ndarray,
-    random_state: int,
     save_users_predictions_bool: bool = False,
 ) -> tuple:
     user_results, user_predictions = {}, {}
@@ -387,7 +386,6 @@ def score_user_models(
             scores_to_indices_dict=scores_to_indices_dict,
             val_data_dict=val_data_dict,
             user_outputs_dict=user_outputs_dict,
-            random_state=random_state,
         )
         if save_users_predictions_bool:
             user_predictions = gather_user_predictions(user_predictions, user_outputs_dict, i)
@@ -403,7 +401,6 @@ def score_user_models_sliding_window(
     negative_samples_embeddings: np.ndarray,
     train_negrated_ranking_idxs: np.ndarray,
     val_negrated_ranking_idxs: np.ndarray,
-    random_state: int,
     save_users_predictions_bool: bool = False,
 ) -> tuple:
     user_results, user_predictions = {}, {}
@@ -420,7 +417,6 @@ def score_user_models_sliding_window(
         scores_to_indices_dict=scores_to_indices_dict,
         val_data_dict=val_data_dict,
         user_outputs_dict=user_outputs_dict,
-        random_state=random_state,
     )
     if save_users_predictions_bool:
         user_predictions = gather_user_predictions(user_predictions, user_outputs_dict, 0)
@@ -779,7 +775,6 @@ def get_scores_ranking_session(
     val_data_dict: dict,
     scores_ranking_before_avging_train: dict,
     scores_ranking_before_avging_val: dict,
-    random_state: int,
 ) -> None:
     scores_ranking_info = {}
     relevant_idxs = {}
@@ -789,13 +784,13 @@ def get_scores_ranking_session(
         pos_sessions_ids = val_data_dict[f"session_id_{split}"][pos_mask]
         distinct_sessions_ids = np.unique(pos_sessions_ids)
         first_id = distinct_sessions_ids[0]
-        random_id = np.random.RandomState(random_state).choice(distinct_sessions_ids)
+        middle_id = distinct_sessions_ids[len(distinct_sessions_ids) // 2]
         last_id = distinct_sessions_ids[-1]
         first_mask = pos_sessions_ids == first_id
-        random_mask = pos_sessions_ids == random_id
+        middle_mask = pos_sessions_ids == middle_id
         last_mask = pos_sessions_ids == last_id
         relevant_idxs[split]["first"] = np.where(first_mask)[0].tolist()
-        relevant_idxs[split]["random"] = np.where(random_mask)[0].tolist()
+        relevant_idxs[split]["middle"] = np.where(middle_mask)[0].tolist()
         relevant_idxs[split]["last"] = np.where(last_mask)[0].tolist()
         last_pos_time = val_data_dict[f"time_{split}"][pos_mask][-1]
         first_pos_time = val_data_dict[f"time_{split}"][pos_mask][0]
@@ -872,7 +867,7 @@ def get_scores_ranking_session(
         fill_user_scores_with_score(
             score, user_scores, scores_to_indices_dict, train_score, val_score
         )
-    for score in SCORES_BY_TYPE[Score_Type.RANKING_SESSION_INFO]:
+    for score in SCORES_BY_TYPE[Score_Type.INFO]:
         lookup_score = scores_ranking_info[SCORES_DICT[score]["lookup_key"]]
         if lookup_score is not None:
             train_score = float(lookup_score)
@@ -886,7 +881,6 @@ def get_user_scores(
     scores_to_indices_dict: dict,
     val_data_dict: dict,
     user_outputs_dict: dict,
-    random_state: int,
 ) -> tuple:
     user_scores = [None] * len(scores_to_indices_dict)
 
@@ -939,6 +933,5 @@ def get_user_scores(
         val_data_dict=val_data_dict,
         scores_ranking_before_avging_train=scores_ranking_before_avging_train,
         scores_ranking_before_avging_val=scores_ranking_before_avging_val,
-        random_state=random_state,
     )
     return tuple(user_scores)

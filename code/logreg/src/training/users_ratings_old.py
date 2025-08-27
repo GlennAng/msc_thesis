@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from sklearn.model_selection import train_test_split
 
 from ....src.load_files import (
     load_finetuning_users_ids,
@@ -13,69 +14,10 @@ from ....src.load_files import (
 from ....src.project_paths import ProjectPaths
 from .algorithm import Evaluation
 
-LABEL_DTYPE = np.int64
-MAX_USERS = 538
-MIN_N_POSRATED = 20
-MIN_N_NEGRATED = 20
-MIN_N_POSRATED_TRAIN = 16
-MIN_N_NEGRATED_TRAIN = 16
-MIN_N_POSRATED_VAL = 4
-MIN_N_NEGRATED_VAL_USERS_SELECTION = 0
-MIN_N_NEGRATED_VAL_SPLIT = 4
-MIN_N_SESSIONS = 4
-N_NEGRATED_RANKING = 4
-TRAIN_SIZE = 0.8
-USERS_SELECTIONS = ["finetuning_val", "finetuning_test", "session_based"]
-
-pd.set_option("display.max_rows", None)
-
-
-def sequence_load_users_ratings(selection: str) -> pd.DataFrame | None:
-    if selection not in USERS_SELECTIONS:
-        raise ValueError(f"Invalid selection: {selection}")
-    if selection == "finetuning_val":
-        path = ProjectPaths.data_sequence_session_based_ratings_val_users_path()
-    elif selection == "finetuning_test":
-        path = ProjectPaths.data_sequence_session_based_ratings_test_users_path()
-    elif selection == "session_based":
-        path = ProjectPaths.data_sequence_session_based_ratings_session_based_users_path()
-    if path.exists():
-        return pd.read_parquet(path, engine="pyarrow")
-    else:
-        return None
-
-
-def sequence_save_users_ratings(selection: str) -> None:
-    if selection not in USERS_SELECTIONS:
-        raise ValueError(f"Invalid selection: {selection}")
-    if selection == "finetuning_val":
-        path = ProjectPaths.data_sequence_session_based_ratings_val_users_path()
-    elif selection == "finetuning_test":
-        path = ProjectPaths.data_sequence_session_based_ratings_test_users_path()
-    elif selection == "session_based":
-        path = ProjectPaths.data_sequence_session_based_ratings_session_based_users_path()
-    if path.exists():
-        print(f"Users ratings for {selection} already exist at {path}. Skipping saving.")
-        return
-    users_ratings = get_users_ratings(
-        users_selection=selection,
-        evaluation=Evaluation.SESSION_BASED,
-        train_size=TRAIN_SIZE,
-        min_n_posrated_train=MIN_N_POSRATED_TRAIN,
-        min_n_posrated_val=MIN_N_POSRATED_VAL,
-        min_n_negrated_train=MIN_N_NEGRATED_TRAIN,
-        min_n_negrated_val=MIN_N_NEGRATED_VAL_USERS_SELECTION,
-        filter_for_negrated_ranking=True,
-    )
-    n_users = users_ratings["user_id"].nunique()
-    users_ratings.to_parquet(path, index=False, compression="gzip")
-    print(f"Saved users ratings for {selection} to {path}. {n_users} users saved.")
-
 
 def get_train_test_split(
     users_ratings: pd.DataFrame, test_size: float, random_state: int, stratify: bool = True
 ) -> pd.DataFrame:
-    from sklearn.model_selection import train_test_split
 
     if test_size == 0.0 or test_size == 1.0:
         users_ratings_copy = users_ratings.copy()
@@ -325,61 +267,10 @@ def append_removed_for_negrated_ranking(
 
     assert "split" not in users_ratings_removed_for_negrated_ranking.columns
     users_ratings_removed_for_negrated_ranking["split"] = "removed"
-    users_ratings = pd.concat(
-        [users_ratings, users_ratings_removed_for_negrated_ranking]
-    )
+    users_ratings = pd.concat([users_ratings, users_ratings_removed_for_negrated_ranking])
     users_ratings = users_ratings.sort_values(["user_id", "time"])
     return users_ratings
 
-
-def get_users_ratings_from_files(
-    users_selection: str,
-    evaluation: Evaluation,
-    train_size: float,
-    min_n_posrated_train: int,
-    min_n_negrated_train: int,
-    min_n_posrated_val: int,
-    min_n_negrated_val: int,
-    filter_for_negrated_ranking: bool = False,
-) -> pd.DataFrame | None:
-    if all(
-        [
-            users_selection in USERS_SELECTIONS,
-            evaluation in [Evaluation.SESSION_BASED, Evaluation.SLIDING_WINDOW],
-            train_size == TRAIN_SIZE,
-            min_n_posrated_train == MIN_N_POSRATED_TRAIN,
-            min_n_negrated_train == MIN_N_NEGRATED_TRAIN,
-            min_n_posrated_val == MIN_N_POSRATED_VAL,
-            min_n_negrated_val == MIN_N_NEGRATED_VAL_SPLIT,
-            not filter_for_negrated_ranking,
-        ]
-    ):
-        path = None
-        if users_selection == "finetuning_val":
-            path = ProjectPaths.data_session_based_ratings_val_users_path()
-        elif users_selection == "finetuning_test":
-            path = ProjectPaths.data_session_based_ratings_test_users_path()
-        elif users_selection == "session_based":
-            path = ProjectPaths.data_session_based_ratings_session_based_users_path()
-        if path and path.exists():
-            return get_session_based_users_ratings(users_selection)
-    if all(
-        [
-            users_selection in USERS_SELECTIONS,
-            evaluation in [Evaluation.SESSION_BASED, Evaluation.SLIDING_WINDOW],
-            train_size == TRAIN_SIZE,
-            min_n_posrated_train == MIN_N_POSRATED_TRAIN,
-            min_n_negrated_train == MIN_N_NEGRATED_TRAIN,
-            min_n_posrated_val == MIN_N_POSRATED_VAL,
-            min_n_negrated_val == MIN_N_NEGRATED_VAL_USERS_SELECTION,
-            filter_for_negrated_ranking,
-        ]
-    ):
-        sequence_users_ratings = sequence_load_users_ratings(selection=users_selection)
-        if sequence_users_ratings is not None:
-            return sequence_users_ratings
-    return None
-    
 
 def get_users_ratings(
     users_selection: str,
@@ -403,20 +294,6 @@ def get_users_ratings(
             raise ValueError(
                 "Filtering for negrated ranking is not supported in train-test split or cross-validation."
             )
-
-    users_ratings_from_files = get_users_ratings_from_files(
-        users_selection=users_selection,
-        evaluation=evaluation,
-        train_size=train_size,
-        min_n_posrated_train=min_n_posrated_train,
-        min_n_negrated_train=min_n_negrated_train,
-        min_n_posrated_val=min_n_posrated_val,
-        min_n_negrated_val=min_n_negrated_val,
-        filter_for_negrated_ranking=filter_for_negrated_ranking,
-    )
-    if users_ratings_from_files is not None:
-        return users_ratings_from_files
-
     test_size = 1.0 - train_size
     users_ratings = load_users_ratings()
     users_ratings, users_ratings_removed_for_negrated_ranking = (
@@ -491,7 +368,7 @@ def users_query(
     max_users: int,
     random_state: int,
 ) -> list:
-    _, users_ids, _ = get_users_ratings(
+    users_ratings = get_users_ratings(
         users_selection="random",
         evaluation=Evaluation.SESSION_BASED,
         train_size=0.0,
@@ -504,7 +381,7 @@ def users_query(
         take_complement=take_complement,
         filter_for_negrated_ranking=True,
     )
-    return users_ids
+    return users_ratings["user_id"].unique().tolist()
 
 
 def save_finetuning_users_ids(path: Path, random_state: int) -> None:
@@ -526,15 +403,19 @@ def save_finetuning_users_ids(path: Path, random_state: int) -> None:
     val_users_ids = random.sample(complement_users_ids, k=MAX_USERS)
     val_users_ids = sorted(val_users_ids)
     assert_sorted_and_unique(val_users_ids)
-    _, full_users_ids, _ = get_users_ratings(
-        users_selection="random",
-        evaluation=Evaluation.CROSS_VALIDATION,
-        train_size=TRAIN_SIZE,
-        max_users=None,
-        users_random_state=random_state,
-        min_n_posrated=MIN_N_POSRATED,
-        min_n_negrated=MIN_N_NEGRATED,
-        take_complement=False,
+    full_users_ids = (
+        get_users_ratings(
+            users_selection="random",
+            evaluation=Evaluation.CROSS_VALIDATION,
+            train_size=TRAIN_SIZE,
+            max_users=None,
+            users_random_state=random_state,
+            min_n_posrated=MIN_N_POSRATED,
+            min_n_negrated=MIN_N_NEGRATED,
+            take_complement=False,
+        )["user_id"]
+        .unique()
+        .tolist()
     )
     assert_sorted_and_unique(full_users_ids)
     assert set(test_users_ids) <= set(full_users_ids) and set(val_users_ids) <= set(full_users_ids)
@@ -568,49 +449,62 @@ def save_session_based_users_ids(path: Path) -> None:
 
 
 if __name__ == "__main__":
-    random_state = 42
-    finetuning_users_ids_path = ProjectPaths.data_finetuning_users_ids_path()
+    LABEL_DTYPE = np.int64
+    MAX_USERS = 538
+    MIN_N_POSRATED = 20
+    MIN_N_NEGRATED = 20
+    MIN_N_POSRATED_TRAIN = 16
+    MIN_N_NEGRATED_TRAIN = 16
+    MIN_N_POSRATED_VAL = 4
+    MIN_N_NEGRATED_VAL_USERS_SELECTION = 0
+    MIN_N_NEGRATED_VAL_SPLIT = 4
+    MIN_N_SESSIONS = 4
+    N_NEGRATED_RANKING = 4
+    RANDOM_STATE = 42
+    TRAIN_SIZE = 0.8
+
+    finetuning_users_ids_path = ProjectPaths.data_finetuning_users_ids_old_path()
     if not finetuning_users_ids_path.exists():
         save_finetuning_users_ids(
-            path=ProjectPaths.data_finetuning_users_ids_path(),
-            random_state=random_state,
+            path=ProjectPaths.data_finetuning_users_ids_old_path(),
+            random_state=RANDOM_STATE,
         )
-        print(f"Finetuning Users IDs saved to {finetuning_users_ids_path}.")
+        print(f"Finetuning Users IDs Old saved to {finetuning_users_ids_path}.")
     else:
-        print("Finetuning Users IDs already exist. Skipping saving.")
+        print("Finetuning Users IDs Old already exist. Skipping saving.")
+    finetuning_users_ids = load_finetuning_users_ids(selection="all", old=True)
+    users_ids = sorted(finetuning_users_ids["val"] + finetuning_users_ids["test"])
 
-    session_based_users_ids_path = ProjectPaths.data_session_based_users_ids_path()
-    if not session_based_users_ids_path.exists():
-        save_session_based_users_ids(path=session_based_users_ids_path)
-        print(f"Session-Based Users IDs saved to {session_based_users_ids_path}.")
+    no_filtering_path = ProjectPaths.data_session_based_no_filtering_ratings_old_path()
+    if no_filtering_path.exists():
+        print(f"No Filtering Path Old already exists at {no_filtering_path}. Skipping saving.")
     else:
-        print("Session-Based Users IDs already exist. Skipping saving.")
+        users_ratings = get_users_ratings(
+            users_selection=users_ids,
+            evaluation=Evaluation.SESSION_BASED,
+            train_size=TRAIN_SIZE,
+            min_n_posrated_train=MIN_N_POSRATED_TRAIN,
+            min_n_negrated_train=MIN_N_NEGRATED_TRAIN,
+            min_n_posrated_val=MIN_N_POSRATED_VAL,
+            min_n_negrated_val=MIN_N_NEGRATED_VAL_SPLIT,
+            filter_for_negrated_ranking=False,
+        )
+        users_ratings.to_parquet(no_filtering_path, index=False, compression="gzip")
+        print(f"No Filtering Path Old saved to {no_filtering_path}.")
 
-    for users_type in USERS_SELECTIONS:
-        users_type_string = users_type.replace("_", " ").title()
-        if users_type == "finetuning_val":
-            path = ProjectPaths.data_session_based_ratings_val_users_path()
-        elif users_type == "finetuning_test":
-            path = ProjectPaths.data_session_based_ratings_test_users_path()
-        elif users_type == "session_based":
-            path = ProjectPaths.data_session_based_ratings_session_based_users_path()
-        if not path.exists():
-            users_ratings = get_users_ratings(
-                users_selection=users_type,
-                evaluation=Evaluation.SESSION_BASED,
-                train_size=TRAIN_SIZE,
-                min_n_posrated_train=MIN_N_POSRATED_TRAIN,
-                min_n_negrated_train=MIN_N_NEGRATED_TRAIN,
-                min_n_posrated_val=MIN_N_POSRATED_VAL,
-                min_n_negrated_val=MIN_N_NEGRATED_VAL_SPLIT,
-                filter_for_negrated_ranking=False,
-            )
-            users_ratings.to_parquet(path, index=False, compression="gzip")
-            print(f"{users_type_string} Users Session-Based Ratings saved to {path}.")
-        else:
-            print(
-                f"{users_type_string} Users Session-Based Ratings already exist. Skipping saving."
-            )
-
-    for selection in USERS_SELECTIONS:
-        sequence_save_users_ratings(selection)
+    filtering_path = ProjectPaths.data_session_based_filtering_ratings_old_path()
+    if filtering_path.exists():
+        print(f"Filtering Path already exists at {filtering_path}. Skipping saving.")
+    else:
+        users_ratings = get_users_ratings(
+            users_selection=users_ids,
+            evaluation=Evaluation.SESSION_BASED,
+            train_size=TRAIN_SIZE,
+            min_n_posrated_train=MIN_N_POSRATED_TRAIN,
+            min_n_posrated_val=MIN_N_POSRATED_VAL,
+            min_n_negrated_train=MIN_N_NEGRATED_TRAIN,
+            min_n_negrated_val=MIN_N_NEGRATED_VAL_USERS_SELECTION,
+            filter_for_negrated_ranking=True,
+        )
+        users_ratings.to_parquet(filtering_path, index=False, compression="gzip")
+        print(f"Filtering Path Old saved to {filtering_path}.")

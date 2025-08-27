@@ -21,7 +21,6 @@ from .scores import (
     score_user_models_sliding_window,
     update_user_predictions_dict,
 )
-from .scores_definitions import Score
 from .training_data import (
     get_cache_papers_ids_full,
     get_user_cache_papers,
@@ -35,8 +34,10 @@ from .training_data import (
     save_user_results,
     split_negrated_ranking,
     split_ratings,
-    store_user_info,
+    store_user_info_initial,
+    update_user_info_split,
 )
+from .users_ratings import UsersRatingsSelection
 from .weights_handler import Weights_Handler
 
 
@@ -220,7 +221,7 @@ class Evaluator:
             user_categories_ratios=user_categories_ratios,
             embedding=self.embedding,
         )
-        user_info = store_user_info(user_ratings, user_cache_papers["cache_n"])
+        user_info = store_user_info_initial(user_ratings, user_cache_papers["cache_n"])
 
         try:
             if self.config["evaluation"] in [
@@ -277,8 +278,7 @@ class Evaluator:
         user_predictions_dict: dict,
     ) -> None:
         train_ratings, val_ratings, removed_ratings = split_ratings(user_ratings)
-        n_train, n_val = len(train_ratings), len(val_ratings)
-        user_info["train_rated_ratio"] = n_train / (n_train + n_val)
+        update_user_info_split(user_info, train_ratings, val_ratings)
         train_negrated_ranking, val_negrated_ranking = split_negrated_ranking(
             train_ratings, val_ratings, removed_ratings
         )
@@ -296,7 +296,9 @@ class Evaluator:
         )
         user_predictions_dict[0] = fill_user_predictions_dict(val_data_dict)
         timesort = self.config["evaluation"] == Evaluation.SESSION_BASED
-        val_causal_mask = self.config["filter_for_negrated_ranking"]
+        val_causal_mask = self.config["users_ratings_selection"] in [
+            UsersRatingsSelection.SESSION_BASED_FILTERING
+        ]
         train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
             ratings=train_ratings,
             negrated_ranking=train_negrated_ranking,
@@ -321,12 +323,8 @@ class Evaluator:
             negative_samples_embeddings=val_negative_samples_embeddings,
             train_negrated_ranking_idxs=train_negrated_ranking_idxs,
             val_negrated_ranking_idxs=val_negrated_ranking_idxs,
-            random_state=self.config["ranking_random_state"],
             save_users_predictions_bool=self.config["save_users_predictions"],
         )
-        user_info["val_set_cosine_similarity_sliding"] = user_results[0][
-            self.config["scores"][f"train_{Score.VAL_SET_COSINE_SIMILARITY_SLIDING.name.lower()}"]
-        ]
         user_results_dict[0] = user_results
         user_predictions_dict[0].update(user_predictions)
         if self.config["save_users_coefs"]:
@@ -344,14 +342,14 @@ class Evaluator:
         user_info: dict,
         user_results_dict: dict,
         user_predictions_dict: dict,
-    ) -> None:
-        assert user_ratings["split"].isnull().all()
+    ) -> None:        
         split = self.cross_val.split(X=range(len(user_ratings)), y=user_ratings["rating"])
         train_rated_ratios = []
         for fold_idx, (fold_train_idxs, fold_val_idxs) in enumerate(split):
             user_ratings.loc[fold_train_idxs, "split"] = "train"
             user_ratings.loc[fold_val_idxs, "split"] = "val"
             train_ratings, val_ratings, _ = split_ratings(user_ratings)
+            update_user_info_split(user_info, train_ratings, val_ratings)
             train_rated_ratios.append(len(train_ratings) / len(user_ratings))
             train_negrated_ranking = train_ratings[train_ratings["rating"] == 0].reset_index(
                 drop=True
@@ -388,13 +386,12 @@ class Evaluator:
             )
             user_models = self.train_user_models(train_data_dict=train_data_dict, user_id=user_id)
             fold_results, fold_predictions = score_user_models(
-                scores=self.config["scores"],
+                scores_to_indices_dict=self.config["scores"],
                 val_data_dict=val_data_dict,
                 user_models=user_models,
                 negative_samples_embeddings=val_negative_samples_embeddings,
                 train_negrated_ranking_idxs=train_negrated_ranking_idxs,
                 val_negrated_ranking_idxs=val_negrated_ranking_idxs,
-                random_state=self.config["ranking_random_state"],
                 save_users_predictions_bool=self.config["save_users_predictions"],
             )
             user_results_dict[fold_idx] = fold_results
@@ -414,8 +411,7 @@ class Evaluator:
         user_predictions_dict: dict,
     ) -> None:
         train_ratings, val_ratings, removed_ratings = split_ratings(user_ratings)
-        n_train, n_val = len(train_ratings), len(val_ratings)
-        user_info["train_rated_ratio"] = n_train / (n_train + n_val)
+        update_user_info_split(user_info, train_ratings, val_ratings)
         train_negrated_ranking, val_negrated_ranking = split_negrated_ranking(
             train_ratings, val_ratings, removed_ratings
         )
@@ -462,13 +458,8 @@ class Evaluator:
             negative_samples_embeddings=val_negative_samples_embeddings,
             train_negrated_ranking_idxs=train_negrated_ranking_idxs,
             val_negrated_ranking_idxs=val_negrated_ranking_idxs,
-            random_state=self.config["ranking_random_state"],
             save_users_predictions_bool=self.config["save_users_predictions"],
         )
-
-        user_info["val_set_cosine_similarity_sliding"] = user_results[0][
-            self.config["scores"][f"train_{Score.VAL_SET_COSINE_SIMILARITY_SLIDING.name.lower()}"]
-        ]
         user_results_dict[0] = user_results
         user_predictions_dict[0].update(user_predictions)
 

@@ -5,10 +5,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ...logreg.src.training.get_users_ratings import (
-    USERS_SELECTIONS,
-    sequence_load_users_ratings,
-)
+#from ...logreg.src.training.get_users_ratings import (
+#    USERS_SELECTIONS,
+#    sequence_load_users_ratings,
+#)
 from ...src.project_paths import ProjectPaths
 
 
@@ -117,6 +117,7 @@ def compare_users_embeddings(
 
 
 if __name__ == "__main__":
-    users_embeddings, config = load_users_embeddings(
-        path=ProjectPaths.sequence_data_users_embeddings_path() / "logreg", check=True
-    )
+    #users_embeddings, config = load_users_embeddings(
+    #    path=ProjectPaths.sequence_data_users_embeddings_path() / "logreg", check=True
+    #)
+    pass

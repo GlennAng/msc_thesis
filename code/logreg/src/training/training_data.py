@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from ..embeddings.embedding import Embedding
-from .get_users_ratings import N_NEGRATED_RANKING
+from .users_ratings import N_NEGRATED_RANKING
 
 FLOAT_PRECISION = 1e-10
 LABEL_DTYPE = np.int64
@@ -533,29 +533,52 @@ def split_negrated_ranking(
     )
 
 
-def store_user_info(user_ratings: pd.DataFrame, cache_n: int) -> dict:
+def store_user_info_initial(user_ratings: pd.DataFrame, cache_n: int) -> dict:
     user_info = {"n_cache": cache_n, "n_base": 0, "n_zerorated": 0}
-    posrated_n = len(user_ratings[user_ratings["rating"] == 1])
-    negrated_n = len(user_ratings[user_ratings["rating"] == 0])
-    assert posrated_n + negrated_n == len(user_ratings)
-    user_info.update({"n_posrated": posrated_n, "n_negrated": negrated_n})
-
-    pos_ratings = user_ratings[user_ratings["rating"] > 0]
-    posrated_n_train, negrated_n_train = posrated_n, negrated_n
-    if "split" in user_ratings.columns and user_ratings["split"].notna().any():
-        pos_ratings = pos_ratings[pos_ratings["split"] == "val"]
-        train_ratings = user_ratings[user_ratings["split"] == "train"]
-        posrated_n_train = len(train_ratings[train_ratings["rating"] == 1])
-        negrated_n_train = len(train_ratings[train_ratings["rating"] == 0])
-    user_info.update({"n_posrated_train": posrated_n_train, "n_negrated_train": negrated_n_train})
-
-    user_info["n_pos_val_sessions"] = pos_ratings["session_id"].nunique()
-    max_time, min_time = pos_ratings["time"].max(), pos_ratings["time"].min()
-    user_info["pos_val_time_range_days"] = (max_time - min_time).days
+    user_info["n_posrated"] = len(user_ratings[user_ratings["rating"] == 1])
+    user_info["n_negrated"] = len(user_ratings[user_ratings["rating"] == 0])
+    assert user_info["n_posrated"] + user_info["n_negrated"] == len(user_ratings)
+    user_info["n_sessions"] = user_ratings["session_id"].nunique()
+    max_time, min_time = user_ratings["time"].max(), user_ratings["time"].min()
+    user_info["time_range_days"] = (max_time - min_time).days
     return user_info
 
 
+def update_user_info_split(
+    user_info: dict, train_ratings: pd.DataFrame, val_ratings: pd.DataFrame
+) -> None:
+    user_info_split = {}
+    n_train, n_val = len(train_ratings), len(val_ratings)
+    user_info_split["train_rated_ratio"] = n_train / (n_train + n_val)
+    splits = {"train": train_ratings, "val": val_ratings}
+    for split_name, split_ratings in splits.items():
+        n_posrated = len(split_ratings[split_ratings["rating"] == 1])
+        user_info_split[f"n_posrated_{split_name}"] = n_posrated
+        n_negrated = len(split_ratings[split_ratings["rating"] == 0])
+        user_info_split[f"n_negrated_{split_name}"] = n_negrated
+        assert n_posrated + n_negrated == len(split_ratings)
+        user_info_split[f"n_sessions_{split_name}"] = split_ratings["session_id"].nunique()
+        max_time, min_time = split_ratings["time"].max(), split_ratings["time"].min()
+        user_info_split[f"time_range_days_{split_name}"] = (max_time - min_time).days
+        pos_ratings = split_ratings[split_ratings["rating"] == 1]
+        user_info_split[f"n_sessions_pos_{split_name}"] = pos_ratings["session_id"].nunique()
+        pos_max_time, pos_min_time = pos_ratings["time"].max(), pos_ratings["time"].min()
+        user_info_split[f"time_range_days_pos_{split_name}"] = (pos_max_time - pos_min_time).days
+    for key, value in user_info_split.items():
+        if key in user_info:
+            assert isinstance(user_info[key], list)
+            user_info[key].append(value)
+        else:
+            user_info[key] = [value]
+
+
 def save_user_info(outputs_dir: Path, user_id: int, user_info: dict) -> None:
+    for key, value in user_info.items():
+        if isinstance(value, list):
+            if len(value) == 1:
+                user_info[key] = value[0]
+            else:
+                user_info[key] = sum(value) / len(value)
     folder = outputs_dir / "tmp" / f"user_{user_id}"
     if not os.path.exists(folder):
         os.makedirs(folder)

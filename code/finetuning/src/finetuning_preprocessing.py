@@ -9,22 +9,16 @@ from transformers import AutoModel, AutoTokenizer
 
 from ...logreg.src.embeddings.papers_categories import get_glove_categories_embeddings
 from ...logreg.src.embeddings.papers_categories_dicts import PAPERS_CATEGORIES
-from ...logreg.src.training.algorithm import Evaluation
-from ...logreg.src.training.get_users_ratings import (
-    get_users_ratings,
-    TRAIN_SIZE,
-    MAX_USERS,
-    MIN_N_POSRATED_TRAIN,
-    MIN_N_NEGRATED_TRAIN,
-    MIN_N_POSRATED_VAL,
-    MIN_N_NEGRATED_VAL_SPLIT,
-)
 from ...logreg.src.training.training_data import (
     get_cache_papers_ids,
     get_categories_ratios_for_validation,
     get_categories_samples_ids,
     get_user_categories_ratios,
     get_user_categories_samples_ids,
+)
+from ...logreg.src.training.users_ratings import (
+    UsersRatingsSelection,
+    load_users_ratings_from_selection,
 )
 from ...src.load_files import (
     TEST_RANDOM_STATES,
@@ -380,7 +374,6 @@ def load_negative_samples_matrix_val() -> torch.Tensor:
         )
     negative_samples_matrix = torch.load(matrix_path, weights_only=True)
     assert negative_samples_matrix.dtype == torch.int64
-    assert negative_samples_matrix.shape == (MAX_USERS, N_VAL_NEGATIVE_SAMPLES)
     return negative_samples_matrix
 
 
@@ -591,7 +584,9 @@ def save_negative_samples_tokenized_train(
     tokenizer: AutoTokenizer = None,
     max_sequence_length: int = 512,
 ) -> None:
-    tensor_path = ProjectPaths.finetuning_data_model_datasets_negative_samples_tokenized_train_path()
+    tensor_path = (
+        ProjectPaths.finetuning_data_model_datasets_negative_samples_tokenized_train_path()
+    )
     if tensor_path.exists():
         print("Negative samples tokenized for train already exist - skipping saving.")
         return
@@ -640,8 +635,8 @@ def load_negative_samples_tokenized_train(
     random_state: int = None,
 ) -> dict:
     negative_samples_tokenized_train = torch.load(
-    ProjectPaths.finetuning_data_model_datasets_negative_samples_tokenized_train_path(),
-    weights_only=True,
+        ProjectPaths.finetuning_data_model_datasets_negative_samples_tokenized_train_path(),
+        weights_only=True,
     )
     if attach_l1 and categories_to_idxs_l1 is None:
         categories_to_idxs_l1 = load_categories_to_idxs("l1")
@@ -697,14 +692,9 @@ def gather_finetuning_dataset(dataset_type: str, users_type: str) -> tuple:
             relevant_users_ids=users_ids,
         )
     else:
-        users_ratings = get_users_ratings(
-            users_selection="finetuning_val",
-            evaluation=Evaluation.SESSION_BASED,
-            train_size=TRAIN_SIZE,
-            min_n_posrated_train=MIN_N_POSRATED_TRAIN,
-            min_n_negrated_train=MIN_N_NEGRATED_TRAIN,
-            min_n_posrated_val=MIN_N_POSRATED_VAL,
-            min_n_negrated_val=MIN_N_NEGRATED_VAL_SPLIT,
+        users_ratings = load_users_ratings_from_selection(
+            users_ratings_selection=UsersRatingsSelection.SESSION_BASED_NO_FILTERING,
+            relevant_users_ids="finetuning_val",
         )
         if dataset_type == "train":
             users_ratings = users_ratings[users_ratings["split"] == "train"]
@@ -887,14 +877,16 @@ def test_loading() -> None:
     print(f"Loaded negative samples tokenized for val with {n_negative_samples_val} entries.")
 
     negative_samples_train = load_negative_samples_tokenized_train(
-        shuffle_papers=True, 
+        shuffle_papers=True,
         random_state=42,
     )
     for category, papers_tensor in negative_samples_train.items():
         n_negative_samples_train = len(papers_tensor["paper_id"])
         assert n_negative_samples_train <= N_TRAIN_NEGATIVE_SAMPLES_PER_CATEGORY_MAX
-        print(f"Loaded negative samples tokenized for train category '{category}'"
-              f" with {n_negative_samples_train} entries.")
+        print(
+            f"Loaded negative samples tokenized for train category '{category}'"
+            f" with {n_negative_samples_train} entries."
+        )
         assert papers_tensor["paper_id"].tolist() != sorted(papers_tensor["paper_id"].tolist())
 
     rated_papers_tokenized_train_users = load_finetuning_papers_tokenized("rated_train_users")
