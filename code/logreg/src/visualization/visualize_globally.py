@@ -215,7 +215,9 @@ class Global_Visualizer:
         lo_pos_val_sessions_users = self.users_info.nsmallest(n, "n_sessions_pos_val")[
             "user_id"
         ].values
-        pos_val_sessions_legend = f"HSessPV/LSessPV: The {n} Users with the most/fewest Positive Validation Sessions."
+        pos_val_sessions_legend = (
+            f"HSessPV/LSessPV: The {n} Users with the most/fewest Positive Validation Sessions."
+        )
         hi_pos_val_ratings_users = self.users_info.nlargest(n, "n_posrated_val")["user_id"].values
         hi_pos_val_ratings_legend = (
             f"VotePV: The {n} Users with the most Positive Validation Votes."
@@ -228,7 +230,7 @@ class Global_Visualizer:
         )
         self.users_groups_dict["HSessPV"] = {
             "users_ids": hi_pos_val_sessions_users,
-            "legend": pos_val_sessions_legend
+            "legend": pos_val_sessions_legend,
         }
         self.users_groups_dict["LSessPV"] = {"users_ids": lo_pos_val_sessions_users}
         self.users_groups_dict["VotePV"] = {
