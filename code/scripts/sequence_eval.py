@@ -88,6 +88,7 @@ def run_logreg_configs(args_dict: dict) -> None:
     if args_dict["single_val_session"]:
         example_config = create_example_config()
         example_config["load_users_coefs"] = True
+        example_config["users_ratings_selection"] = "session_based_filtering"
     else:
         example_config = create_example_config_sliding_window()
     if args_dict["old_ratings"]:

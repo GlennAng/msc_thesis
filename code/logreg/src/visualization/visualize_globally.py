@@ -191,7 +191,7 @@ class Global_Visualizer:
             == self.best_global_hyperparameters_combination_idx
         ][PLOT_CONSTANTS["X_HYPERPARAMETER"]].values[0]
 
-    def extract_head_middle_tail_users(self) -> None:
+    def extract_head_tail_users(self) -> None:
         score_abb = SCORES_DICT[self.score]["abbreviation_for_visu_file"]
         sorted_df = self.best_global_hyperparameters_combination_df.sort_values(
             f"val_{self.score.name.lower()}",
@@ -200,15 +200,45 @@ class Global_Visualizer:
         assert len(sorted_df) == self.n_users
         n = self.n_users_special_groups
         head_df, tail_df = (sorted_df.head(n), sorted_df.tail(n))
-        start_idx = (self.n_users - n) // 2
-        middle_df = sorted_df.iloc[start_idx : start_idx + n]
-        n_head, n_tail, n_middle = len(head_df), len(tail_df), len(middle_df)
-        assert n == n_head == n_tail == n_middle
-        legend = f"Head/Middle/Tail: The {n_head}/{n_middle}/{n_tail} Users with the "
-        legend += f"best/medium/worst {score_abb}."
+        n_head, n_tail = len(head_df), len(tail_df)
+        assert n == n_head == n_tail
+        legend = f"Head/Tail: The {n_head}/{n_tail} Users with the "
+        legend += f"best/worst {score_abb}."
         self.users_groups_dict["Head"] = {"users_ids": head_df["user_id"].values, "legend": legend}
-        self.users_groups_dict["Middle"] = {"users_ids": middle_df["user_id"].values}
         self.users_groups_dict["Tail"] = {"users_ids": tail_df["user_id"].values}
+
+    def extract_high_pos_val_ratings_sessions_time_users(self) -> None:
+        n = self.n_users_special_groups
+        hi_pos_val_sessions_users = self.users_info.nlargest(n, "n_sessions_pos_val")[
+            "user_id"
+        ].values
+        lo_pos_val_sessions_users = self.users_info.nsmallest(n, "n_sessions_pos_val")[
+            "user_id"
+        ].values
+        pos_val_sessions_legend = f"HSessPV/LSessPV: The {n} Users with the most/fewest Positive Validation Sessions."
+        hi_pos_val_ratings_users = self.users_info.nlargest(n, "n_posrated_val")["user_id"].values
+        hi_pos_val_ratings_legend = (
+            f"VotePV: The {n} Users with the most Positive Validation Votes."
+        )
+        hi_pos_val_time_users = self.users_info.nlargest(n, "time_range_days_pos_val")[
+            "user_id"
+        ].values
+        hi_pos_val_time_legend = (
+            f"TimePV: The {n} Users with the largest Time Range for Positive Validation."
+        )
+        self.users_groups_dict["HSessPV"] = {
+            "users_ids": hi_pos_val_sessions_users,
+            "legend": pos_val_sessions_legend
+        }
+        self.users_groups_dict["LSessPV"] = {"users_ids": lo_pos_val_sessions_users}
+        self.users_groups_dict["VotePV"] = {
+            "users_ids": hi_pos_val_ratings_users,
+            "legend": hi_pos_val_ratings_legend,
+        }
+        self.users_groups_dict["TimePV"] = {
+            "users_ids": hi_pos_val_time_users,
+            "legend": hi_pos_val_time_legend,
+        }
 
     def extract_high_low_negrated_train_users(self) -> None:
         n = self.n_users_special_groups
@@ -217,37 +247,6 @@ class Global_Visualizer:
         legend = f"HiNegTr/LoNegTr: The {n} Users with the highest/lowest Negative Training Votes."
         self.users_groups_dict["HiNegTr"] = {"users_ids": hi_negrated_train_users, "legend": legend}
         self.users_groups_dict["LoNegTr"] = {"users_ids": lo_negrated_train_users}
-
-    def extract_high_pos_val_ratings_sessions_time_users(self) -> None:
-        n = self.n_users_special_groups
-        hi_pos_val_ratings_users = self.users_info.nlargest(n, "n_posrated_val")["user_id"].values
-        hi_pos_val_ratings_legend = (
-            f"VotePV: The {n} Users with the most Positive Validation Votes."
-        )
-        hi_pos_val_sessions_users = self.users_info.nlargest(n, "n_sessions_pos_val")[
-            "user_id"
-        ].values
-        hi_pos_val_sessions_legend = (
-            f"SessPV: The {n} Users with the most Positive Validation Sessions."
-        )
-        hi_pos_val_time_users = self.users_info.nlargest(n, "time_range_days_pos_val")[
-            "user_id"
-        ].values
-        hi_pos_val_time_legend = (
-            f"TimePV: The {n} Users with the largest Time Range for Positive Validation."
-        )
-        self.users_groups_dict["VotePV"] = {
-            "users_ids": hi_pos_val_ratings_users,
-            "legend": hi_pos_val_ratings_legend,
-        }
-        self.users_groups_dict["SessPV"] = {
-            "users_ids": hi_pos_val_sessions_users,
-            "legend": hi_pos_val_sessions_legend,
-        }
-        self.users_groups_dict["TimePV"] = {
-            "users_ids": hi_pos_val_time_users,
-            "legend": hi_pos_val_time_legend,
-        }
 
     def extract_cs_non_cs_users(self) -> None:
         cs_users = self.users_significant_categories[
@@ -263,9 +262,9 @@ class Global_Visualizer:
 
     def extract_high_low_users(self) -> None:
         self.users_groups_dict = {}
-        self.extract_head_middle_tail_users()
-        self.extract_high_low_negrated_train_users()
+        self.extract_head_tail_users()
         self.extract_high_pos_val_ratings_sessions_time_users()
+        self.extract_high_low_negrated_train_users()
         self.extract_cs_non_cs_users()
 
     def extract_best_individual_hyperparameters_combination_data(self) -> None:
