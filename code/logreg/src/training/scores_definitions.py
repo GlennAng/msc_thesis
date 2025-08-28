@@ -12,6 +12,10 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
+from ....finetuning.src.finetuning_compare_embeddings import (
+    compute_sims,
+    compute_sims_same_set,
+)
 from ..training.users_ratings import N_NEGRATED_RANKING
 
 
@@ -190,7 +194,7 @@ def calculate_softmax_pos(softmax_array: np.ndarray) -> float:
 def calculate_softmax_ranking_neg(softmax_array: np.ndarray) -> float:
     if len(softmax_array) <= 1:
         return 0
-    return np.mean(softmax_array[1:(N_NEGRATED_RANKING+1)])
+    return np.mean(softmax_array[1 : (N_NEGRATED_RANKING + 1)])
 
 
 def calculate_softmax_top_1_samples(softmax_array: np.ndarray) -> float:
@@ -212,6 +216,49 @@ def calculate_mrr(pos_rank: int) -> float:
 
 def calculate_hit_rate_at_1(pos_rank: int) -> float:
     return float(pos_rank == 1)
+
+
+def calculate_train_single_session(user_info: dict) -> float:
+    n_sessions_train = user_info["n_sessions_train"]
+    if isinstance(n_sessions_train, list):
+        n_sessions_train = n_sessions_train[-1]
+    return float(n_sessions_train == 1)
+
+
+def calculate_train_set_cosine_similarity(train_pos_embeddings_all_sessions: np.ndarray) -> float:
+    return compute_sims_same_set(train_pos_embeddings_all_sessions)
+
+
+def calculate_train_set_val_session_cosine_similarity(
+    train_pos_embeddings_all_sessions: np.ndarray,
+    val_pos_embeddings_per_session: dict,
+    selection: str,
+) -> float:
+    sessions_ids = list(val_pos_embeddings_per_session)
+    if selection == "first":
+        session_id = sessions_ids[0]
+    elif selection == "middle":
+        session_id = sessions_ids[len(sessions_ids) // 2]
+    elif selection == "last":
+        session_id = sessions_ids[-1]
+    else:
+        raise ValueError(f"Unknown selection: {selection}")
+    if session_id not in val_pos_embeddings_per_session:
+        return 0.0
+    val_pos_embeddings = val_pos_embeddings_per_session[session_id]
+    return compute_sims(train_pos_embeddings_all_sessions, val_pos_embeddings)
+
+
+def calculate_val_set_cosine_similarity_sliding(val_pos_embeddings_per_session: dict) -> float:
+    cosines = []
+    sessions_ids = list(val_pos_embeddings_per_session)
+    if len(sessions_ids) < 2:
+        return None
+    for i in range(len(sessions_ids) - 1):
+        emb_before = val_pos_embeddings_per_session[sessions_ids[i]]
+        emb_after = val_pos_embeddings_per_session[sessions_ids[i + 1]]
+        cosines.append(compute_sims(emb_before, emb_after))
+    return np.mean(cosines)
 
 
 SCORES_DICT = {
@@ -425,6 +472,22 @@ SCORES_DICT = {
         "calculator": calculate_ndcg,
         "neg_type": Neg_Type.ALL,
     },
+    "NDCG_MEAN_PER_SESSION": {
+        "abbreviation": "NDCG\nMean S",
+        "type": Score_Type.RANKING_SESSION,
+        "increase_better": True,
+        "page": 1,
+        "lookup": "NDCG_ALL",
+        "selection": "mean",
+    },
+    "NDCG_MEDIAN_PER_SESSION": {
+        "abbreviation": "NDCG\nMed S",
+        "type": Score_Type.RANKING_SESSION,
+        "increase_better": True,
+        "page": 1,
+        "lookup": "NDCG_ALL",
+        "selection": "median",
+    },
     "MRR_SAMPLES": {
         "abbreviation": "MRR\nSmpl",
         "type": Score_Type.RANKING,
@@ -458,20 +521,6 @@ SCORES_DICT = {
         "calculator": calculate_hit_rate_at_1,
         "neg_type": Neg_Type.ALL,
     },
-    "CATEGORY_L1_MOST_FREQUENT_IDENTICAL": {
-        "abbreviation": "L1\nMFI",
-        "type": Score_Type.CATEGORY,
-        "increase_better": True,
-        "page": 1,
-        "calculator": calculate_category_l1_most_frequent_identical,
-    },
-    "CATEGORY_L1L2_MOST_FREQUENT_IDENTICAL": {
-        "abbreviation": "L1L2\nMFI",
-        "type": Score_Type.CATEGORY,
-        "increase_better": True,
-        "page": 1,
-        "calculator": calculate_category_l1l2_most_frequent_identical,
-    },
     "CONFIDENCE_POS": {
         "abbreviation": "C_P",
         "type": Score_Type.DEFAULT,
@@ -486,7 +535,7 @@ SCORES_DICT = {
         "page": 2,
         "calculator": calculate_confidence_bottom_1_pos,
     },
-        "CONFIDENCE_TOP_1_SAMPLES": {
+    "CONFIDENCE_TOP_1_SAMPLES": {
         "abbreviation": "C_S↑1",
         "type": Score_Type.DEFAULT,
         "increase_better": False,
@@ -610,6 +659,30 @@ SCORES_DICT = {
         "calculator": calculate_info_nce,
         "temperature": "2",
     },
+    "NDCG_BEFORE_MIDDLE_SESSION": {
+        "abbreviation": "NDCG\n< Mid S",
+        "type": Score_Type.RANKING_SESSION,
+        "increase_better": True,
+        "page": 3,
+        "lookup": "NDCG_ALL",
+        "selection": "before_middle",
+    },
+    "NDCG_AFTER_MIDDLE_SESSION": {
+        "abbreviation": "NDCG\n> Mid S",
+        "type": Score_Type.RANKING_SESSION,
+        "increase_better": True,
+        "page": 3,
+        "lookup": "NDCG_ALL",
+        "selection": "after_middle",
+    },
+    "NDCG_STD_PER_SESSION": {
+        "abbreviation": "NDCG\nStd S",
+        "type": Score_Type.RANKING_SESSION,
+        "increase_better": True,
+        "page": 3,
+        "lookup": "NDCG_ALL",
+        "selection": "std",
+    },
     "NDCG_ALL_FIRST_SESSION": {
         "abbreviation": "NDCG\nFirst S",
         "type": Score_Type.RANKING_SESSION,
@@ -706,117 +779,106 @@ SCORES_DICT = {
         "lookup": "INFO_NCE_1",
         "selection": "last",
     },
-    "N_TRAIN_SESSIONS": {
-        "abbreviation": "N Train\nSs",
-        "type": Score_Type.INFO,
-        "increase_better": True,
-        "page": 4,
-        "lookup_key": "n_train_sessions",
-    },
-    "N_VAL_SESSIONS": {
-        "abbreviation": "N Val\nSs",
-        "type": Score_Type.INFO,
-        "increase_better": True,
-        "page": 4,
-        "lookup_key": "n_val_sessions",
-    },
-    "N_TRAIN_POS_SESSIONS": {
-        "abbreviation": "N Train\nPos Ss",
-        "type": Score_Type.INFO,
-        "increase_better": True,
-        "page": 4,
-        "lookup_key": "n_train_pos_sessions",
-    },
-    "N_VAL_POS_SESSIONS": {
-        "abbreviation": "N Val\nPos Ss",
-        "type": Score_Type.INFO,
-        "increase_better": True,
-        "page": 4,
-        "lookup_key": "n_val_pos_sessions",
-    },
     "N_TRAIN_POSRATED": {
         "abbreviation": "N Train\nPos R",
         "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
-        "lookup_key": "n_train_posrated",
+        "lookup_key": "n_posrated_train",
+    },
+    "N_TRAIN_NEGRATED": {
+        "abbreviation": "N Train\nNeg R",
+        "type": Score_Type.INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "n_negrated_train",
     },
     "N_VAL_POSRATED": {
         "abbreviation": "N Val\nPos R",
         "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
-        "lookup_key": "n_val_posrated",
+        "lookup_key": "n_posrated_val",
     },
-    "N_TRAIN_POS_DAYS": {
-        "abbreviation": "N Train\nPos Day",
+    "N_VAL_NEGRATED": {
+        "abbreviation": "N Val\nNeg R",
         "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
-        "lookup_key": "n_train_pos_days",
+        "lookup_key": "n_negrated_val",
+    },
+    "TRAIN_SINGLE_SESSION": {
+        "abbreviation": "Train\nSingle S",
+        "type": Score_Type.INFO,
+        "increase_better": True,
+        "page": 4,
+        "calculator": calculate_train_single_session,
+    },
+    "N_VAL_POS_SESSIONS": {
+        "abbreviation": "N Val\nPos Ss",
+        "type": Score_Type.INFO,
+        "increase_better": True,
+        "page": 4,
+        "lookup_key": "n_sessions_pos_val",
     },
     "N_VAL_POS_DAYS": {
         "abbreviation": "N Val\nPos Day",
         "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
-        "lookup_key": "n_val_pos_days",
-    },
-    "SINGLE_TRAIN_SESSION": {
-        "abbreviation": "Single\nTrain S",
-        "type": Score_Type.INFO,
-        "increase_better": True,
-        "page": 4,
-        "lookup_key": "single_train_session",
-    },
-    "SINGLE_VAL_SESSION": {
-        "abbreviation": "Single\nVal S",
-        "type": Score_Type.INFO,
-        "increase_better": True,
-        "page": 4,
-        "lookup_key": "single_val_session",
-    },
-    "N_TRAIN_POSRATED_FIRST_SESSION": {
-        "abbreviation": "N Train\nPos FS",
-        "type": Score_Type.INFO,
-        "increase_better": True,
-        "page": 4,
-        "lookup_key": "n_train_posrated_first_session",
-    },
-    "N_TRAIN_POSRATED_LAST_SESSION": {
-        "abbreviation": "N Train\nPos LS",
-        "type": Score_Type.INFO,
-        "increase_better": True,
-        "page": 4,
-        "lookup_key": "n_train_posrated_last_session",
+        "lookup_key": "time_range_days_pos_val",
     },
     "TRAIN_SET_COSINE_SIMILARITY": {
-        "abbreviation": "Train\nCosine",
+        "abbreviation": "Cosine\nTrain",
         "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
-        "lookup_key": "train_set_cosine_similarity",    
+        "calculator": calculate_train_set_cosine_similarity,
     },
-    "VAL_SET_COSINE_SIMILARITY": {
-        "abbreviation": "Val\nCosine",
+    "TRAIN_SET_FIRST_VAL_SESSION_COSINE_SIMILARITY": {
+        "abbreviation": "Cos TrV\nFirst S",
         "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
-        "lookup_key": "val_set_cosine_similarity",
+        "selection": "first",
+        "calculator": calculate_train_set_val_session_cosine_similarity,
     },
-    "TRAIN_SET_COSINE_SIMILARITY_SLIDING": {
-        "abbreviation": "Train\nCos Sli",
+    "TRAIN_SET_MIDDLE_VAL_SESSION_COSINE_SIMILARITY": {
+        "abbreviation": "Cos TrV\nMid S",
         "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
-        "lookup_key": "train_set_cosine_similarity_sliding",
+        "selection": "middle",
+        "calculator": calculate_train_set_val_session_cosine_similarity,
+    },
+    "TRAIN_SET_LAST_VAL_SESSION_COSINE_SIMILARITY": {
+        "abbreviation": "Cos TrV\nLast S",
+        "type": Score_Type.INFO,
+        "increase_better": True,
+        "page": 4,
+        "selection": "last",
+        "calculator": calculate_train_set_val_session_cosine_similarity,
     },
     "VAL_SET_COSINE_SIMILARITY_SLIDING": {
-        "abbreviation": "Val\nCos Sli",
+        "abbreviation": "Cos Val\nSlide",
         "type": Score_Type.INFO,
         "increase_better": True,
         "page": 4,
-        "lookup_key": "val_set_cosine_similarity_sliding",
+        "calculator": calculate_val_set_cosine_similarity_sliding,
+    },
+    "CATEGORY_L1_MOST_FREQUENT_IDENTICAL": {
+        "abbreviation": "L1\nMFI",
+        "type": Score_Type.CATEGORY,
+        "increase_better": True,
+        "page": 4,
+        "calculator": calculate_category_l1_most_frequent_identical,
+    },
+    "CATEGORY_L1L2_MOST_FREQUENT_IDENTICAL": {
+        "abbreviation": "L1L2\nMFI",
+        "type": Score_Type.CATEGORY,
+        "increase_better": True,
+        "page": 4,
+        "calculator": calculate_category_l1l2_most_frequent_identical,
     },
 }
 
@@ -918,3 +980,66 @@ def get_score_ranking(
         else:
             raise ValueError(f"Invalid neg_type {neg_type} for score {score.name}.")
     return func(**kwargs)
+
+
+def get_score_ranking_session(
+    scores_per_session: dict,
+    avgs_per_session: dict,
+    selection: str,
+) -> float:
+    distinct_sessions_ids = list(avgs_per_session.keys())
+    if selection in ["first", "middle", "last"]:
+        if selection == "first":
+            session_id = distinct_sessions_ids[0]
+        elif selection == "middle":
+            session_id = distinct_sessions_ids[len(distinct_sessions_ids) // 2]
+        elif selection == "last":
+            session_id = distinct_sessions_ids[-1]
+        return avgs_per_session[session_id]
+    elif selection in ["mean", "median", "std"]:
+        values = np.array(list(avgs_per_session.values()))
+        if selection == "mean":
+            return float(np.mean(values))
+        elif selection == "median":
+            return float(np.median(values))
+        elif selection == "std":
+            return float(np.std(values))
+    elif selection in ["before_middle", "after_middle"]:
+        middle_session_id_idx = len(distinct_sessions_ids) // 2
+        if selection == "before_middle":
+            sessions_ids = distinct_sessions_ids[:middle_session_id_idx]
+        elif selection == "after_middle":
+            sessions_ids = distinct_sessions_ids[middle_session_id_idx:]
+        if len(sessions_ids) == 0:
+            sessions_ids = distinct_sessions_ids
+        values = []
+        for session_id in sessions_ids:
+            values.extend(scores_per_session[session_id])
+        return float(np.mean(values))
+
+
+def get_score_info(
+    score: Score,
+    val_data_dict: dict,
+    user_info: dict,
+    train_pos_embeddings_all_sessions: np.ndarray,
+    val_pos_embeddings_per_session: dict,
+) -> float:
+    func = SCORES_DICT[score]["calculator"]
+    selection = SCORES_DICT[score].get("selection", None)
+    sig = inspect.signature(func)
+    kwargs = {}
+    if "user_info" in sig.parameters:
+        kwargs["user_info"] = user_info
+    if "val_data_dict" in sig.parameters:
+        kwargs["val_data_dict"] = val_data_dict
+    if "selection" in sig.parameters:
+        kwargs["selection"] = selection
+    if "train_pos_embeddings_all_sessions" in sig.parameters:
+        kwargs["train_pos_embeddings_all_sessions"] = train_pos_embeddings_all_sessions
+    if "val_pos_embeddings_per_session" in sig.parameters:
+        kwargs["val_pos_embeddings_per_session"] = val_pos_embeddings_per_session
+    return_val = func(**kwargs)
+    if return_val is not None:
+        return float(return_val)
+    return return_val

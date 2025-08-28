@@ -3,10 +3,6 @@ import pandas as pd
 from scipy.special import softmax
 from sklearn.linear_model import LinearRegression
 
-from ....finetuning.src.finetuning_compare_embeddings import (
-    compute_sims,
-    compute_sims_same_set,
-)
 from ..embeddings.embedding import Embedding
 from .scores_definitions import (
     SCORES_BY_TYPE,
@@ -16,7 +12,9 @@ from .scores_definitions import (
     get_score_category,
     get_score_default,
     get_score_default_derivable,
+    get_score_info,
     get_score_ranking,
+    get_score_ranking_session,
 )
 
 
@@ -369,6 +367,7 @@ def score_user_models(
     negative_samples_embeddings: np.ndarray,
     train_negrated_ranking_idxs: np.ndarray,
     val_negrated_ranking_idxs: np.ndarray,
+    user_info: dict,
     save_users_predictions_bool: bool = False,
 ) -> tuple:
     user_results, user_predictions = {}, {}
@@ -386,6 +385,7 @@ def score_user_models(
             scores_to_indices_dict=scores_to_indices_dict,
             val_data_dict=val_data_dict,
             user_outputs_dict=user_outputs_dict,
+            user_info=user_info,
         )
         if save_users_predictions_bool:
             user_predictions = gather_user_predictions(user_predictions, user_outputs_dict, i)
@@ -401,6 +401,7 @@ def score_user_models_sliding_window(
     negative_samples_embeddings: np.ndarray,
     train_negrated_ranking_idxs: np.ndarray,
     val_negrated_ranking_idxs: np.ndarray,
+    user_info: dict,
     save_users_predictions_bool: bool = False,
 ) -> tuple:
     user_results, user_predictions = {}, {}
@@ -417,6 +418,7 @@ def score_user_models_sliding_window(
         scores_to_indices_dict=scores_to_indices_dict,
         val_data_dict=val_data_dict,
         user_outputs_dict=user_outputs_dict,
+        user_info=user_info,
     )
     if save_users_predictions_bool:
         user_predictions = gather_user_predictions(user_predictions, user_outputs_dict, 0)
@@ -769,109 +771,129 @@ def get_scores_ranking_temporal(
         )
 
 
-def get_scores_ranking_session(
-    user_scores: list,
-    scores_to_indices_dict: dict,
-    val_data_dict: dict,
-    scores_ranking_before_avging_train: dict,
-    scores_ranking_before_avging_val: dict,
-) -> None:
-    scores_ranking_info = {}
+def get_relevant_idxs(val_data_dict: dict) -> dict:
     relevant_idxs = {}
     for split in ["train_rated", "val"]:
         relevant_idxs[split] = {}
         pos_mask = val_data_dict[f"y_{split}"] > 0
         pos_sessions_ids = val_data_dict[f"session_id_{split}"][pos_mask]
         distinct_sessions_ids = np.unique(pos_sessions_ids)
-        first_id = distinct_sessions_ids[0]
-        middle_id = distinct_sessions_ids[len(distinct_sessions_ids) // 2]
-        last_id = distinct_sessions_ids[-1]
-        first_mask = pos_sessions_ids == first_id
-        middle_mask = pos_sessions_ids == middle_id
-        last_mask = pos_sessions_ids == last_id
-        relevant_idxs[split]["first"] = np.where(first_mask)[0].tolist()
-        relevant_idxs[split]["middle"] = np.where(middle_mask)[0].tolist()
-        relevant_idxs[split]["last"] = np.where(last_mask)[0].tolist()
-        last_pos_time = val_data_dict[f"time_{split}"][pos_mask][-1]
-        first_pos_time = val_data_dict[f"time_{split}"][pos_mask][0]
-        embeds = val_data_dict[f"X_{split}"][pos_mask][:, :-100]
+        for session_id in distinct_sessions_ids:
+            session_mask = pos_sessions_ids == session_id
+            relevant_idxs[split][session_id] = np.where(session_mask)[0].tolist()
+    return relevant_idxs
 
+
+def get_scores_ranking_per_session(
+    scores_ranking_before_avging_train: dict,
+    scores_ranking_before_avging_val: dict,
+    relevant_idxs: dict,
+) -> dict:
+    scores_ranking_per_session = {}
+    scores = SCORES_BY_TYPE[Score_Type.RANKING_SESSION]
+    lookups = list(set([SCORES_DICT[score]["lookup"] for score in scores]))
+    for split in ["train_rated", "val"]:
+        scores_ranking_per_session[split] = {}
+        relevant_idxs_split = relevant_idxs[split]
+        distinct_sessions_ids = list(relevant_idxs_split.keys())
         if split == "train_rated":
-            scores_ranking_info["n_train_sessions"] = len(
-                np.unique(val_data_dict[f"session_id_{split}"])
-            )
-            scores_ranking_info["n_train_pos_sessions"] = len(distinct_sessions_ids)
-            scores_ranking_info["n_train_posrated"] = np.sum(pos_mask)
-            scores_ranking_info["n_train_posrated_first_session"] = np.sum(first_mask)
-            scores_ranking_info["n_train_posrated_last_session"] = np.sum(last_mask)
-            scores_ranking_info["single_train_session"] = (
-                1 if len(distinct_sessions_ids) == 1 else 0
-            )
-            scores_ranking_info["n_train_pos_days"] = float(
-                (last_pos_time - first_pos_time) / np.timedelta64(1, "D")
-            )
-            scores_ranking_info["train_set_cosine_similarity"] = compute_sims_same_set(embeds)
+            scores_ranking_before_avging = scores_ranking_before_avging_train
+        else:
+            scores_ranking_before_avging = scores_ranking_before_avging_val
+        for lookup in lookups:
+            scores_ranking_per_session[split][lookup] = {}
+            values = scores_ranking_before_avging[lookup]
+            for session_id in distinct_sessions_ids:
+                relevant_values = np.array(values)[relevant_idxs_split[session_id]]
+                scores_ranking_per_session[split][lookup][session_id] = relevant_values.tolist()
+    return scores_ranking_per_session
 
-            start_session_id = first_id
-            if start_session_id == last_id:
-                scores_ranking_info["train_set_cosine_similarity_sliding"] = None
-            else:
-                cosines = []
-                for i in range(len(distinct_sessions_ids) - 1):
-                    start_session_id = distinct_sessions_ids[i]
-                    end_session_id = distinct_sessions_ids[i + 1]
-                    mask_before = pos_sessions_ids == start_session_id
-                    mask_after = pos_sessions_ids == end_session_id
-                    embeds_before = val_data_dict[f"X_{split}"][pos_mask][mask_before][:, :-100]
-                    embeds_after = val_data_dict[f"X_{split}"][pos_mask][mask_after][:, :-100]
-                    cosines.append(compute_sims(embeds_before, embeds_after))
-                scores_ranking_info["train_set_cosine_similarity_sliding"] = float(np.mean(cosines))
-        elif split == "val":
-            scores_ranking_info["n_val_sessions"] = len(
-                np.unique(val_data_dict[f"session_id_{split}"])
-            )
-            scores_ranking_info["n_val_pos_sessions"] = len(distinct_sessions_ids)
-            scores_ranking_info["n_val_posrated"] = np.sum(pos_mask)
-            scores_ranking_info["single_val_session"] = 1 if len(distinct_sessions_ids) == 1 else 0
-            scores_ranking_info["n_val_pos_days"] = float(
-                (last_pos_time - first_pos_time) / np.timedelta64(1, "D")
-            )
-            scores_ranking_info["val_set_cosine_similarity"] = compute_sims_same_set(embeds)
-            start_session_id = first_id
-            if start_session_id == last_id:
-                scores_ranking_info["val_set_cosine_similarity_sliding"] = None
-            else:
-                cosines = []
-                for i in range(len(distinct_sessions_ids) - 1):
-                    start_session_id = distinct_sessions_ids[i]
-                    end_session_id = distinct_sessions_ids[i + 1]
-                    mask_before = pos_sessions_ids == start_session_id
-                    mask_after = pos_sessions_ids == end_session_id
-                    embeds_before = val_data_dict[f"X_{split}"][pos_mask][mask_before][:, :-100]
-                    embeds_after = val_data_dict[f"X_{split}"][pos_mask][mask_after][:, :-100]
-                    cosines.append(compute_sims(embeds_before, embeds_after))
-                scores_ranking_info["val_set_cosine_similarity_sliding"] = float(np.mean(cosines))
 
+def get_avgs_ranking_per_session(scores_ranking_per_session: dict) -> dict:
+    avgs_ranking_per_session = {}
+    for split in scores_ranking_per_session.keys():
+        avgs_ranking_per_session[split] = {}
+        for lookup in scores_ranking_per_session[split].keys():
+            avgs_ranking_per_session[split][lookup] = {}
+            for session_id, values in scores_ranking_per_session[split][lookup].items():
+                avgs_ranking_per_session[split][lookup][session_id] = float(np.mean(values))
+    return avgs_ranking_per_session
+
+
+def get_scores_ranking_session(
+    user_scores: list,
+    scores_to_indices_dict: dict,
+    scores_ranking_before_avging_train: dict,
+    scores_ranking_before_avging_val: dict,
+    relevant_idxs: dict,
+) -> None:
+    scores_ranking_per_session = get_scores_ranking_per_session(
+        scores_ranking_before_avging_train=scores_ranking_before_avging_train,
+        scores_ranking_before_avging_val=scores_ranking_before_avging_val,
+        relevant_idxs=relevant_idxs,
+    )
+    avgs_ranking_per_session = get_avgs_ranking_per_session(scores_ranking_per_session)
     for score in SCORES_BY_TYPE[Score_Type.RANKING_SESSION]:
         lookup = SCORES_DICT[score]["lookup"]
         selection = SCORES_DICT[score]["selection"]
-
-        relevant_idxs_train = relevant_idxs["train_rated"][selection]
-        relevant_idxs_val = relevant_idxs["val"][selection]
-        values_train = scores_ranking_before_avging_train[lookup]
-        values_val = scores_ranking_before_avging_val[lookup]
-        relevant_values_train = np.array(values_train)[relevant_idxs_train]
-        relevant_values_val = np.array(values_val)[relevant_idxs_val]
-        train_score = float(np.mean(relevant_values_train))
-        val_score = float(np.mean(relevant_values_val))
+        train_score = get_score_ranking_session(
+            scores_per_session=scores_ranking_per_session["train_rated"][lookup],
+            avgs_per_session=avgs_ranking_per_session["train_rated"][lookup],
+            selection=selection,
+        )
+        val_score = get_score_ranking_session(
+            scores_per_session=scores_ranking_per_session["val"][lookup],
+            avgs_per_session=avgs_ranking_per_session["val"][lookup],
+            selection=selection,
+        )
         fill_user_scores_with_score(
             score, user_scores, scores_to_indices_dict, train_score, val_score
         )
+
+
+def get_pos_embeddings_per_session(val_data_dict: dict) -> dict:
+    pos_embeddings_per_session = {}
+    for split in ["train_rated", "val"]:
+        pos_embeddings_per_session[split] = {}
+        pos_mask = val_data_dict[f"y_{split}"] > 0
+        pos_sessions_ids = val_data_dict[f"session_id_{split}"][pos_mask]
+        distinct_sessions_ids = np.unique(pos_sessions_ids)
+        embeddings = val_data_dict[f"X_{split}"][pos_mask]
+        for session_id in distinct_sessions_ids:
+            session_mask = pos_sessions_ids == session_id
+            pos_embeddings_per_session[split][session_id] = embeddings[session_mask][:, :-100]
+    return pos_embeddings_per_session
+
+
+def get_scores_info(
+    user_scores: list,
+    scores_to_indices_dict: dict,
+    val_data_dict: dict,
+    user_info: dict,
+) -> None:
+    pos_embeddings_per_session = get_pos_embeddings_per_session(val_data_dict=val_data_dict)
+    train_pos_mask = val_data_dict["y_train_rated"] > 0
+    train_pos_embeddings_all_sessions = val_data_dict["X_train_rated"][train_pos_mask][:, :-100]
     for score in SCORES_BY_TYPE[Score_Type.INFO]:
-        lookup_score = scores_ranking_info[SCORES_DICT[score]["lookup_key"]]
-        if lookup_score is not None:
-            train_score = float(lookup_score)
-        val_score = train_score
+        if "lookup_key" in SCORES_DICT[score]:
+            key = SCORES_DICT[score]["lookup_key"]
+            value = user_info[key]
+            if isinstance(value, list):
+                train_score = float(value[-1])
+            else:
+                train_score = float(value)
+            val_score = train_score
+        elif "calculator" in SCORES_DICT[score]:
+            train_score = get_score_info(
+                score=score,
+                val_data_dict=val_data_dict,
+                user_info=user_info,
+                train_pos_embeddings_all_sessions=train_pos_embeddings_all_sessions,
+                val_pos_embeddings_per_session=pos_embeddings_per_session["val"],
+            )
+            val_score = train_score
+        else:
+            train_score, val_score = None, None
         fill_user_scores_with_score(
             score, user_scores, scores_to_indices_dict, train_score, val_score
         )
@@ -881,6 +903,7 @@ def get_user_scores(
     scores_to_indices_dict: dict,
     val_data_dict: dict,
     user_outputs_dict: dict,
+    user_info: dict,
 ) -> tuple:
     user_scores = [None] * len(scores_to_indices_dict)
 
@@ -927,11 +950,18 @@ def get_user_scores(
         scores_ranking_before_avging_train=scores_ranking_before_avging_train,
         scores_ranking_before_avging_val=scores_ranking_before_avging_val,
     )
+    relevant_idxs = get_relevant_idxs(val_data_dict=val_data_dict)
     get_scores_ranking_session(
         user_scores=user_scores,
         scores_to_indices_dict=scores_to_indices_dict,
-        val_data_dict=val_data_dict,
         scores_ranking_before_avging_train=scores_ranking_before_avging_train,
         scores_ranking_before_avging_val=scores_ranking_before_avging_val,
+        relevant_idxs=relevant_idxs,
+    )
+    get_scores_info(
+        user_scores=user_scores,
+        scores_to_indices_dict=scores_to_indices_dict,
+        val_data_dict=val_data_dict,
+        user_info=user_info,
     )
     return tuple(user_scores)

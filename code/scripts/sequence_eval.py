@@ -10,19 +10,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..logreg.src.training.get_users_ratings import (
-    MIN_N_NEGRATED_TRAIN,
-    MIN_N_NEGRATED_VAL_USERS_SELECTION,
-    MIN_N_POSRATED_TRAIN,
-    MIN_N_POSRATED_VAL,
-    TRAIN_SIZE,
-    USERS_SELECTIONS,
-)
 from ..sequence.src.compute_users_embeddings import (
     VALID_EMBED_FUNCTIONS,
     VALID_EMBED_FUNCTIONS_RANDOMNESS,
 )
-from ..sequence.src.sequence_data import get_embedding_path
 from ..src.load_files import TEST_RANDOM_STATES, VAL_RANDOM_STATE
 from ..src.project_paths import ProjectPaths
 from .create_example_configs import (
@@ -40,33 +31,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--soft_constraint_max_n_train_sessions", type=int, default=None)
     parser.add_argument("--soft_constraint_max_n_train_days", type=int, default=None)
     parser.add_argument("--hard_constraint_min_n_train_posrated", type=int, default=10)
-
-    parser.add_argument(
-        "--users_selection", type=str, choices=USERS_SELECTIONS, default="session_based"
-    )
-    parser.add_argument("--train_size", type=float, required=False, default=TRAIN_SIZE)
-    parser.add_argument(
-        "--min_n_posrated_train", type=int, required=False, default=MIN_N_POSRATED_TRAIN
-    )
-    parser.add_argument(
-        "--min_n_negrated_train", type=int, required=False, default=MIN_N_NEGRATED_TRAIN
-    )
-    parser.add_argument(
-        "--min_n_posrated_val", type=int, required=False, default=MIN_N_POSRATED_VAL
-    )
-    parser.add_argument(
-        "--min_n_negrated_val", type=int, required=False, default=MIN_N_NEGRATED_VAL_USERS_SELECTION
-    )
-    parser.add_argument(
-        "--not_filter_for_negrated_ranking",
-        dest="filter_for_negrated_ranking",
-        action="store_false",
-    )
     parser.add_argument("--single_val_session", action="store_true", default=False)
     parser.add_argument("--use_existing_embeddings", action="store_true", default=False)
+
+    parser.add_argument("--old_ratings", action="store_true", default=False)
     args_dict = vars(parser.parse_args())
-    if not args_dict["single_val_session"]:
-        assert args_dict["filter_for_negrated_ranking"]
     return args_dict
 
 
@@ -87,7 +56,11 @@ def process_args_dict(args_dict: dict) -> None:
     else:
         args_dict["random_states"] = [VAL_RANDOM_STATE]
     if args_dict["embedding_path"] is None:
-        args_dict["embedding_path"] = get_embedding_path(args_dict["users_selection"])
+        args_dict["embedding_path"] = (
+            ProjectPaths.logreg_embeddings_path()
+            / "after_pca"
+            / "gte_large_256_categories_l2_unit_100"
+        )
     else:
         args_dict["embedding_path"] = Path(args_dict["embedding_path"]).resolve()
     args_dict["output_folder"] = get_output_folder(args_dict)
@@ -117,15 +90,9 @@ def run_logreg_configs(args_dict: dict) -> None:
         example_config["load_users_coefs"] = True
     else:
         example_config = create_example_config_sliding_window()
+    if args_dict["old_ratings"]:
+        example_config["users_ratings_selection"] = "session_based_filtering_old"
     example_config["embedding_folder"] = str(args_dict["embedding_path"])
-    example_config["users_selection"] = args_dict["users_selection"]
-    example_config["train_size"] = args_dict["train_size"]
-    example_config["min_n_posrated_train"] = args_dict["min_n_posrated_train"]
-    example_config["min_n_negrated_train"] = args_dict["min_n_negrated_train"]
-    example_config["min_n_posrated_val"] = args_dict["min_n_posrated_val"]
-    example_config["min_n_negrated_val"] = args_dict["min_n_negrated_val"]
-    example_config["filter_for_negrated_ranking"] = args_dict["filter_for_negrated_ranking"]
-
     configs_path = args_dict["output_folder"] / "experiments"
     os.makedirs(configs_path, exist_ok=True)
     for random_state in TEST_RANDOM_STATES:

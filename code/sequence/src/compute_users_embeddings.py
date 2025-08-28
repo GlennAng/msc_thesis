@@ -7,9 +7,9 @@ import pandas as pd
 from tqdm import tqdm
 
 from ...logreg.src.embeddings.embedding import Embedding
-from ...logreg.src.training.algorithm import Evaluation
-from ...logreg.src.training.get_users_ratings import (
-    get_users_ratings,
+from ...logreg.src.training.users_ratings import (
+    UsersRatingsSelection,
+    load_users_ratings_from_selection,
 )
 from .compute_users_embeddings_logreg import (
     compute_logreg_user_embedding,
@@ -25,8 +25,6 @@ EMBEDDING_DIM = 357
 VALID_EMBED_FUNCTIONS_RANDOMNESS = {
     "mean_pos": False,
     "logreg": True,
-    "mean_pos_minus_neg": False,
-    "mean_pos_minus_mean_neg": False,
 }
 VALID_EMBED_FUNCTIONS = list(VALID_EMBED_FUNCTIONS_RANDOMNESS.keys())
 
@@ -50,40 +48,6 @@ def compute_mean_pos_user_embedding(
     pos_ratings = pos_ratings.mean(axis=0)
     pos_ratings = np.hstack([pos_ratings, 0])
     return pos_ratings
-
-
-def compute_mean_pos_minus_neg_user_embedding(
-    user_train_set_embeddings: np.ndarray, user_train_set_ratings: np.ndarray
-) -> np.ndarray:
-    assert user_train_set_embeddings.shape[0] == user_train_set_ratings.shape[0]
-    pos_ratings = user_train_set_embeddings[user_train_set_ratings > 0]
-    neg_ratings = user_train_set_embeddings[user_train_set_ratings == 0]
-    if pos_ratings.shape[0] == 0 and neg_ratings.shape[0] == 0:
-        return np.zeros(user_train_set_embeddings.shape[1] + 1)
-    # scale everything except the last 100 columns by -0.1
-    neg_ratings *= -0.3
-    if neg_ratings.shape[0] > 0:
-        pos_ratings = np.vstack([pos_ratings, neg_ratings])
-    pos_ratings = pos_ratings.mean(axis=0)
-    pos_ratings = np.hstack([pos_ratings, 0])
-    return pos_ratings
-
-
-def compute_mean_pos_minus_mean_neg_user_embedding(
-    user_train_set_embeddings: np.ndarray, user_train_set_ratings: np.ndarray
-) -> np.ndarray:
-    assert user_train_set_embeddings.shape[0] == user_train_set_ratings.shape[0]
-    pos_ratings = user_train_set_embeddings[user_train_set_ratings > 0]
-    neg_ratings = user_train_set_embeddings[user_train_set_ratings == 0]
-    if pos_ratings.shape[0] == 0 and neg_ratings.shape[0] == 0:
-        return np.zeros(user_train_set_embeddings.shape[1] + 1)
-    pos_ratings = pos_ratings.mean(axis=0)
-    neg_ratings = (
-        neg_ratings.mean(axis=0) if neg_ratings.shape[0] > 0 else np.zeros_like(pos_ratings)
-    )
-    pos_ratings = np.hstack([pos_ratings, 0])
-    neg_ratings = np.hstack([neg_ratings, 0])
-    return pos_ratings - neg_ratings
 
 
 def get_user_train_set_starting_session_id_max_n_train_sessions(
@@ -204,16 +168,11 @@ def compute_users_embeddings_general(
 
 
 def init_users_ratings(args_dict: dict) -> tuple:
-    users_ratings = get_users_ratings(
-        users_selection=args_dict["users_selection"],
-        evaluation=Evaluation.SESSION_BASED,
-        train_size=args_dict["train_size"],
-        min_n_posrated_train=args_dict["min_n_posrated_train"],
-        min_n_negrated_train=args_dict["min_n_negrated_train"],
-        min_n_posrated_val=args_dict["min_n_posrated_val"],
-        min_n_negrated_val=args_dict["min_n_negrated_val"],
-        filter_for_negrated_ranking=args_dict["filter_for_negrated_ranking"],
-    )
+    if args_dict["old_ratings"]:
+        urs = UsersRatingsSelection.SESSION_BASED_FILTERING_OLD
+    else:
+        urs = UsersRatingsSelection.SESSION_BASED_FILTERING
+    users_ratings = load_users_ratings_from_selection(users_ratings_selection=urs)
     if args_dict["single_val_session"]:
         users_ids = users_ratings["user_id"].unique().tolist()
         users_ratings = users_ratings.copy()
@@ -238,10 +197,6 @@ def compute_users_embeddings(args_dict: dict, random_state: int = None) -> dict:
     if embed_function in ["mean_pos", "mean_pos_minus_neg", "mean_pos_minus_mean_neg"]:
         if embed_function == "mean_pos":
             embed_function = compute_mean_pos_user_embedding
-        elif embed_function == "mean_pos_minus_neg":
-            embed_function = compute_mean_pos_minus_neg_user_embedding
-        elif embed_function == "mean_pos_minus_mean_neg":
-            embed_function = compute_mean_pos_minus_mean_neg_user_embedding
         users_embeddings = compute_users_embeddings_general(
             users_ratings=users_ratings,
             users_val_sessions_ids=users_val_sessions_ids,
@@ -277,7 +232,6 @@ if __name__ == "__main__":
     config_file, random_state = parse_args()
     with open(config_file, "rb") as f:
         args_dict = pickle.load(f)
-
     args_dict["output_folder"] = args_dict["output_folder"] / "users_embeddings"
     args_dict["output_folder"] = args_dict["output_folder"] / f"s_{random_state}"
     users_embeddings = compute_users_embeddings(args_dict, random_state)

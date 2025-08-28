@@ -99,6 +99,7 @@ def create_example_config_sliding_window(users_embeddings_dict_path: Path = None
     if users_embeddings_dict_path is None:
         users_embeddings_dict_path = ProjectPaths.sequence_data_users_embeddings_path() / "logreg"
     update_dict = {
+        "users_ratings_selection": "session_based_filtering",
         "evaluation": "sliding_window",
         "users_coefs_path": str(users_embeddings_dict_path.resolve()),
         "n_cache": 0,

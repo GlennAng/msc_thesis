@@ -4,7 +4,7 @@ from enum import Enum, auto
 
 import pandas as pd
 
-from ....src.load_files import load_users_ratings, load_finetuning_users_ids
+from ....src.load_files import load_finetuning_users_ids, load_users_ratings
 from ....src.project_paths import ProjectPaths
 
 pd.set_option("display.max_rows", None)
@@ -232,7 +232,7 @@ def filter_users_ratings_for_negrated_ranking(
 def check_user_ratings_for_conditions(user_ratings: pd.DataFrame, params: dict) -> bool:
     train_ratings = user_ratings[user_ratings["split"] == "train"]
     val_ratings = user_ratings[user_ratings["split"] == "val"]
-    pos_val_ratings = user_ratings[user_ratings["rating"] == 1]
+    pos_val_ratings = val_ratings[val_ratings["rating"] == 1]
     n_pos_val_sessions = pos_val_ratings["session_id"].nunique()
     n_posrated_train = train_ratings["rating"].sum()
     n_negrated_train = len(train_ratings) - n_posrated_train
@@ -249,14 +249,31 @@ def check_user_ratings_for_conditions(user_ratings: pd.DataFrame, params: dict) 
     return conditions_met
 
 
-def save_session_based_filtering_ratings(users_ratings: pd.DataFrame, params: dict) -> None:
+def append_removed_for_negrated_ranking(
+    users_ratings: pd.DataFrame,
+    users_ratings_removed_for_negrated_ranking: pd.DataFrame,
+) -> pd.DataFrame:
+    assert "split" in users_ratings.columns
+    assert "split" not in users_ratings_removed_for_negrated_ranking.columns
+    if len(users_ratings_removed_for_negrated_ranking) == 0:
+        return users_ratings
+    removed_df = users_ratings_removed_for_negrated_ranking.copy()
+    removed_df["split"] = "removed"
+    users_ratings = pd.concat([users_ratings, removed_df])
+    users_ratings = users_ratings.sort_values(["user_id", "time"])
+    return users_ratings
+
+
+def save_session_based_filtering_ratings(
+    users_ratings_head: pd.DataFrame, users_ratings_tail: pd.DataFrame, params: dict
+) -> None:
     path = ProjectPaths.data_session_based_filtering_ratings_path()
     if path.exists():
         print(f"{path} already exists. Skipping saving.")
         return
-    n_users_before_filtering = users_ratings["user_id"].nunique()
-    ratings = filter_users_ratings_with_sufficient_votes_session_based(
-        users_ratings=users_ratings,
+    n_users_before_filtering = users_ratings_head["user_id"].nunique()
+    users_ratings = filter_users_ratings_with_sufficient_votes_session_based(
+        users_ratings=users_ratings_head,
         min_n_posrated_train=params["n_posrated_train_for_first_split"],
         min_n_negrated_train=0,
         min_n_posrated_val=0,
@@ -264,18 +281,24 @@ def save_session_based_filtering_ratings(users_ratings: pd.DataFrame, params: di
         min_n_sessions=0,
         test_size=1.0,
     )
-    n_users_after_first_filtering = ratings["user_id"].nunique()
+    n_users_after_first_filtering = users_ratings["user_id"].nunique()
     print(f"First Filtering: {n_users_before_filtering} -> {n_users_after_first_filtering}.")
-    users_ids = ratings["user_id"].unique()
+    users_ids = users_ratings["user_id"].unique()
     qualifying_users_ids = []
     for user_id in users_ids:
-        user_ratings = ratings[ratings["user_id"] == user_id]
+        user_ratings = users_ratings[users_ratings["user_id"] == user_id]
         if check_user_ratings_for_conditions(user_ratings, params):
             qualifying_users_ids.append(user_id)
     print(f"Second Filtering: {n_users_after_first_filtering} -> {len(qualifying_users_ids)}.")
-    ratings = ratings[ratings["user_id"].isin(qualifying_users_ids)]
-    ratings.to_parquet(path, engine="pyarrow")
-    print(f"Saved ratings to {path}. Total Users: {ratings['user_id'].nunique()}.")
+    users_ratings = users_ratings[users_ratings["user_id"].isin(qualifying_users_ids)]
+    users_ratings_tail = users_ratings_tail[
+        users_ratings_tail["user_id"].isin(qualifying_users_ids)
+    ]
+    users_ratings = append_removed_for_negrated_ranking(
+        users_ratings=users_ratings, users_ratings_removed_for_negrated_ranking=users_ratings_tail
+    )
+    users_ratings.to_parquet(path, engine="pyarrow")
+    print(f"Saved ratings to {path}. Total Users: {users_ratings['user_id'].nunique()}.")
 
 
 def load_users_ratings_from_selection(
@@ -305,7 +328,7 @@ def load_users_ratings_from_selection(
     assert users_ratings.groupby("user_id")["session_id"].is_monotonic_increasing.all()
     if relevant_users_ids is not None:
         old = users_ratings_selection in [
-            UsersRatingsSelection.SESSION_BASED_NO_FILTERING_OLD, 
+            UsersRatingsSelection.SESSION_BASED_NO_FILTERING_OLD,
             UsersRatingsSelection.SESSION_BASED_FILTERING_OLD,
         ]
         if relevant_users_ids == "finetuning_val":
@@ -364,5 +387,7 @@ if __name__ == "__main__":
         "min_n_pos_val_sessions_in_first_split": 3,
     }
     save_session_based_filtering_ratings(
-        users_ratings=users_ratings_head, params=SESSION_BASED_FILTERING_PARAMS
-    )
+        users_ratings_head=users_ratings_head,
+        users_ratings_tail=users_ratings_tail,
+        params=SESSION_BASED_FILTERING_PARAMS,
+    )        

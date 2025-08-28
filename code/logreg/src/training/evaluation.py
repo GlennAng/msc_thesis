@@ -297,7 +297,8 @@ class Evaluator:
         user_predictions_dict[0] = fill_user_predictions_dict(val_data_dict)
         timesort = self.config["evaluation"] == Evaluation.SESSION_BASED
         val_causal_mask = self.config["users_ratings_selection"] in [
-            UsersRatingsSelection.SESSION_BASED_FILTERING
+            UsersRatingsSelection.SESSION_BASED_FILTERING,
+            UsersRatingsSelection.SESSION_BASED_FILTERING_OLD,
         ]
         train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
             ratings=train_ratings,
@@ -323,6 +324,7 @@ class Evaluator:
             negative_samples_embeddings=val_negative_samples_embeddings,
             train_negrated_ranking_idxs=train_negrated_ranking_idxs,
             val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+            user_info=user_info,
             save_users_predictions_bool=self.config["save_users_predictions"],
         )
         user_results_dict[0] = user_results
@@ -392,6 +394,7 @@ class Evaluator:
                 negative_samples_embeddings=val_negative_samples_embeddings,
                 train_negrated_ranking_idxs=train_negrated_ranking_idxs,
                 val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+                user_info=user_info,
                 save_users_predictions_bool=self.config["save_users_predictions"],
             )
             user_results_dict[fold_idx] = fold_results
@@ -458,6 +461,7 @@ class Evaluator:
             negative_samples_embeddings=val_negative_samples_embeddings,
             train_negrated_ranking_idxs=train_negrated_ranking_idxs,
             val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+            user_info=user_info,
             save_users_predictions_bool=self.config["save_users_predictions"],
         )
         user_results_dict[0] = user_results

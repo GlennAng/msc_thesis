@@ -1,15 +1,8 @@
-import json
 import pickle
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-#from ...logreg.src.training.get_users_ratings import (
-#    USERS_SELECTIONS,
-#    sequence_load_users_ratings,
-#)
-from ...src.project_paths import ProjectPaths
 
 
 def get_users_val_sessions_ids(users_ratings: pd.DataFrame) -> dict:
@@ -25,29 +18,6 @@ def get_users_val_sessions_ids(users_ratings: pd.DataFrame) -> dict:
         assert user_sessions_ids_val == sorted(user_sessions_ids_val)
         sessions_ids[user_id] = user_sessions_ids_val
     return sessions_ids
-
-
-def get_embedding_path(users_selection: str) -> Path:
-    if users_selection not in USERS_SELECTIONS:
-        raise ValueError(f"Unknown users selection: {users_selection}")
-    if users_selection == "finetuning_test":
-        return (
-            ProjectPaths.logreg_embeddings_path()
-            / "after_pca"
-            / "gte_large_256_test_categories_l2_unit_100"
-        )
-    elif users_selection == "finetuning_val":
-        return (
-            ProjectPaths.logreg_embeddings_path()
-            / "after_pca"
-            / "gte_large_256_val_categories_l2_unit_100"
-        )
-    elif users_selection == "session_based":
-        return (
-            ProjectPaths.logreg_embeddings_path()
-            / "after_pca"
-            / "gte_large_256_session_based_categories_l2_unit_100"
-        )
 
 
 def save_users_embeddings(users_embeddings: dict, args_dict: dict) -> None:
@@ -114,10 +84,3 @@ def compare_users_embeddings(
             err_msg=f"User {user_id} embeddings do not match",
         )
     print("Users embeddings match.")
-
-
-if __name__ == "__main__":
-    #users_embeddings, config = load_users_embeddings(
-    #    path=ProjectPaths.sequence_data_users_embeddings_path() / "logreg", check=True
-    #)
-    pass

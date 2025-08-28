@@ -41,14 +41,10 @@ from .visualization_tools import (
     print_third_page,
 )
 
-N_USERS_SESSION_BASED_NO_FILTERING = 1070
 OPTIMIZATION_CONSTANTS = {
     "N_TAIL_USERS": 15,
     "N_PRINT_BEST_HYPERPARAMETERS_COMBINATIONS": 25,
-    "PCNT_HI_POS_VAL_SESSIONS": 0.1,
-    "PCNT_HI/LO_TRAIN_VOTES": 0.1,
-    "PCNT_HI_POS_VAL_TIME": 0.1,
-    "PCNT_HI/LO_POS_TRAIN_RATIO": 0.1,
+    "PERCENTAGE_USERS_SPECIAL_GROUPS": 0.1,
 }
 
 
@@ -104,6 +100,13 @@ class Global_Visualizer:
         self.n_tail_users = min(OPTIMIZATION_CONSTANTS["N_TAIL_USERS"], self.n_users)
         self.n_print_interesting_users = min(24, self.n_users)
         self.n_print_largest_performance_gain = min(25, self.n_users)
+        if self.n_users >= 500:
+            self.n_users_special_groups = 75
+        else:
+            self.n_users_special_groups = int(
+                self.n_users * OPTIMIZATION_CONSTANTS["PERCENTAGE_USERS_SPECIAL_GROUPS"]
+            )
+        self.n_users_special_groups = max(1, min(self.n_users, self.n_users_special_groups))
 
     def extract_optimization_data(self) -> None:
         self.hyperparameters = list(self.hyperparameters_combinations.columns)[1:]
@@ -188,93 +191,65 @@ class Global_Visualizer:
             == self.best_global_hyperparameters_combination_idx
         ][PLOT_CONSTANTS["X_HYPERPARAMETER"]].values[0]
 
-    def get_n_high_low_users(self, percentage: float) -> int:
-        n_high_low_users = int(self.n_users * percentage)
-        return max(1, min(n_high_low_users, self.n_users))
-
-    def extract_high_pos_val_sessions_users(self, users_groups_dict: dict) -> None:
-        if self.n_users == N_USERS_SESSION_BASED_NO_FILTERING:
-            n_hi_lo_pos_val_sessions_users = 100
-        else:
-            percentage = OPTIMIZATION_CONSTANTS["PCNT_HI_POS_VAL_SESSIONS"]
-            n_hi_lo_pos_val_sessions_users = self.get_n_high_low_users(percentage)
-        hi_pos_val_sessions_users = self.users_info.nlargest(
-            n_hi_lo_pos_val_sessions_users, "n_sessions_pos_val"
-        )["user_id"].values
-        hi_lo_pos_val_sessions_legend = (
-            f"HiSess: The {n_hi_lo_pos_val_sessions_users} Users with the highest"
+    def extract_head_middle_tail_users(self) -> None:
+        score_abb = SCORES_DICT[self.score]["abbreviation_for_visu_file"]
+        sorted_df = self.best_global_hyperparameters_combination_df.sort_values(
+            f"val_{self.score.name.lower()}",
+            ascending=not SCORES_DICT[self.score]["increase_better"],
         )
-        hi_lo_pos_val_sessions_legend += " Sessions number between Validation Positives."
-        users_groups_dict["HiSess"] = {
+        assert len(sorted_df) == self.n_users
+        n = self.n_users_special_groups
+        head_df, tail_df = (sorted_df.head(n), sorted_df.tail(n))
+        start_idx = (self.n_users - n) // 2
+        middle_df = sorted_df.iloc[start_idx : start_idx + n]
+        n_head, n_tail, n_middle = len(head_df), len(tail_df), len(middle_df)
+        assert n == n_head == n_tail == n_middle
+        legend = f"Head/Middle/Tail: The {n_head}/{n_middle}/{n_tail} Users with the "
+        legend += f"best/medium/worst {score_abb}."
+        self.users_groups_dict["Head"] = {"users_ids": head_df["user_id"].values, "legend": legend}
+        self.users_groups_dict["Middle"] = {"users_ids": middle_df["user_id"].values}
+        self.users_groups_dict["Tail"] = {"users_ids": tail_df["user_id"].values}
+
+    def extract_high_low_negrated_train_users(self) -> None:
+        n = self.n_users_special_groups
+        hi_negrated_train_users = self.users_info.nlargest(n, "n_negrated_train")["user_id"].values
+        lo_negrated_train_users = self.users_info.nsmallest(n, "n_negrated_train")["user_id"].values
+        legend = f"HiNegTr/LoNegTr: The {n} Users with the highest/lowest Negative Training Votes."
+        self.users_groups_dict["HiNegTr"] = {"users_ids": hi_negrated_train_users, "legend": legend}
+        self.users_groups_dict["LoNegTr"] = {"users_ids": lo_negrated_train_users}
+
+    def extract_high_pos_val_ratings_sessions_time_users(self) -> None:
+        n = self.n_users_special_groups
+        hi_pos_val_ratings_users = self.users_info.nlargest(n, "n_posrated_val")["user_id"].values
+        hi_pos_val_ratings_legend = (
+            f"VotePV: The {n} Users with the most Positive Validation Votes."
+        )
+        hi_pos_val_sessions_users = self.users_info.nlargest(n, "n_sessions_pos_val")[
+            "user_id"
+        ].values
+        hi_pos_val_sessions_legend = (
+            f"SessPV: The {n} Users with the most Positive Validation Sessions."
+        )
+        hi_pos_val_time_users = self.users_info.nlargest(n, "time_range_days_pos_val")[
+            "user_id"
+        ].values
+        hi_pos_val_time_legend = (
+            f"TimePV: The {n} Users with the largest Time Range for Positive Validation."
+        )
+        self.users_groups_dict["VotePV"] = {
+            "users_ids": hi_pos_val_ratings_users,
+            "legend": hi_pos_val_ratings_legend,
+        }
+        self.users_groups_dict["SessPV"] = {
             "users_ids": hi_pos_val_sessions_users,
-            "legend": hi_lo_pos_val_sessions_legend,
+            "legend": hi_pos_val_sessions_legend,
         }
-
-    def extract_high_low_train_votes_users(self, users_groups_dict: dict) -> None:
-        if self.n_users == N_USERS_SESSION_BASED_NO_FILTERING:
-            n_hi_lo_train_votes_users = 100
-        else:
-            percentage = OPTIMIZATION_CONSTANTS["PCNT_HI/LO_TRAIN_VOTES"]
-            n_hi_lo_train_votes_users = self.get_n_high_low_users(percentage)
-        hi_train_votes_users = self.users_info.nlargest(
-            n_hi_lo_train_votes_users, "n_posrated_train"
-        )["user_id"].values
-        lo_train_votes_users = self.users_info.nsmallest(
-            n_hi_lo_train_votes_users, "n_posrated_train"
-        )["user_id"].values
-        hi_lo_train_votes_legend = (
-            f"HiVotes/LoVotes: The {n_hi_lo_train_votes_users} Users with the highest/lowest"
-        )
-        hi_lo_train_votes_legend += " Positive Training Votes."
-        users_groups_dict["HiVotes"] = {
-            "users_ids": hi_train_votes_users,
-            "legend": hi_lo_train_votes_legend,
-        }
-        users_groups_dict["LoVotes"] = {"users_ids": lo_train_votes_users}
-
-    def extract_high_pos_val_time_users(self, users_groups_dict: dict) -> None:
-        if self.n_users == N_USERS_SESSION_BASED_NO_FILTERING:
-            n_hi_pos_val_time_users = 100
-        else:
-            percentage = OPTIMIZATION_CONSTANTS["PCNT_HI_POS_VAL_TIME"]
-            n_hi_pos_val_time_users = self.get_n_high_low_users(percentage)
-        hi_pos_val_time_users = self.users_info.nlargest(
-            n_hi_pos_val_time_users, "time_range_days_pos_val"
-        )["user_id"].values
-        hi_pos_val_time_legend = f"HiTime: The {n_hi_pos_val_time_users} Users with the highest"
-        hi_pos_val_time_legend += " Time amount between Validation Positives."
-        users_groups_dict["HiTime"] = {
+        self.users_groups_dict["TimePV"] = {
             "users_ids": hi_pos_val_time_users,
             "legend": hi_pos_val_time_legend,
         }
 
-
-    def extract_high_low_pos_train_ratio_users(self, users_groups_dict: dict) -> None:
-        if self.n_users == N_USERS_SESSION_BASED_NO_FILTERING:
-            n_hi_lo_pos_train_ratio_users = 100
-        else:
-            percentage = OPTIMIZATION_CONSTANTS["PCNT_HI/LO_POS_TRAIN_RATIO"]
-            n_hi_lo_pos_train_ratio_users = self.get_n_high_low_users(percentage)
-        self.users_info["posrated_train_ratio"] = (
-            self.users_info["n_posrated_train"] / self.users_info["n_negrated_train"]
-        )
-        hi_train_ratio_users = self.users_info.nlargest(
-            n_hi_lo_pos_train_ratio_users, "posrated_train_ratio"
-        )["user_id"].values
-        lo_train_ratio_users = self.users_info.nsmallest(
-            n_hi_lo_pos_train_ratio_users, "posrated_train_ratio"
-        )["user_id"].values
-        hi_lo_train_ratio_legend = (
-            f"HiRatio/LoRatio: The {n_hi_lo_pos_train_ratio_users} Users with the highest/lowest"
-        )
-        hi_lo_train_ratio_legend += " Positive Training Ratio."
-        users_groups_dict["HiPosi"] = {
-            "users_ids": hi_train_ratio_users,
-            "legend": hi_lo_train_ratio_legend,
-        }
-        users_groups_dict["LoPosi"] = {"users_ids": lo_train_ratio_users}
-
-    def extract_cs_non_cs_users(self, users_groups_dict: dict) -> None:
+    def extract_cs_non_cs_users(self) -> None:
         cs_users = self.users_significant_categories[
             self.users_significant_categories["category"] == "Computer Science"
         ]["user_id"].values
@@ -283,69 +258,15 @@ class Global_Visualizer:
         cs_legend = (
             f"CS/NonCS: The {n_cs}/{n_non_cs} Users whose main Category is/isn't Computer Science."
         )
-        users_groups_dict["CS"] = {"users_ids": cs_users, "legend": cs_legend}
-        users_groups_dict["NonCS"] = {"users_ids": non_cs_users}
-
-    def extract_tail_users(self, users_groups_dict: dict) -> None:
-        if SCORES_DICT[self.score]["increase_better"]:
-            tail_df = self.best_global_hyperparameters_combination_df.nsmallest(
-                self.n_tail_users, f"val_{self.score.name.lower()}"
-            )
-        else:
-            tail_df = self.best_global_hyperparameters_combination_df.nlargest(
-                self.n_tail_users, f"val_{self.score.name.lower()}"
-            )
-        tail_users = tail_df["user_id"].values
-        score_abb = SCORES_DICT[self.score]["abbreviation_for_visu_file"]
-        tail_legend = f"Tail: The {len(tail_users)} Users with the lowest {score_abb}."
-        users_groups_dict["Tail"] = {"users_ids": tail_users, "legend": tail_legend}
+        self.users_groups_dict["CS"] = {"users_ids": cs_users, "legend": cs_legend}
+        self.users_groups_dict["NonCS"] = {"users_ids": non_cs_users}
 
     def extract_high_low_users(self) -> None:
-        users_groups_dict = {}
-        self.extract_high_pos_val_sessions_users(users_groups_dict)
-        self.extract_high_low_train_votes_users(users_groups_dict)
-        self.extract_high_pos_val_time_users(users_groups_dict)
-        self.extract_high_low_pos_train_ratio_users(users_groups_dict)
-        self.extract_cs_non_cs_users(users_groups_dict)
-        self.extract_tail_users(users_groups_dict)
-        self.users_groups_dict = users_groups_dict
-
-        hi_sessions_users = [
-            uid
-            for uid in users_groups_dict["HiSess"]["users_ids"]
-            if uid not in users_groups_dict["HiVotes"]["users_ids"]
-        ]
-        hi_sessions_legend = (
-            f"HiSess: The {len(hi_sessions_users)} Users in high Sessions but not high Votes."
-        )
-        hi_votes_users = [
-            uid
-            for uid in users_groups_dict["HiVotes"]["users_ids"]
-            if uid not in users_groups_dict["HiSess"]["users_ids"]
-        ]
-        hi_votes_legend = (
-            f"HiVotes: The {len(hi_votes_users)} Users in high Votes but not high Sessions."
-        )
-        self.users_groups_dict["HiSess"] = {
-            "users_ids": hi_sessions_users,
-            "legend": hi_sessions_legend,
-        }
-        self.users_groups_dict["HiVotes"] = {
-            "users_ids": hi_votes_users,
-            "legend": hi_votes_legend,
-        }
-
-        hi_ss_lo_tim_users = [
-            uid
-            for uid in users_groups_dict["HiSess"]["users_ids"]
-            if uid not in users_groups_dict["HiTime"]["users_ids"]
-        ]
-        hi_ss_lo_tim_legend = f"HiSLoTim: The {len(hi_ss_lo_tim_users)} Users in high Sessions but"
-        hi_ss_lo_tim_legend += " low Time between Validation Positives."
-        self.users_groups_dict["HiSLoTim"] = {
-            "users_ids": hi_ss_lo_tim_users,
-            "legend": hi_ss_lo_tim_legend,
-        }
+        self.users_groups_dict = {}
+        self.extract_head_middle_tail_users()
+        self.extract_high_low_negrated_train_users()
+        self.extract_high_pos_val_ratings_sessions_time_users()
+        self.extract_cs_non_cs_users()
 
     def extract_best_individual_hyperparameters_combination_data(self) -> None:
         self.best_individual_hyperparameters_combination_df = (
@@ -506,9 +427,7 @@ class Global_Visualizer:
 
     def generate_third_page(self, pdf: PdfPages) -> None:
         users_info_table = get_users_info_table(self.users_info)
-        print_third_page(
-            pdf, self.n_users, users_info_table, self.users_ids
-        )
+        print_third_page(pdf, self.n_users, users_info_table, self.users_ids)
 
     def generate_fourth_page(self, pdf: PdfPages) -> None:
         hyperparameters_combinations_table_val = get_hyperparameters_combinations_table(

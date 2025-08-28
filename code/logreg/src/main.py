@@ -99,20 +99,8 @@ def load_hyperparameters(config: Dict[str, Any], wh: Weights_Handler) -> list:
     return hyperparameters_combinations
 
 
-def init_sliding_window(config: Dict[str, Any]) -> tuple:
-    assert config["n_cache"] == 0
-    assert config["filter_for_negrated_ranking"]
+def init_sliding_window(config: Dict[str, Any], users_ratings: pd.DataFrame) -> tuple:
     users_embeddings = load_users_embeddings(config["users_coefs_path"], check=True)
-    users_ratings = get_users_ratings(
-        users_selection=config["users_selection"],
-        evaluation=Evaluation.SLIDING_WINDOW,
-        train_size=config["train_size"],
-        min_n_posrated_train=config["min_n_posrated_train"],
-        min_n_negrated_train=config["min_n_negrated_train"],
-        min_n_posrated_val=config["min_n_posrated_val"],
-        min_n_negrated_val=config["min_n_negrated_val"],
-        filter_for_negrated_ranking=True,
-    )
     users_ids = list(users_ratings["user_id"].unique())
     users_embeddings = {
         user_id: user_embeddings
@@ -125,7 +113,7 @@ def init_sliding_window(config: Dict[str, Any]) -> tuple:
         user_sessions_ids = user_embeddings["sessions_ids"]
         user_val_ratings = val_ratings[val_ratings["user_id"] == user_id]
         assert user_val_ratings["session_id"].unique().tolist() == user_sessions_ids
-    return users_ratings, users_embeddings
+    return users_embeddings
 
 
 def init_scores(config: Dict[str, Any]) -> None:
@@ -234,15 +222,16 @@ if __name__ == "__main__":
     convert_enums(config)
     create_outputs_folder(config)
 
+    users_ratings = load_users_ratings_from_selection(
+        users_ratings_selection=config["users_ratings_selection"],
+        relevant_users_ids=config["relevant_users_ids"],
+    )
     if config["evaluation"] == Evaluation.SLIDING_WINDOW:
-        users_ratings, users_embeddings = init_sliding_window(config=config)
+        users_embeddings = init_sliding_window(config=config, users_ratings=users_ratings)
     else:
-        users_ratings = load_users_ratings_from_selection(
-            users_ratings_selection=config["users_ratings_selection"],
-            relevant_users_ids=config["relevant_users_ids"],
-        )
         users_embeddings = None
     users_ids = list(users_ratings["user_id"].unique())
+    print(f"Number of Users: {len(users_ids)}.")
     assert users_ids == sorted(users_ids)
 
     init_scores(config)
