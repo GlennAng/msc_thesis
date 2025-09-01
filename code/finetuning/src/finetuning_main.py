@@ -85,8 +85,8 @@ def parse_arguments() -> dict:
         dest="closest_temporal_samples",
         default=True,
     )
-    parser.add_argument("--n_samples_from_most_recent_positive_votes", type=int, default=7)
-    parser.add_argument("--n_samples_from_closest_negative_votes", type=int, default=4)
+    parser.add_argument("--n_samples_from_most_recent_positive_votes", type=int, default=15)
+    parser.add_argument("--n_samples_from_closest_negative_votes", type=int, default=7)
 
     parser.add_argument(
         "--loss_function", type=str, default="info_nce", choices=["bcel", "info_nce"]
@@ -628,6 +628,8 @@ if __name__ == "__main__":
     args_dict = parse_arguments()
     set_all_seeds(args_dict["seed"])
     val_data = load_val_data()
+
+    print(args_dict["include_l2_categories"])
 
     unfreeze_parameters_dict, tensors_parameters_dict = construct_model_parameters_dicts(args_dict)
     finetuning_model = load_finetuning_model(

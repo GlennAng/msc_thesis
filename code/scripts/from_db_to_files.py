@@ -245,6 +245,19 @@ def create_n_negrated_still_to_come_column(users_ratings: pd.DataFrame) -> pd.Se
     return users_ratings.groupby("user_id", group_keys=False).apply(calculate_causal_counts)
 
 
+def create_n_posrated_came_before_column(users_ratings: pd.DataFrame) -> pd.Series:
+    users_ratings = users_ratings.sort_values(by=["user_id", "time"]).copy()
+    pos_indicator = (users_ratings["rating"] == 1).astype(int)
+    users_ratings = users_ratings.assign(pos_indicator=pos_indicator)
+    
+    def calculate_causal_counts(group):
+        session_counts = group.groupby("session_id")["pos_indicator"].sum()
+        causal_counts = session_counts.shift(1).fillna(0).cumsum().astype(int)
+        return group["session_id"].map(causal_counts).fillna(0)
+    
+    return users_ratings.groupby("user_id", group_keys=False).apply(calculate_causal_counts)
+
+
 def save_users_ratings(
     path: Path, users_mapping: dict = None, papers: pd.DataFrame = None
 ) -> pd.DataFrame:
@@ -272,6 +285,7 @@ def save_users_ratings(
     users_ratings = users_ratings.sort_values(by=["user_id", "time"]).reset_index(drop=True)
     users_ratings["session_id"] = create_session_column(users_ratings)
     users_ratings["n_negrated_still_to_come"] = create_n_negrated_still_to_come_column(users_ratings)
+    users_ratings["n_posrated_came_before"] = create_n_posrated_came_before_column(users_ratings)
     path.parent.mkdir(parents=True, exist_ok=True)
     users_ratings.to_parquet(path, index=False, compression="gzip")
     return users_ratings

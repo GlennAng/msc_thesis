@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..sequence.src.compute_users_embeddings import (
+from ..sequence.src.eval.compute_users_embeddings import (
     VALID_EMBED_FUNCTIONS,
     VALID_EMBED_FUNCTIONS_RANDOMNESS,
 )
@@ -35,6 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--use_existing_embeddings", action="store_true", default=False)
 
     parser.add_argument("--old_ratings", action="store_true", default=False)
+    parser.add_argument("--users_selection", type=str, default=None)
     args_dict = vars(parser.parse_args())
     return args_dict
 
@@ -75,12 +76,14 @@ def compute_users_embeddings(args_dict: dict) -> None:
         args = [
             sys.executable,
             "-m",
-            "code.sequence.src.compute_users_embeddings",
+            "code.sequence.src.eval.compute_users_embeddings",
             "--config_file",
             str(config_path),
             "--random_state",
             str(random_state),
         ]
+        if args_dict["users_selection"] is not None:
+            args.extend(["--users_selection", args_dict["users_selection"]])
         subprocess.run(args, check=True)
 
 
@@ -93,6 +96,8 @@ def run_logreg_configs(args_dict: dict) -> None:
         example_config = create_example_config_sliding_window()
     if args_dict["old_ratings"]:
         example_config["users_ratings_selection"] = "session_based_filtering_old"
+    if args_dict["users_selection"] is not None:
+        example_config["relevant_users_ids"] = args_dict["users_selection"]
     example_config["embedding_folder"] = str(args_dict["embedding_path"])
     configs_path = args_dict["output_folder"] / "experiments"
     os.makedirs(configs_path, exist_ok=True)

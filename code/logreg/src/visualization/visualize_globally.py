@@ -44,7 +44,7 @@ from .visualization_tools import (
 OPTIMIZATION_CONSTANTS = {
     "N_TAIL_USERS": 15,
     "N_PRINT_BEST_HYPERPARAMETERS_COMBINATIONS": 25,
-    "PERCENTAGE_USERS_SPECIAL_GROUPS": 0.1,
+    "PERCENTAGE_USERS_SPECIAL_GROUPS": 0.16667,
 }
 
 
@@ -388,11 +388,13 @@ class Global_Visualizer:
                 "Evaluation Method: Session-Based (with Time Sorting for Ranking Negatives)."
             )
         config_string.append(f"Users Ratings Selection: {self.config['users_ratings_selection']}.")
-        if self.config["relevant_users_ids"] is not None:
-            urs_appendix = " (specifically chosen)."
+        users_selection_str = "Selected Users: "
+        if self.config["relevant_users_ids"] is None:
+            users_selection_str += "All"
         else:
-            urs_appendix = " (all chosen)."
-        config_string.append(f"Number of selected Users: {self.n_users}{urs_appendix}")
+            users_selection_str += self.config["relevant_users_ids"]
+        users_selection_str += f" ({self.n_users} Users)."
+        config_string.append(users_selection_str)
         if self.config["evaluation"] != Evaluation.SESSION_BASED:
             config_string.append(
                 "Same Ranking Negatives for all Positives? "

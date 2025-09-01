@@ -243,8 +243,6 @@ def calculate_train_set_val_session_cosine_similarity(
         session_id = sessions_ids[-1]
     else:
         raise ValueError(f"Unknown selection: {selection}")
-    if session_id not in val_pos_embeddings_per_session:
-        return 0.0
     val_pos_embeddings = val_pos_embeddings_per_session[session_id]
     return compute_sims(train_pos_embeddings_all_sessions, val_pos_embeddings)
 

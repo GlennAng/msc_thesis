@@ -28,6 +28,7 @@ def load_users_ratings(
 ) -> pd.DataFrame:
     users_ratings = pd.read_parquet(path, engine="pyarrow")
     assert users_ratings["user_id"].is_monotonic_increasing
+    users_ratings["rating_id"] = users_ratings.index
     if relevant_users_ids is not None:
         users_ratings = users_ratings[users_ratings["user_id"].isin(relevant_users_ids)]
     assert not users_ratings.isnull().any().any()
@@ -169,6 +170,49 @@ def load_finetuning_users_ids(
             return finetuning_users_ids[selection]
 
 
+def load_sequence_users_ids(selection: str = "all", select_non_cs_users_only: bool = False) -> dict:
+    path = ProjectPaths.data_sequence_users_ids_path()
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Sequence Users IDs file not found at {path}. Run 'get_users_ratings.py' to create it."
+        )
+    with open(path, "rb") as f:
+        sequence_users_ids = pickle.load(f)
+    assert isinstance(sequence_users_ids, dict)
+    assert all(isinstance(users_ids, list) for users_ids in sequence_users_ids.values())
+    assert all(users_ids == sorted(users_ids) for users_ids in sequence_users_ids.values())
+    assert all(len(users_ids) == len(set(users_ids)) for users_ids in sequence_users_ids.values())
+    assert (
+        set(sequence_users_ids["other"])
+        & set(sequence_users_ids["val"])
+        & set(sequence_users_ids["test"])
+        == set()
+    )
+
+    if select_non_cs_users_only:
+        if selection == "all":
+            sequence_non_cs_users_ids = {}
+            users_significant_categories = load_users_significant_categories()
+            for split in sequence_users_ids:
+                users_significant_categories_split = users_significant_categories[
+                    users_significant_categories["user_id"].isin(sequence_users_ids[split])
+                ]
+                sequence_non_cs_users_ids[split] = select_non_cs_users_ids(
+                    users_significant_categories_split
+                )
+            return sequence_non_cs_users_ids
+        else:
+            users_significant_categories = load_users_significant_categories(
+                relevant_users_ids=sequence_users_ids[selection]
+            )
+            return select_non_cs_users_ids(users_significant_categories)
+    else:
+        if selection == "all":
+            return sequence_users_ids
+        else:
+            return sequence_users_ids[selection]
+
+
 def load_session_based_users_ids(select_non_cs_users_only: bool = False) -> list:
     path = ProjectPaths.data_session_based_users_ids_path()
     if not path.exists():
@@ -195,12 +239,11 @@ if __name__ == "__main__":
     papers = load_papers()
     assert (papers["paper_id"] == papers_texts["paper_id"]).all()
 
-
     users_ratings = load_users_ratings()
     users_significant_categories = load_users_significant_categories()
 
     if ProjectPaths.data_finetuning_users_ids_path().exists():
         finetuning_users_ids = load_finetuning_users_ids()
 
-    if ProjectPaths.data_session_based_users_ids_path().exists():
-        session_based_users_ids = load_session_based_users_ids()
+    if ProjectPaths.data_sequence_users_ids_path().exists():
+        sequence_users_ids = load_sequence_users_ids()

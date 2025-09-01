@@ -1,6 +1,8 @@
 import os
 import pickle
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import torch
@@ -35,8 +37,7 @@ N_VAL_NEGATIVE_SAMPLES = 100
 N_TRAIN_NEGATIVE_SAMPLES_PER_CATEGORY_MAX = 150000
 
 
-def save_transformer_model() -> None:
-    model_path = ProjectPaths.finetuning_data_model_path() / "state_dicts" / "transformer_model"
+def save_transformer_model(model_path: Path) -> None:
     if model_path.exists():
         print("Transformer model already exists - skipping saving.")
         return
@@ -101,8 +102,11 @@ def save_users_embeddings_tensor(
     print(f"Users embeddings tensor saved to {users_embeddings_path}.")
 
 
-def save_projection_tensor(pca_components: np.ndarray = None, pca_mean: np.ndarray = None) -> None:
-    projection_tensor_path = ProjectPaths.finetuning_data_model_state_dicts_projection_path()
+def save_projection_tensor(
+    projection_tensor_path=ProjectPaths.finetuning_data_model_state_dicts_projection_path(),
+    pca_components: np.ndarray = None,
+    pca_mean: np.ndarray = None,
+) -> None:
     if projection_tensor_path.exists():
         print("Projection tensor already exists - skipping saving.")
         return
@@ -125,17 +129,14 @@ def save_projection_tensor(pca_components: np.ndarray = None, pca_mean: np.ndarr
     print(f"Projection tensor saved to {projection_tensor_path}.")
 
 
-def save_categories_embeddings_tensor(glove_categories_embeddings: dict = None) -> None:
-    categories_embeddings_l1_path = (
-        ProjectPaths.finetuning_data_model_state_dicts_categories_embeddings_l1_path()
-    )
-
-    categories_to_idxs_l1_path = (
-        ProjectPaths.finetuning_data_model_state_dicts_path() / "categories_to_idxs_l1.pkl"
-    )
-    categories_to_idxs_l2_path = (
-        ProjectPaths.finetuning_data_model_state_dicts_path() / "categories_to_idxs_l2.pkl"
-    )
+def save_categories_embeddings_tensor(
+    categories_embeddings_l1_path: Path = ProjectPaths.finetuning_data_model_state_dicts_categories_embeddings_l1_path(),
+    categories_to_idxs_l1_path: Path = ProjectPaths.finetuning_data_model_state_dicts_path()
+    / "categories_to_idxs_l1.pkl",
+    categories_to_idxs_l2_path: Path = ProjectPaths.finetuning_data_model_state_dicts_path()
+    / "categories_to_idxs_l2.pkl",
+    glove_categories_embeddings: dict = None,
+) -> None:
     paths_existing = [
         categories_embeddings_l1_path.exists(),
         categories_to_idxs_l1_path.exists(),
@@ -935,7 +936,9 @@ if __name__ == "__main__":
     os.makedirs(ProjectPaths.finetuning_data_model_path(), exist_ok=True)
     os.makedirs(ProjectPaths.finetuning_data_model_state_dicts_path(), exist_ok=True)
     os.makedirs(ProjectPaths.finetuning_data_model_datasets_path(), exist_ok=True)
-    save_transformer_model()
+    save_transformer_model(
+        path=ProjectPaths.finetuning_data_model_path() / "state_dicts" / "transformer_model"
+    )
     save_users_embeddings_tensor()
     save_projection_tensor()
     save_categories_embeddings_tensor()

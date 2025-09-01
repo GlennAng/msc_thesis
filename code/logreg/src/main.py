@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from ...scripts.create_example_configs import check_config
-from ...sequence.src.sequence_data import load_users_embeddings
+from ...sequence.src.eval.users_embeddings_data import load_users_embeddings
 from ...src.project_paths import ProjectPaths
 from .embeddings.embedding import Embedding
 from .training.algorithm import (

@@ -4,7 +4,12 @@ from enum import Enum, auto
 
 import pandas as pd
 
-from ....src.load_files import load_finetuning_users_ids, load_users_ratings
+from ....src.load_files import (
+    load_finetuning_users_ids,
+    load_sequence_users_ids,
+    load_users_ratings,
+    load_users_significant_categories,
+)
 from ....src.project_paths import ProjectPaths
 
 pd.set_option("display.max_rows", None)
@@ -301,6 +306,187 @@ def save_session_based_filtering_ratings(
     print(f"Saved ratings to {path}. Total Users: {users_ratings['user_id'].nunique()}.")
 
 
+def select_sequence_users_ids_non_cs(
+    users_significant_categories: pd.DataFrame,
+    seed: int,
+    n_non_cs_users_per_split: int,
+) -> tuple:
+    usc = users_significant_categories.copy()
+    usc = usc[usc["rank"] == 1]
+    users_ids = usc["user_id"].tolist()
+    non_cs_users_ids = usc[usc["category"] != "Computer Science"]["user_id"].tolist()
+    assert len(non_cs_users_ids) >= (2 * n_non_cs_users_per_split)
+    random.seed(seed)
+    random.shuffle(non_cs_users_ids)
+    val_users_ids = non_cs_users_ids[:n_non_cs_users_per_split]
+    test_users_ids = non_cs_users_ids[n_non_cs_users_per_split : 2 * n_non_cs_users_per_split]
+    assert len(val_users_ids) == n_non_cs_users_per_split
+    assert len(test_users_ids) == n_non_cs_users_per_split
+    remaining_users_ids = list(set(users_ids) - set(val_users_ids) - set(test_users_ids))
+    assert len(remaining_users_ids) + len(val_users_ids) + len(test_users_ids) == len(users_ids)
+    return val_users_ids, test_users_ids, remaining_users_ids
+
+
+def get_users_n_pos_val_sessions(
+    seq_users_ratings: pd.DataFrame,
+    remaining_users_ids: list,
+) -> pd.DataFrame:
+    sur_pos_val = seq_users_ratings.copy()
+    sur_pos_val = sur_pos_val[sur_pos_val["user_id"].isin(remaining_users_ids)]
+    sur_pos_val = sur_pos_val[sur_pos_val["split"] == "val"]
+    sur_pos_val = sur_pos_val[sur_pos_val["rating"] == 1]
+    users_n_pos_val_sessions = sur_pos_val.groupby("user_id")["session_id"].nunique().reset_index()
+    return users_n_pos_val_sessions
+
+
+def select_sequence_users_ids_high_low_sessions(
+    users_n_pos_val_sessions: pd.DataFrame,
+    seed: int,
+    n_users_per_split: int,
+    selection: str,
+) -> tuple:
+    assert selection in ["largest", "smallest"]
+    if selection == "largest":
+        users_sessions = users_n_pos_val_sessions.nlargest(2 * n_users_per_split, "session_id")
+    else:
+        users_sessions = users_n_pos_val_sessions.nsmallest(2 * n_users_per_split, "session_id")
+    users_sessions = users_sessions["user_id"].tolist()
+    random.seed(seed)
+    random.shuffle(users_sessions)
+    val_users_ids_sessions = users_sessions[:n_users_per_split]
+    test_users_ids_sessions = users_sessions[n_users_per_split:]
+    assert len(val_users_ids_sessions) == n_users_per_split
+    assert len(test_users_ids_sessions) == n_users_per_split
+    return val_users_ids_sessions, test_users_ids_sessions
+
+
+def select_sequence_users_ids_remaining(
+    remaining_users_ids: list, n_remaining: int, seed: int
+) -> tuple:
+    assert len(remaining_users_ids) >= (2 * n_remaining)
+    random.seed(seed)
+    random.shuffle(remaining_users_ids)
+    val_users_ids = remaining_users_ids[:n_remaining]
+    test_users_ids = remaining_users_ids[n_remaining : 2 * n_remaining]
+    assert len(val_users_ids) == n_remaining
+    assert len(test_users_ids) == n_remaining
+    return val_users_ids, test_users_ids
+
+
+def merge_users_ids(
+    users_ids_non_cs: list,
+    users_ids_high_sessions: list,
+    users_ids_low_sessions: list,
+    users_ids_remaining: list,
+) -> list:
+    users_ids = sorted(
+        list(
+            set(users_ids_non_cs)
+            | set(users_ids_high_sessions)
+            | set(users_ids_low_sessions)
+            | set(users_ids_remaining)
+        )
+    )
+    assert_sorted_and_unique(users_ids)
+    return users_ids
+
+
+def save_sequence_users_ids(
+    seq_users_ratings: pd.DataFrame,
+    seed: int = 10,
+    n_users_per_split: int = 150,
+    n_non_cs_users_per_split: int = 12,
+    n_high_sessions_users_per_split: int = 25,
+    n_low_sessions_users_per_split: int = 25,
+) -> None:
+    path = ProjectPaths.data_sequence_users_ids_path()
+    if path.exists():
+        print(f"{path} already exists. Skipping saving.")
+        return
+    users_ids_all = seq_users_ratings["user_id"].unique().tolist()
+    assert len(users_ids_all) >= (2 * n_users_per_split)
+    assert n_users_per_split >= sum(
+        [
+            n_non_cs_users_per_split,
+            n_high_sessions_users_per_split,
+            n_low_sessions_users_per_split,
+        ]
+    )
+
+    users_significant_categories = load_users_significant_categories(
+        relevant_users_ids=users_ids_all
+    )
+    val_users_ids_non_cs, test_users_ids_non_cs, remaining_users_ids = (
+        select_sequence_users_ids_non_cs(
+            users_significant_categories=users_significant_categories,
+            seed=seed,
+            n_non_cs_users_per_split=n_non_cs_users_per_split,
+        )
+    )
+
+    users_n_pos_val_sessions = get_users_n_pos_val_sessions(
+        seq_users_ratings=seq_users_ratings,
+        remaining_users_ids=remaining_users_ids,
+    )
+    n_users_sessions = n_high_sessions_users_per_split + n_low_sessions_users_per_split
+    assert len(users_n_pos_val_sessions) >= (2 * n_users_sessions)
+
+    val_users_ids_high_sessions, test_users_ids_high_sessions = (
+        select_sequence_users_ids_high_low_sessions(
+            users_n_pos_val_sessions=users_n_pos_val_sessions,
+            seed=seed,
+            n_users_per_split=n_high_sessions_users_per_split,
+            selection="largest",
+        )
+    )
+    val_users_ids_low_sessions, test_users_ids_low_sessions = (
+        select_sequence_users_ids_high_low_sessions(
+            users_n_pos_val_sessions=users_n_pos_val_sessions,
+            seed=seed,
+            n_users_per_split=n_low_sessions_users_per_split,
+            selection="smallest",
+        )
+    )
+
+    n_remaining = n_users_per_split - (
+        len(val_users_ids_high_sessions)
+        + len(val_users_ids_low_sessions)
+        + len(val_users_ids_non_cs)
+    )
+    remaining_users_ids = list(
+        set(remaining_users_ids)
+        - set(val_users_ids_high_sessions)
+        - set(val_users_ids_low_sessions)
+        - set(test_users_ids_high_sessions)
+        - set(test_users_ids_low_sessions)
+    )
+    val_users_ids_remaining, test_users_ids_remaining = select_sequence_users_ids_remaining(
+        remaining_users_ids=remaining_users_ids,
+        n_remaining=n_remaining,
+        seed=seed,
+    )
+
+    val_users_ids = merge_users_ids(
+        users_ids_non_cs=val_users_ids_non_cs,
+        users_ids_high_sessions=val_users_ids_high_sessions,
+        users_ids_low_sessions=val_users_ids_low_sessions,
+        users_ids_remaining=val_users_ids_remaining,
+    )
+    test_users_ids = merge_users_ids(
+        users_ids_non_cs=test_users_ids_non_cs,
+        users_ids_high_sessions=test_users_ids_high_sessions,
+        users_ids_low_sessions=test_users_ids_low_sessions,
+        users_ids_remaining=test_users_ids_remaining,
+    )
+    assert len(val_users_ids) == n_users_per_split and len(test_users_ids) == n_users_per_split
+    other_users_ids = sorted(list(set(users_ids_all) - set(val_users_ids) - set(test_users_ids)))
+    assert len(other_users_ids) + len(val_users_ids) + len(test_users_ids) == len(users_ids_all)
+    sequence_users_ids = {"other": other_users_ids, "val": val_users_ids, "test": test_users_ids}
+    with open(path, "wb") as f:
+        pickle.dump(sequence_users_ids, f)
+    print(f"Saved sequence user IDs to {path}")
+
+
 def load_users_ratings_from_selection(
     users_ratings_selection: UsersRatingsSelection,
     relevant_users_ids: list = None,
@@ -335,6 +521,10 @@ def load_users_ratings_from_selection(
             relevant_users_ids = load_finetuning_users_ids(selection="val", old=old)
         elif relevant_users_ids == "finetuning_test":
             relevant_users_ids = load_finetuning_users_ids(selection="test", old=old)
+        elif relevant_users_ids == "sequence_val":
+            relevant_users_ids = load_sequence_users_ids(selection="val")
+        elif relevant_users_ids == "sequence_test":
+            relevant_users_ids = load_sequence_users_ids(selection="test")
         assert_sorted_and_unique(relevant_users_ids)
         full_users_ids = users_ratings["user_id"].unique().tolist()
         assert set(relevant_users_ids).issubset(set(full_users_ids))
@@ -390,4 +580,8 @@ if __name__ == "__main__":
         users_ratings_head=users_ratings_head,
         users_ratings_tail=users_ratings_tail,
         params=SESSION_BASED_FILTERING_PARAMS,
-    )        
+    )
+    seq_users_ratings = load_users_ratings_from_selection(
+        users_ratings_selection=UsersRatingsSelection.SESSION_BASED_FILTERING
+    )
+    save_sequence_users_ids(seq_users_ratings)

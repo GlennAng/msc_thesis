@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from ...logreg.src.embeddings.embedding import Embedding
-from ...logreg.src.training.users_ratings import (
+from ....logreg.src.embeddings.embedding import Embedding
+from ....logreg.src.training.users_ratings import (
     UsersRatingsSelection,
     load_users_ratings_from_selection,
 )
@@ -16,7 +16,7 @@ from .compute_users_embeddings_logreg import (
     logreg_get_embed_function_params,
     logreg_transform_embed_function_params,
 )
-from .sequence_data import (
+from .users_embeddings_data import (
     get_users_val_sessions_ids,
     save_users_embeddings,
 )
@@ -33,6 +33,7 @@ def parse_args() -> tuple:
     parser = argparse.ArgumentParser(description="Compute users embeddings")
     parser.add_argument("--config_file", type=str, required=True)
     parser.add_argument("--random_state", type=int, required=False, default=None)
+    parser.add_argument("--users_selection", type=str, default=None)
     args_dict = vars(parser.parse_args())
     args_dict["config_file"] = Path(args_dict["config_file"]).resolve()
     return args_dict["config_file"], args_dict["random_state"]
@@ -172,7 +173,9 @@ def init_users_ratings(args_dict: dict) -> tuple:
         urs = UsersRatingsSelection.SESSION_BASED_FILTERING_OLD
     else:
         urs = UsersRatingsSelection.SESSION_BASED_FILTERING
-    users_ratings = load_users_ratings_from_selection(users_ratings_selection=urs)
+    users_ratings = load_users_ratings_from_selection(
+        users_ratings_selection=urs, relevant_users_ids=args_dict["users_selection"]
+    )
     if args_dict["single_val_session"]:
         users_ids = users_ratings["user_id"].unique().tolist()
         users_ratings = users_ratings.copy()

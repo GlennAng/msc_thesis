@@ -39,19 +39,19 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 |------------|------------------|------|-----|
 | gte-large-en-v1.5 | 80.32 | 80.21 | 82.54 |
 | Qwen3-Embedding-8B | 83.05 | 82.95 | **85.03** |
-| gte-large-en-v1.5 fine-tune no cat loss | 83.07 | 83.14 | 81.69 |
-| gte-large-en-v1.5 fine-tune cat loss | **83.26** | **83.22** | 84.13 |
+| gte-large-en-v1.5 fine-tune no cat loss | 83.13 | 83.16 | 82.55 |
+| gte-large-en-v1.5 fine-tune cat loss | **83.23** | **83.19** | 83.99 |
 
 ## Cosine Similarity Changes between Physics and other Categories
 | Category | before Fine-tuning | after Fine-tuning w/o Cat Loss | after Fine-tuning w/ Cat Loss |
 |------------|------------------|------|-----|
-| Computer Science | 20.44 | 15.64 | 17.11
-| Medicine | 25.19 | 49.77 | 32.49
-| Linguistics | 29.54 | 65.26 | 39.20
-| Psychology | 33.09 | 57.90 | 38.46
-| Biology | 39.36 | 63.55 | 41.62
-| Astronomy | 39.52 | 71.78 | 45.86
-| Physics | 57.18 | 86.15 | 64.87
+| Computer Science | 20.44 | 13.28 | 14.54
+| Medicine | 25.19 | 50.09 | 31.53
+| Linguistics | 29.54 | 65.38 | 36.56
+| Psychology | 33.09 | 57.94 | 36.61
+| Biology | 39.36 | 63.51 | 39.47
+| Astronomy | 39.52 | 71.77 | 43.53
+| Physics | 57.18 | 85.96 | 64.07
 
 ## Session-based Evaluation NDCG (filtering, predicting whole Validation Set at once vs. Sliding Window)
 *First/Last Sess:* The first/last Validation Session with at least one Upvote in it  

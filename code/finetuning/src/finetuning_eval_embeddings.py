@@ -98,11 +98,13 @@ if __name__ == "__main__":
 
     users_embeddings_ids_to_idxs = load_users_coefs_ids_to_idxs()
     val_users_embeddings_idxs = load_val_users_embeddings_idxs()
+    include_l2 = (args["model_path"] / "state_dicts" / "categories_embeddings_l2.pt").exists()
     finetuning_model = load_finetuning_model(
         args["model_path"] / "state_dicts",
         device=device,
         mode="eval",
         val_users_embeddings_idxs=val_users_embeddings_idxs,
+        include_categories_embeddings_l2=include_l2,
     )
     eval_papers_tokenized = get_eval_papers_tokenized(args["val_users"], args["test_users"])
     embeddings_path = args["model_path"] / "embeddings"

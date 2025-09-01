@@ -1,17 +1,17 @@
 import numpy as np
 import pandas as pd
 
-from ...logreg.src.embeddings.embedding import Embedding
-from ...logreg.src.training.algorithm import Algorithm, get_model
-from ...logreg.src.training.evaluation import (
+from ....logreg.src.embeddings.embedding import Embedding
+from ....logreg.src.training.algorithm import Algorithm, get_model
+from ....logreg.src.training.evaluation import (
     get_cache_papers_ids_full,
     get_user_cache_papers,
     get_user_val_negative_samples,
     get_val_negative_samples_ids,
 )
-from ...logreg.src.training.training_data import get_user_categories_ratios
-from ...logreg.src.training.weights_handler import Weights_Handler
-from ...src.load_files import load_papers, load_users_significant_categories
+from ....logreg.src.training.training_data import get_user_categories_ratios
+from ....logreg.src.training.weights_handler import Weights_Handler
+from ....src.load_files import load_papers, load_users_significant_categories
 
 LOGREG_CACHE_TYPE = "categories_cache"
 LOGREG_N_CACHE = 5000

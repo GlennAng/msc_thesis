@@ -8,7 +8,6 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from adapters import AutoAdapterModel
 from transformers import AutoModel, AutoTokenizer
 
 from ....src.load_files import TEST_RANDOM_STATES, VAL_RANDOM_STATE, load_papers_texts
@@ -47,6 +46,7 @@ def load_model_and_tokenizer(model_path: str) -> tuple:
     else:
         tokenizer = AutoTokenizer.from_pretrained(model_path)
         if model_path == "allenai/specter2_base":
+            from adapters import AutoAdapterModel
             model = AutoAdapterModel.from_pretrained(model_path)
             model.load_adapter("allenai/specter2", source="hf", load_as="specter2", set_active=True)
             model = model.to(device)
