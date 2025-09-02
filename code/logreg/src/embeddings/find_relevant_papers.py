@@ -1,4 +1,4 @@
-from ....sequence.src.compute_users_embeddings_logreg import (
+from ....sequence.src.eval.compute_users_embeddings_logreg import (
     LOGREG_CACHE_TYPE,
     LOGREG_N_CACHE,
     LOGREG_N_VAL_NEGATIVE_SAMPLES,

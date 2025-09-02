@@ -22,6 +22,7 @@ from .users_embeddings_data import (
 )
 
 EMBEDDING_DIM = 357
+USERS_SELECTIONS_CHOICES = [None, "sequence_val", "sequence_test"]
 VALID_EMBED_FUNCTIONS_RANDOMNESS = {
     "mean_pos": False,
     "logreg": True,
@@ -33,7 +34,9 @@ def parse_args() -> tuple:
     parser = argparse.ArgumentParser(description="Compute users embeddings")
     parser.add_argument("--config_file", type=str, required=True)
     parser.add_argument("--random_state", type=int, required=False, default=None)
-    parser.add_argument("--users_selection", type=str, default=None)
+    parser.add_argument(
+        "--users_selection", type=str, default=None, choices=USERS_SELECTIONS_CHOICES
+    )
     args_dict = vars(parser.parse_args())
     args_dict["config_file"] = Path(args_dict["config_file"]).resolve()
     return args_dict["config_file"], args_dict["random_state"]

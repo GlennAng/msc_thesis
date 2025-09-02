@@ -10,7 +10,6 @@ import torch.nn.functional as F
 from transformers import AutoModel
 
 from ...logreg.src.embeddings.compute_embeddings import get_gpu_info
-from ...src.project_paths import ProjectPaths
 from .finetuning_preprocessing import (
     load_categories_to_idxs,
     load_users_coefs_ids_to_idxs,

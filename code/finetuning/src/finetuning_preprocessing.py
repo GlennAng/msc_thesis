@@ -1,6 +1,5 @@
 import os
 import pickle
-
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +27,7 @@ from ...src.load_files import (
     load_finetuning_users_ids,
     load_papers,
     load_papers_texts,
+    load_sequence_users_ids,
     load_users_ratings,
     load_users_significant_categories,
 )
@@ -238,7 +238,9 @@ def finetuning_tokenize_papers(
     return papers_dict, papers_ids_to_idxs
 
 
-def get_eval_papers_ids(users_ratings: pd.DataFrame, random_states: list) -> list:
+def get_eval_papers_ids(
+    users_ratings: pd.DataFrame, random_states: list, include_cache: bool = True
+) -> list:
     papers = load_papers(relevant_columns=["paper_id", "in_ratings", "l1"])
     eval_papers_ids = set()
     eval_papers_ids.update(users_ratings["paper_id"].unique().tolist())
@@ -250,46 +252,66 @@ def get_eval_papers_ids(users_ratings: pd.DataFrame, random_states: list) -> lis
             papers_ids_to_exclude=papers[papers["in_ratings"]]["paper_id"].tolist(),
         )[1]
         eval_papers_ids.update(val_negative_samples_ids)
-        cache_papers_ids = get_cache_papers_ids(
-            cache_type="categories_cache",
-            papers=papers,
-            n_cache=5000,
-            random_state=random_state,
-        )
-        eval_papers_ids.update(cache_papers_ids)
+        if include_cache:
+            cache_papers_ids = get_cache_papers_ids(
+                cache_type="categories_cache",
+                papers=papers,
+                n_cache=5000,
+                random_state=random_state,
+            )
+            eval_papers_ids.update(cache_papers_ids)
     return sorted(list(eval_papers_ids))
 
 
-def get_eval_papers_ids_val_users() -> list:
+def get_eval_papers_ids_val_users(mode: str) -> list:
     random_states = [VAL_RANDOM_STATE]
-    val_users_ids = load_finetuning_users_ids(selection="val")
+    if mode == "finetuning":
+        val_users_ids = load_finetuning_users_ids(selection="val")
+        include_cache = True
+    elif mode == "sequence":
+        val_users_ids = load_sequence_users_ids(selection="val")
+        include_cache = False
+    else:
+        raise ValueError(f"Invalid mode: {mode}. Choose from ['finetuning', 'sequence'].")
     users_ratings = load_users_ratings(relevant_users_ids=val_users_ids)
-    return get_eval_papers_ids(users_ratings, random_states)
+    return get_eval_papers_ids(users_ratings, random_states, include_cache)
 
 
-def get_eval_papers_ids_test_users() -> list:
+def get_eval_papers_ids_test_users(mode: str) -> list:
     random_states = sorted(TEST_RANDOM_STATES)
-    test_users_ids = load_finetuning_users_ids(selection="test")
+    if mode == "finetuning":
+        test_users_ids = load_finetuning_users_ids(selection="test")
+        include_cache = True
+    elif mode == "sequence":
+        test_users_ids = load_sequence_users_ids(selection="test")
+        include_cache = False
+    else:
+        raise ValueError(f"Invalid mode: {mode}. Choose from ['finetuning', 'sequence'].")
     users_ratings = load_users_ratings(relevant_users_ids=test_users_ids)
-    return get_eval_papers_ids(users_ratings, random_states)
+    return get_eval_papers_ids(users_ratings, random_states, include_cache)
 
 
 def save_eval_papers_tokenized_val_test_users(
-    selection: str, tokenizer: AutoTokenizer, max_sequence_length: int
+    selection: str, tokenizer: AutoTokenizer, max_sequence_length: int, mode: str = "finetuning"
 ) -> None:
+    if mode == "finetuning":
+        path = ProjectPaths.finetuning_data_model_datasets_path()
+    elif mode == "sequence":
+        path = ProjectPaths.sequence_data_model_datasets_path()
+    else:
+        raise ValueError(f"Invalid mode: {mode}. Choose from ['finetuning', 'sequence'].")
+
     selections = ["val_users", "test_users"]
     if selection not in selections:
         raise ValueError(f"Invalid selection: {selection}. Choose from {selections}.")
-    tensor_path = (
-        ProjectPaths.finetuning_data_model_datasets_path() / f"eval_papers_tokenized_{selection}.pt"
-    )
+    tensor_path = path / f"eval_papers_tokenized_{selection}.pt"
     if tensor_path.exists():
         print(f"{selection.capitalize()} eval papers tokenized already exist - skipping saving.")
         return
     if selection == "val_users":
-        eval_papers_ids = get_eval_papers_ids_val_users()
+        eval_papers_ids = get_eval_papers_ids_val_users(mode)
     elif selection == "test_users":
-        eval_papers_ids = get_eval_papers_ids_test_users()
+        eval_papers_ids = get_eval_papers_ids_test_users(mode)
     eval_papers_tokenized = finetuning_tokenize_papers(
         papers_ids=eval_papers_ids,
         tokenizer=tokenizer,
@@ -302,11 +324,13 @@ def save_eval_papers_tokenized_val_test_users(
 def save_eval_papers_tokenized(
     tokenizer: AutoTokenizer = None,
     max_sequence_length: int = 512,
+    mode: str = "finetuning",
 ) -> None:
+    assert mode in ["finetuning", "sequence"]
     if tokenizer is None:
         tokenizer = AutoTokenizer.from_pretrained(ProjectPaths.finetuning_data_model_hf())
-    save_eval_papers_tokenized_val_test_users("val_users", tokenizer, max_sequence_length)
-    save_eval_papers_tokenized_val_test_users("test_users", tokenizer, max_sequence_length)
+    save_eval_papers_tokenized_val_test_users("val_users", tokenizer, max_sequence_length, mode)
+    save_eval_papers_tokenized_val_test_users("test_users", tokenizer, max_sequence_length, mode)
 
 
 def get_negative_samples_matrix_val(users_ids: list, val_negative_samples_ids: dict) -> np.ndarray:
@@ -334,18 +358,24 @@ def get_negative_samples_matrix_val(users_ids: list, val_negative_samples_ids: d
 
 
 def save_negative_samples_val(
+    tensor_path: Path = None,
+    matrix_path: Path = None,
+    users_ids: list = None,
     tokenizer: AutoTokenizer = None,
     max_sequence_length: int = 512,
 ) -> None:
-    tensor_path = ProjectPaths.finetuning_data_model_datasets_negative_samples_tokenized_val_path()
-    matrix_path = ProjectPaths.finetuning_data_model_datasets_negative_samples_matrix_val_path()
+    if tensor_path is None:
+        tensor_path = ProjectPaths.finetuning_data_model_datasets_negative_samples_tokenized_val_path()
+    if matrix_path is None:
+        matrix_path = ProjectPaths.finetuning_data_model_datasets_negative_samples_matrix_val_path()
     if tensor_path.exists() and matrix_path.exists():
         print("Validation negative samples tensor and matrix already exist - skipping saving.")
         return
     if tokenizer is None:
         tokenizer = AutoTokenizer.from_pretrained(ProjectPaths.finetuning_data_model_hf())
     papers = load_papers(relevant_columns=["paper_id", "in_ratings", "l1"])
-    users_ids = load_finetuning_users_ids(selection="val")
+    if users_ids is None:
+        users_ids = load_finetuning_users_ids(selection="val")
     negative_samples_ids, negative_samples_ids_flattened = get_categories_samples_ids(
         papers=papers,
         n_categories_samples=N_VAL_NEGATIVE_SAMPLES,

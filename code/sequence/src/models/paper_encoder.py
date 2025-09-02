@@ -1,13 +1,18 @@
 import os
+import pickle
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 from transformers import AutoModel
 
 from ....finetuning.src.finetuning_model import load_transformer_model
 from ....finetuning.src.finetuning_preprocessing import load_categories_to_idxs
+from ....logreg.src.embeddings.compute_embeddings import get_gpu_info
 from ....src.project_paths import ProjectPaths
 
 
@@ -17,9 +22,9 @@ class PaperEncoder(nn.Module):
         transformer_model: AutoModel,
         projection: nn.Linear,
         categories_embeddings_l1: nn.Embedding,
-        categories_embeddings_l2: nn.Embedding,
         l1_scale: float = 1.0,
-        l2_scale: float = 1.0,
+        categories_embeddings_l2: nn.Embedding = None,
+        l2_scale: float = None,
         n_unfreeze_layers: int = 0,
         unfreeze_word_embeddings: bool = False,
         unfreeze_from_bottom: bool = False,
@@ -29,9 +34,16 @@ class PaperEncoder(nn.Module):
         self.device = next(transformer_model.parameters()).device
         self.projection = projection
         self.categories_embeddings_l1 = categories_embeddings_l1
-        self.categories_embeddings_l2 = categories_embeddings_l2
         self.l1_scale = nn.Parameter(torch.tensor(l1_scale, device=self.device))
-        self.l2_scale = nn.Parameter(torch.tensor(l2_scale, device=self.device))
+
+        if categories_embeddings_l2 is not None and l2_scale is not None:
+            self.uses_categories_embeddings_l2 = True
+            self.categories_embeddings_l2 = categories_embeddings_l2
+            self.l2_scale = nn.Parameter(torch.tensor(l2_scale, device=self.device))
+        elif categories_embeddings_l2 is None and l2_scale is None:
+            self.uses_categories_embeddings_l2 = False
+        else:
+            raise ValueError("Invalid combination of L2 category embeddings and scale.")
 
         self._validate_and_setup_components()
         self._extract_dims()
@@ -45,10 +57,10 @@ class PaperEncoder(nn.Module):
         components = [
             self.projection.weight,
             self.categories_embeddings_l1.weight,
-            self.categories_embeddings_l2.weight,
             self.l1_scale,
-            self.l2_scale,
         ]
+        if self.uses_categories_embeddings_l2:
+            components.extend([self.categories_embeddings_l2.weight, self.l2_scale])
         all_same_device = all(component.device == self.device for component in components)
         if not all_same_device:
             raise ValueError("All components must be on the same device as the transformer model.")
@@ -56,7 +68,8 @@ class PaperEncoder(nn.Module):
     def _extract_dims(self) -> None:
         self.text_dim = self.projection.out_features
         self.categories_dim = self.categories_embeddings_l1.embedding_dim
-        assert self.categories_dim == self.categories_embeddings_l2.embedding_dim
+        if self.uses_categories_embeddings_l2:
+            assert self.categories_dim == self.categories_embeddings_l2.embedding_dim
         self.embedding_dim = self.text_dim + self.categories_dim
 
     def forward(
@@ -74,8 +87,11 @@ class PaperEncoder(nn.Module):
         if normalize_embeddings:
             papers_embeddings = F.normalize(papers_embeddings, p=2, dim=1)
         categories_embeddings = self.l1_scale * self.categories_embeddings_l1(category_l1_tensor)
-        categories_embeddings_l2 = self.l2_scale * self.categories_embeddings_l2(category_l2_tensor)
-        categories_embeddings = categories_embeddings + categories_embeddings_l2
+        if self.uses_categories_embeddings_l2:
+            categories_embeddings_l2 = self.l2_scale * self.categories_embeddings_l2(
+                category_l2_tensor
+            )
+            categories_embeddings = categories_embeddings + categories_embeddings_l2
         papers_embeddings = torch.cat((papers_embeddings, categories_embeddings), dim=1)
         return papers_embeddings
 
@@ -115,6 +131,37 @@ class PaperEncoder(nn.Module):
             k: v for k, v in self.state_dict().items() if not k.startswith("transformer_model.")
         }
         torch.save(non_transformer_state, path / "components.pt")
+
+    def compute_papers_embeddings(self, dataloader: DataLoader) -> tuple:
+        self.eval()
+        all_embeddings = []
+        papers_ids_to_idxs = {}
+        current_idx = 0
+        with torch.no_grad():
+            for batch in tqdm(dataloader, desc="Computing paper embeddings", total=len(dataloader)):
+                input_ids = batch["input_ids"].to(self.device)
+                attention_mask = batch["attention_mask"].to(self.device)
+                category_l1 = batch["l1"].to(self.device)
+                category_l2 = None
+                if self.uses_categories_embeddings_l2:
+                    category_l2 = batch["l2"].to(self.device)
+                with torch.autocast(device_type=self.device.type, dtype=torch.float16):
+                    with torch.inference_mode():
+                        embeddings = self(
+                            input_ids_tensor=input_ids,
+                            attention_mask_tensor=attention_mask,
+                            category_l1_tensor=category_l1,
+                            category_l2_tensor=category_l2,
+                            normalize_embeddings=True,
+                        )
+                        if current_idx == 0:
+                            print(f"Memory first Batch: {get_gpu_info()}")
+                all_embeddings.append(embeddings.cpu())
+                for paper_id in batch["paper_id"]:
+                    papers_ids_to_idxs[paper_id.item()] = current_idx
+                    current_idx += 1
+        all_embeddings = torch.cat(all_embeddings, dim=0)
+        return all_embeddings, papers_ids_to_idxs
 
 
 def load_projection(
@@ -175,11 +222,18 @@ def load_paper_encoder_trained(
     categories_embeddings_l1 = load_embeddings(
         embedding_weight=components_dict["categories_embeddings_l1.weight"], device=device
     )
-    categories_embeddings_l2 = load_embeddings(
-        embedding_weight=components_dict["categories_embeddings_l2.weight"], device=device
-    )
     l1_scale = components_dict["l1_scale"].item()
-    l2_scale = components_dict["l2_scale"].item()
+
+    l2_key = "categories_embeddings_l2.weight"
+    if l2_key in components_dict and "l2_scale" in components_dict:
+        categories_embeddings_l2 = load_embeddings(
+            embedding_weight=components_dict[l2_key], device=device
+        )
+        l2_scale = components_dict["l2_scale"].item()
+    elif l2_key not in components_dict and "l2_scale" in components_dict:
+        categories_embeddings_l2, l2_scale = None, None
+    else:
+        raise ValueError("Invalid combination of L2 category embeddings and scale.")
 
     return PaperEncoder(
         transformer_model=transformer_model,
@@ -199,6 +253,7 @@ def load_paper_encoder_initial(
     path: Path = None,
     seed: int = None,
     l1_scale: float = 1.0,
+    uses_categories_embeddings_l2: bool = True,
     l2_scale: float = 1.0,
     n_unfreeze_layers: int = 0,
     unfreeze_word_embeddings: bool = False,
@@ -237,16 +292,22 @@ def load_paper_encoder_initial(
     categories_embeddings_l1 = load_embeddings(
         embedding_weight=categories_l1_dict["weight"], device=device
     )
-    categories_embeddings_l2 = initialize_categories_embeddings_l2(
-        embedding_dim=categories_embeddings_l1.embedding_dim, seed=seed
-    ).to(device)
+
+    if uses_categories_embeddings_l2 and l2_scale is not None:
+        categories_embeddings_l2 = initialize_categories_embeddings_l2(
+            embedding_dim=categories_embeddings_l1.embedding_dim, seed=seed
+        ).to(device)
+    elif not uses_categories_embeddings_l2 and l2_scale is None:
+        categories_embeddings_l2 = None
+    else:
+        raise ValueError("Invalid combination of L2 uses category embeddings and scale.")
 
     return PaperEncoder(
         transformer_model=transformer_model,
         projection=projection,
         categories_embeddings_l1=categories_embeddings_l1,
-        categories_embeddings_l2=categories_embeddings_l2,
         l1_scale=l1_scale,
+        categories_embeddings_l2=categories_embeddings_l2,
         l2_scale=l2_scale,
         n_unfreeze_layers=n_unfreeze_layers,
         unfreeze_word_embeddings=unfreeze_word_embeddings,
@@ -255,10 +316,8 @@ def load_paper_encoder_initial(
 
 
 def _verify_paper_encoder(paper_encoder: PaperEncoder, embeddings_path: Path) -> None:
-    if not isinstance(paper_encoder, PaperEncoder):
-        return False
-    if not embeddings_path.exists():
-        return False
+    assert isinstance(paper_encoder, PaperEncoder)
+    assert embeddings_path.exists()
 
     N_PAPERS = 1000
     from ....finetuning.src.finetuning_preprocessing import (
@@ -293,24 +352,38 @@ def _verify_paper_encoder(paper_encoder: PaperEncoder, embeddings_path: Path) ->
 
 def verify_paper_encoder(model_path: Path, device: torch.device) -> None:
     state_path = model_path / "state_dicts"
+    l2_path = state_path / "categories_embeddings_l2.pt"
+    if l2_path.exists():
+        uses_categories_embeddings_l2, l2_scale = True, 1.0
+    else:
+        uses_categories_embeddings_l2, l2_scale = False, None
     paper_encoder = load_paper_encoder_initial(
         device=device,
         path=state_path,
         l1_scale=1.0,
-        l2_scale=1.0,
+        uses_categories_embeddings_l2=uses_categories_embeddings_l2,
+        l2_scale=l2_scale,
         n_unfreeze_layers=0,
         unfreeze_word_embeddings=False,
         unfreeze_from_bottom=False,
     )
-    l2_path = state_path / "categories_embeddings_l2.pt"
-    if l2_path.exists():
+    if uses_categories_embeddings_l2:
         l2_dict = torch.load(l2_path, map_location=device, weights_only=True)
         paper_encoder.categories_embeddings_l2.load_state_dict(l2_dict)
-    else:
-        paper_encoder.categories_embeddings_l2.weight.data.zero_()
     embeddings_path = model_path / "embeddings"
     _verify_paper_encoder(paper_encoder=paper_encoder, embeddings_path=embeddings_path)
+    torch.cuda.empty_cache()
     print(f"Finished verifying paper encoder for model at {model_path}")
+
+
+def save_papers_embeddings_as_numpy(
+    path: Path, embeddings: torch.Tensor, papers_ids_to_idxs: dict
+) -> None:
+    if not isinstance(path, Path):
+        path = Path(path).resolve()
+    np.save(f"{path/ 'abs_X.npy'}", embeddings)
+    with open(f"{path / 'abs_paper_ids_to_idx.pkl'}", "wb") as f:
+        pickle.dump(papers_ids_to_idxs, f)
 
 
 if __name__ == "__main__":
@@ -319,3 +392,17 @@ if __name__ == "__main__":
     verify_paper_encoder(model_path=model_before_finetuning_path, device=device)
     model_after_finetuning_path = ProjectPaths.finetuning_data_checkpoints_path() / "cat_loss"
     verify_paper_encoder(model_path=model_after_finetuning_path, device=device)
+
+    from ..data.paper_dataset import get_paper_dataloader
+    from ..data.sequence_preprocessing import load_sequence_papers_tokenized
+
+    paper_encoder = load_paper_encoder_initial(
+        device=device, uses_categories_embeddings_l2=False, l2_scale=None
+    )
+    for split in ["val", "test"]:
+        papers_tokenized = load_sequence_papers_tokenized(papers_type=f"eval_{split}_users")
+        paper_dataloader = get_paper_dataloader(papers_tokenized, batch_size=512)
+        embeddings, papers_ids_to_idxs = paper_encoder.compute_papers_embeddings(paper_dataloader)
+        path = ProjectPaths.sequence_data_model_path() / "paper_encoder_verification" / split
+        os.makedirs(path, exist_ok=True)
+        save_papers_embeddings_as_numpy(path, embeddings, papers_ids_to_idxs)

@@ -11,6 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 from ..sequence.src.eval.compute_users_embeddings import (
+    USERS_SELECTIONS_CHOICES,
     VALID_EMBED_FUNCTIONS,
     VALID_EMBED_FUNCTIONS_RANDOMNESS,
 )
@@ -31,11 +32,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--soft_constraint_max_n_train_sessions", type=int, default=None)
     parser.add_argument("--soft_constraint_max_n_train_days", type=int, default=None)
     parser.add_argument("--hard_constraint_min_n_train_posrated", type=int, default=10)
+    parser.add_argument("--single_random_state", action="store_true", default=False)
     parser.add_argument("--single_val_session", action="store_true", default=False)
     parser.add_argument("--use_existing_embeddings", action="store_true", default=False)
 
     parser.add_argument("--old_ratings", action="store_true", default=False)
-    parser.add_argument("--users_selection", type=str, default=None)
+    parser.add_argument(
+        "--users_selection", type=str, default=None, choices=USERS_SELECTIONS_CHOICES
+    )
     args_dict = vars(parser.parse_args())
     return args_dict
 
@@ -51,11 +55,16 @@ def get_output_folder(args_dict: dict) -> Path:
 
 
 def process_args_dict(args_dict: dict) -> None:
-    args_dict["randomness"] = VALID_EMBED_FUNCTIONS_RANDOMNESS[args_dict["embed_function"]]
-    if args_dict["randomness"]:
-        args_dict["random_states"] = TEST_RANDOM_STATES
+    if args_dict["single_random_state"]:
+        args_dict["embed_random_states"] = [VAL_RANDOM_STATE]
+        args_dict["eval_random_states"] = [VAL_RANDOM_STATE]
     else:
-        args_dict["random_states"] = [VAL_RANDOM_STATE]
+        args_dict["eval_random_states"] = TEST_RANDOM_STATES
+        randomness = VALID_EMBED_FUNCTIONS_RANDOMNESS[args_dict["embed_function"]]
+        if randomness:
+            args_dict["embed_random_states"] = TEST_RANDOM_STATES
+        else:
+            args_dict["embed_random_states"] = [VAL_RANDOM_STATE]
     if args_dict["embedding_path"] is None:
         args_dict["embedding_path"] = (
             ProjectPaths.logreg_embeddings_path()
@@ -72,7 +81,7 @@ def compute_users_embeddings(args_dict: dict) -> None:
     config_path = args_dict["output_folder"] / "config.pkl"
     with open(config_path, "wb") as f:
         pickle.dump(args_dict, f)
-    for random_state in args_dict["random_states"]:
+    for random_state in args_dict["embed_random_states"]:
         args = [
             sys.executable,
             "-m",
@@ -101,15 +110,15 @@ def run_logreg_configs(args_dict: dict) -> None:
     example_config["embedding_folder"] = str(args_dict["embedding_path"])
     configs_path = args_dict["output_folder"] / "experiments"
     os.makedirs(configs_path, exist_ok=True)
-    for random_state in TEST_RANDOM_STATES:
+    for random_state in args_dict["eval_random_states"]:
         example_config["model_random_state"] = random_state
         example_config["cache_random_state"] = random_state
         example_config["ranking_random_state"] = random_state
-        if len(args_dict["random_states"]) == 1:
+        if len(args_dict["embed_random_states"]) == 1:
             example_config["users_coefs_path"] = str(
                 args_dict["output_folder"]
                 / "users_embeddings"
-                / f"s_{args_dict['random_states'][0]}"
+                / f"s_{args_dict['embed_random_states'][0]}"
             )
         else:
             example_config["users_coefs_path"] = str(
@@ -131,7 +140,7 @@ def run_logreg_configs(args_dict: dict) -> None:
 
 def create_output_file(args_dict: dict) -> None:
     results = []
-    for random_state in TEST_RANDOM_STATES:
+    for random_state in args_dict["eval_random_states"]:
         outputs_file = (
             ProjectPaths.logreg_outputs_path()
             / f"seq_{args_dict['stem']}_s{random_state}"
@@ -144,7 +153,7 @@ def create_output_file(args_dict: dict) -> None:
     grouped = stacked_df.groupby(group_cols)
     averaged_df = grouped.mean().reset_index()
 
-    first_random_state = TEST_RANDOM_STATES[0]
+    first_random_state = args_dict["eval_random_states"][0]
     source_folder = (
         ProjectPaths.logreg_outputs_path() / f"seq_{args_dict['stem']}_s{first_random_state}"
     )
@@ -160,9 +169,9 @@ def create_output_file(args_dict: dict) -> None:
     config_file = outputs_folder / "config.json"
     config = json.load(open(config_file, "r"))
     config["time_elapsed"] = time_taken
-    config["model_random_state"] = args_dict["random_states"]
-    config["cache_random_state"] = args_dict["random_states"]
-    config["ranking_random_state"] = args_dict["random_states"]
+    config["model_random_state"] = args_dict["eval_random_states"]
+    config["cache_random_state"] = args_dict["eval_random_states"]
+    config["ranking_random_state"] = args_dict["eval_random_states"]
     with open(config_file, "w") as f:
         json.dump(config, f, indent=4)
 
@@ -179,7 +188,7 @@ def create_output_file(args_dict: dict) -> None:
         check=True,
     )
     print(f"Saved averaged results to {averaged_results_file}.")
-    for random_state in TEST_RANDOM_STATES:
+    for random_state in args_dict["eval_random_states"]:
         outputs_folder = (
             ProjectPaths.logreg_outputs_path() / f"seq_{args_dict['stem']}_s{random_state}"
         )
