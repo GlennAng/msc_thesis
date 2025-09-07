@@ -16,7 +16,7 @@ from ....logreg.src.embeddings.compute_embeddings import get_gpu_info
 from ....src.project_paths import ProjectPaths
 
 
-class PaperEncoder(nn.Module):
+class PapersEncoder(nn.Module):
     def __init__(
         self,
         transformer_model: AutoModel,
@@ -122,7 +122,7 @@ class PaperEncoder(nn.Module):
 
     def save_model(self, path: Path = None) -> None:
         if path is None:
-            path = ProjectPaths.sequence_data_model_state_dicts_paper_encoder_path()
+            path = ProjectPaths.sequence_data_model_state_dicts_papers_encoder_path()
         if not isinstance(path, Path):
             path = Path(path).resolve()
         os.makedirs(path.parent, exist_ok=True)
@@ -193,13 +193,13 @@ def initialize_categories_embeddings_l2(embedding_dim: int, seed: int = None) ->
     return embedding
 
 
-def load_paper_encoder_trained(
+def load_papers_encoder_trained(
     device: torch.device,
     path: Path,
     n_unfreeze_layers: int = 0,
     unfreeze_word_embeddings: bool = False,
     unfreeze_from_bottom: bool = False,
-) -> PaperEncoder:
+) -> PapersEncoder:
     if not isinstance(path, Path):
         path = Path(path).resolve()
     if not path.exists():
@@ -235,7 +235,7 @@ def load_paper_encoder_trained(
     else:
         raise ValueError("Invalid combination of L2 category embeddings and scale.")
 
-    return PaperEncoder(
+    return PapersEncoder(
         transformer_model=transformer_model,
         projection=projection,
         categories_embeddings_l1=categories_embeddings_l1,
@@ -248,7 +248,7 @@ def load_paper_encoder_trained(
     )
 
 
-def load_paper_encoder_initial(
+def load_papers_encoder_initial(
     device: torch.device,
     path: Path = None,
     seed: int = None,
@@ -258,9 +258,9 @@ def load_paper_encoder_initial(
     n_unfreeze_layers: int = 0,
     unfreeze_word_embeddings: bool = False,
     unfreeze_from_bottom: bool = False,
-) -> PaperEncoder:
+) -> PapersEncoder:
     if path is None:
-        path = ProjectPaths.sequence_data_model_state_dicts_paper_encoder_path()
+        path = ProjectPaths.sequence_data_model_state_dicts_papers_encoder_path()
     if not isinstance(path, Path):
         path = Path(path).resolve()
     if not path.exists():
@@ -302,7 +302,7 @@ def load_paper_encoder_initial(
     else:
         raise ValueError("Invalid combination of L2 uses category embeddings and scale.")
 
-    return PaperEncoder(
+    return PapersEncoder(
         transformer_model=transformer_model,
         projection=projection,
         categories_embeddings_l1=categories_embeddings_l1,
@@ -315,8 +315,8 @@ def load_paper_encoder_initial(
     )
 
 
-def _verify_paper_encoder(paper_encoder: PaperEncoder, embeddings_path: Path) -> None:
-    assert isinstance(paper_encoder, PaperEncoder)
+def _verify_papers_encoder(papers_encoder: PapersEncoder, embeddings_path: Path) -> None:
+    assert isinstance(papers_encoder, PapersEncoder)
     assert embeddings_path.exists()
 
     N_PAPERS = 1000
@@ -336,10 +336,10 @@ def _verify_paper_encoder(paper_encoder: PaperEncoder, embeddings_path: Path) ->
     category_l1_tensor = papers_tokenized["l1"][:N_PAPERS].to(device)
     category_l2_tensor = papers_tokenized["l2"][:N_PAPERS].to(device)
 
-    paper_encoder.eval()
-    with torch.autocast(device_type=paper_encoder.device.type, dtype=torch.float16):
+    papers_encoder.eval()
+    with torch.autocast(device_type=papers_encoder.device.type, dtype=torch.float16):
         with torch.inference_mode():
-            papers_encoded = paper_encoder(
+            papers_encoded = papers_encoder(
                 input_ids_tensor=input_ids_tensor,
                 attention_mask_tensor=attention_mask_tensor,
                 category_l1_tensor=category_l1_tensor,
@@ -350,14 +350,14 @@ def _verify_paper_encoder(paper_encoder: PaperEncoder, embeddings_path: Path) ->
     assert torch.allclose(papers_encoded, papers_embeddings, atol=1e-2)
 
 
-def verify_paper_encoder(model_path: Path, device: torch.device) -> None:
+def verify_papers_encoder(model_path: Path, device: torch.device) -> None:
     state_path = model_path / "state_dicts"
     l2_path = state_path / "categories_embeddings_l2.pt"
     if l2_path.exists():
         uses_categories_embeddings_l2, l2_scale = True, 1.0
     else:
         uses_categories_embeddings_l2, l2_scale = False, None
-    paper_encoder = load_paper_encoder_initial(
+    papers_encoder = load_papers_encoder_initial(
         device=device,
         path=state_path,
         l1_scale=1.0,
@@ -369,11 +369,11 @@ def verify_paper_encoder(model_path: Path, device: torch.device) -> None:
     )
     if uses_categories_embeddings_l2:
         l2_dict = torch.load(l2_path, map_location=device, weights_only=True)
-        paper_encoder.categories_embeddings_l2.load_state_dict(l2_dict)
+        papers_encoder.categories_embeddings_l2.load_state_dict(l2_dict)
     embeddings_path = model_path / "embeddings"
-    _verify_paper_encoder(paper_encoder=paper_encoder, embeddings_path=embeddings_path)
+    _verify_papers_encoder(papers_encoder=papers_encoder, embeddings_path=embeddings_path)
     torch.cuda.empty_cache()
-    print(f"Finished verifying paper encoder for model at {model_path}")
+    print(f"Finished verifying papers encoder for model at {model_path}")
 
 
 def save_papers_embeddings_as_numpy(
@@ -389,20 +389,22 @@ def save_papers_embeddings_as_numpy(
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_before_finetuning_path = ProjectPaths.finetuning_data_model_path()
-    verify_paper_encoder(model_path=model_before_finetuning_path, device=device)
+    verify_papers_encoder(model_path=model_before_finetuning_path, device=device)
     model_after_finetuning_path = ProjectPaths.finetuning_data_checkpoints_path() / "cat_loss"
-    verify_paper_encoder(model_path=model_after_finetuning_path, device=device)
+    verify_papers_encoder(model_path=model_after_finetuning_path, device=device)
 
-    from ..data.paper_dataset import get_paper_dataloader
+    from ..data.eval_papers_dataset import get_eval_papers_dataloader
     from ..data.sequence_preprocessing import load_sequence_papers_tokenized
 
-    paper_encoder = load_paper_encoder_initial(
+    papers_encoder = load_papers_encoder_initial(
         device=device, uses_categories_embeddings_l2=False, l2_scale=None
     )
     for split in ["val", "test"]:
         papers_tokenized = load_sequence_papers_tokenized(papers_type=f"eval_{split}_users")
-        paper_dataloader = get_paper_dataloader(papers_tokenized, batch_size=512)
-        embeddings, papers_ids_to_idxs = paper_encoder.compute_papers_embeddings(paper_dataloader)
-        path = ProjectPaths.sequence_data_model_path() / "paper_encoder_verification" / split
+        eval_papers_dataloader = get_eval_papers_dataloader(papers_tokenized, batch_size=512)
+        embeddings, papers_ids_to_idxs = papers_encoder.compute_papers_embeddings(
+            eval_papers_dataloader
+        )
+        path = ProjectPaths.sequence_data_model_path() / "papers_encoder_verification" / split
         os.makedirs(path, exist_ok=True)
         save_papers_embeddings_as_numpy(path, embeddings, papers_ids_to_idxs)

@@ -22,7 +22,7 @@ from .users_embeddings_data import (
 )
 
 EMBEDDING_DIM = 357
-USERS_SELECTIONS_CHOICES = [None, "sequence_val", "sequence_test"]
+USERS_SELECTIONS_CHOICES = [None, "sequence_val", "sequence_test", "sequence_high_sessions"]
 VALID_EMBED_FUNCTIONS_RANDOMNESS = {
     "mean_pos": False,
     "logreg": True,
@@ -46,46 +46,55 @@ def compute_mean_pos_user_embedding(
     user_train_set_embeddings: np.ndarray, user_train_set_ratings: np.ndarray
 ) -> np.ndarray:
     assert user_train_set_embeddings.shape[0] == user_train_set_ratings.shape[0]
-    pos_ratings = user_train_set_embeddings[user_train_set_ratings > 0]
-    if pos_ratings.shape[0] == 0:
+    assert np.all(user_train_set_ratings >= 0)
+
+    if user_train_set_embeddings.shape[0] == 0:
         return np.zeros(user_train_set_embeddings.shape[1] + 1)
-    pos_ratings = pos_ratings.mean(axis=0)
-    pos_ratings = np.hstack([pos_ratings, 0])
-    return pos_ratings
+    mean_pos_user_embedding = user_train_set_embeddings.mean(axis=0)
+    mean_pos_user_embedding = np.hstack([mean_pos_user_embedding, 0])
+    return mean_pos_user_embedding
 
 
-def get_user_train_set_starting_session_id_max_n_train_sessions(
-    user_train_set: pd.DataFrame, session_id: int, max_n_train_sessions: int
+def get_user_train_set_starting_session_id(
+    user_train_set: pd.DataFrame,
+    session_id: int,
+    session_min_time: pd.Timestamp,
+    max_n_train_sessions: int = None,
+    max_n_train_days: int = None,
 ) -> int:
-    min_session_id = user_train_set["session_id"].min()
-    if max_n_train_sessions is None:
-        return min_session_id
-    assert max_n_train_sessions >= 1
-    return max(min_session_id, session_id - max_n_train_sessions)
-
-
-def get_user_train_set_starting_session_id_max_n_train_days(
-    user_train_set: pd.DataFrame, min_val_time: pd.Timestamp, max_n_train_days: int
-) -> int:
-    min_session_id = user_train_set["session_id"].min()
-    if max_n_train_days is None:
-        return min_session_id
-    cutoff_time = min_val_time - pd.Timedelta(days=max_n_train_days)
-    sessions_start_times = user_train_set.groupby("session_id")["time"].min()
-    valid_sessions = sessions_start_times[sessions_start_times >= cutoff_time]
-    if valid_sessions.empty:
-        return None
-    return valid_sessions.index.min()
+    starting_session_id_sessions = user_train_set["session_id"].min()
+    if max_n_train_sessions is not None:
+        assert max_n_train_sessions >= 1
+        diff = session_id - max_n_train_sessions
+        starting_session_id_sessions = max(starting_session_id_sessions, diff)
+    starting_session_id_days = user_train_set["session_id"].min()
+    if max_n_train_days is not None:
+        assert max_n_train_days >= 1
+        cutoff_time = session_min_time - pd.Timedelta(days=max_n_train_days)
+        sessions_end_times = user_train_set.groupby("session_id")["time"].max()
+        valid_sessions = sessions_end_times[sessions_end_times >= cutoff_time]
+        if not valid_sessions.empty:
+            starting_session_id_days = valid_sessions.index.min()
+    return max(starting_session_id_sessions, starting_session_id_days)
 
 
 def get_user_train_set(
     user_ratings: pd.DataFrame,
     session_id: int,
     hard_constraint_min_n_train_posrated: int,
+    hard_constraint_max_n_train_rated: int = None,
     soft_constraint_max_n_train_sessions: int = None,
     soft_constraint_max_n_train_days: int = None,
+    remove_negrated_from_history: bool = False,
 ) -> pd.DataFrame:
+    session_min_time = user_ratings[user_ratings["session_id"] == session_id]["time"].min()
     user_train_set = user_ratings[user_ratings["session_id"] < session_id].reset_index(drop=True)
+    if remove_negrated_from_history:
+        user_train_set = user_train_set[user_train_set["rating"] > 0].reset_index(drop=True)
+    if hard_constraint_max_n_train_rated is not None:
+        if len(user_train_set) > hard_constraint_max_n_train_rated:
+            user_train_set = user_train_set.tail(hard_constraint_max_n_train_rated)
+            user_train_set = user_train_set.reset_index(drop=True)
     n_pos_train = user_train_set[user_train_set["rating"] > 0].shape[0]
     if n_pos_train < hard_constraint_min_n_train_posrated:
         raise ValueError(
@@ -94,34 +103,24 @@ def get_user_train_set(
     if soft_constraint_max_n_train_days is None and soft_constraint_max_n_train_sessions is None:
         return user_train_set
 
-    user_train_set_starting_session_id_max_n_train_sessions = (
-        get_user_train_set_starting_session_id_max_n_train_sessions(
-            user_train_set, session_id, soft_constraint_max_n_train_sessions
-        )
+    user_train_set_session_id = get_user_train_set_starting_session_id(
+        user_train_set=user_train_set,
+        session_id=session_id,
+        session_min_time=session_min_time,
+        max_n_train_sessions=soft_constraint_max_n_train_sessions,
+        max_n_train_days=soft_constraint_max_n_train_days,
     )
-    min_val_time = user_ratings[user_ratings["session_id"] == session_id]["time"].min()
-    user_train_set_starting_session_id_max_n_train_days = (
-        get_user_train_set_starting_session_id_max_n_train_days(
-            user_train_set, min_val_time, soft_constraint_max_n_train_days
-        )
-    )
-    if user_train_set_starting_session_id_max_n_train_days is not None:
-        user_train_set_session_id = max(
-            user_train_set_starting_session_id_max_n_train_sessions,
-            user_train_set_starting_session_id_max_n_train_days,
-        )
-        user_train_set_c = user_train_set[user_train_set["session_id"] >= user_train_set_session_id]
-        n_pos_train_c = user_train_set_c[user_train_set_c["rating"] > 0].shape[0]
+    positive_sessions_ids = user_train_set[user_train_set["rating"] > 0]["session_id"].unique()
+    sessions_to_try = positive_sessions_ids[positive_sessions_ids <= user_train_set_session_id]
+    sessions_to_try = sorted(sessions_to_try, reverse=True)
+    for session_id in sessions_to_try:
+        user_train_set_c = user_train_set[user_train_set["session_id"] >= session_id]
+        n_pos_train_c = (user_train_set_c["rating"] > 0).sum()
         if n_pos_train_c >= hard_constraint_min_n_train_posrated:
             return user_train_set_c
-
-    user_train_set_session_id = user_train_set["session_id"].max()
-    while user_train_set_session_id >= user_train_set["session_id"].min():
-        user_train_set_c = user_train_set[user_train_set["session_id"] >= user_train_set_session_id]
-        n_pos_train_c = user_train_set_c[user_train_set_c["rating"] > 0].shape[0]
-        if n_pos_train_c >= hard_constraint_min_n_train_posrated:
-            return user_train_set_c
-        user_train_set_session_id -= 1
+    raise ValueError(
+        f"Fewer than {hard_constraint_min_n_train_posrated} positive ratings in training set."
+    )
 
 
 def compute_users_embeddings_general(
@@ -130,8 +129,10 @@ def compute_users_embeddings_general(
     embedding: Embedding,
     embed_function: callable,
     hard_constraint_min_n_train_posrated: int,
+    hard_constraint_max_n_train_rated: int = None,
     soft_constraint_max_n_train_sessions: int = None,
     soft_constraint_max_n_train_days: int = None,
+    remove_negrated_from_history: bool = False,
     embed_function_params: dict = {},
     embed_function_params_transform: callable = None,
 ) -> dict:
@@ -153,8 +154,10 @@ def compute_users_embeddings_general(
                 user_ratings=user_ratings,
                 session_id=session_id,
                 hard_constraint_min_n_train_posrated=hard_constraint_min_n_train_posrated,
+                hard_constraint_max_n_train_rated=hard_constraint_max_n_train_rated,
                 soft_constraint_max_n_train_sessions=soft_constraint_max_n_train_sessions,
                 soft_constraint_max_n_train_days=soft_constraint_max_n_train_days,
+                remove_negrated_from_history=remove_negrated_from_history,
             )
             user_train_set_papers_ids = user_train_set["paper_id"].tolist()
             user_train_set_ratings = user_train_set["rating"].to_numpy(dtype=np.int64)
@@ -200,17 +203,18 @@ def compute_users_embeddings(args_dict: dict, random_state: int = None) -> dict:
     embed_function = args_dict["embed_function"]
 
     users_embeddings = None
-    if embed_function in ["mean_pos", "mean_pos_minus_neg", "mean_pos_minus_mean_neg"]:
-        if embed_function == "mean_pos":
-            embed_function = compute_mean_pos_user_embedding
+    if embed_function == "mean_pos":
+        embed_function = compute_mean_pos_user_embedding
         users_embeddings = compute_users_embeddings_general(
             users_ratings=users_ratings,
             users_val_sessions_ids=users_val_sessions_ids,
             embedding=embedding,
             embed_function=embed_function,
             hard_constraint_min_n_train_posrated=args_dict["hard_constraint_min_n_train_posrated"],
+            hard_constraint_max_n_train_rated=args_dict["hard_constraint_max_n_train_rated"],
             soft_constraint_max_n_train_sessions=args_dict["soft_constraint_max_n_train_sessions"],
             soft_constraint_max_n_train_days=args_dict["soft_constraint_max_n_train_days"],
+            remove_negrated_from_history=True,
         )
     elif embed_function == "logreg":
         embed_function_params = logreg_get_embed_function_params(
@@ -223,10 +227,12 @@ def compute_users_embeddings(args_dict: dict, random_state: int = None) -> dict:
             embedding=embedding,
             embed_function=compute_logreg_user_embedding,
             hard_constraint_min_n_train_posrated=args_dict["hard_constraint_min_n_train_posrated"],
+            hard_constraint_max_n_train_rated=args_dict["hard_constraint_max_n_train_rated"],
             soft_constraint_max_n_train_sessions=args_dict["soft_constraint_max_n_train_sessions"],
             soft_constraint_max_n_train_days=args_dict["soft_constraint_max_n_train_days"],
             embed_function_params=embed_function_params,
             embed_function_params_transform=logreg_transform_embed_function_params,
+            remove_negrated_from_history=False,
         )
 
     for user_id in users_embeddings:

@@ -365,7 +365,9 @@ def save_negative_samples_val(
     max_sequence_length: int = 512,
 ) -> None:
     if tensor_path is None:
-        tensor_path = ProjectPaths.finetuning_data_model_datasets_negative_samples_tokenized_val_path()
+        tensor_path = (
+            ProjectPaths.finetuning_data_model_datasets_negative_samples_tokenized_val_path()
+        )
     if matrix_path is None:
         matrix_path = ProjectPaths.finetuning_data_model_datasets_negative_samples_matrix_val_path()
     if tensor_path.exists() and matrix_path.exists():
@@ -397,8 +399,9 @@ def save_negative_samples_val(
     print(f"Validation negative samples matrix tensor saved to {matrix_path}.")
 
 
-def load_negative_samples_matrix_val() -> torch.Tensor:
-    matrix_path = ProjectPaths.finetuning_data_model_datasets_negative_samples_matrix_val_path()
+def load_negative_samples_matrix_val(matrix_path: Path = None) -> torch.Tensor:
+    if matrix_path is None:
+        matrix_path = ProjectPaths.finetuning_data_model_datasets_negative_samples_matrix_val_path()
     if not matrix_path.exists():
         raise FileNotFoundError(
             f"Validation negative samples matrix tensor not found: {matrix_path}."
@@ -967,7 +970,7 @@ if __name__ == "__main__":
     os.makedirs(ProjectPaths.finetuning_data_model_state_dicts_path(), exist_ok=True)
     os.makedirs(ProjectPaths.finetuning_data_model_datasets_path(), exist_ok=True)
     save_transformer_model(
-        path=ProjectPaths.finetuning_data_model_path() / "state_dicts" / "transformer_model"
+        model_path=ProjectPaths.finetuning_data_model_path() / "state_dicts" / "transformer_model"
     )
     save_users_embeddings_tensor()
     save_projection_tensor()

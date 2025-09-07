@@ -182,8 +182,8 @@ class ProjectPaths:
         return ProjectPaths.sequence_data_model_path() / "state_dicts"
     
     @staticmethod
-    def sequence_data_model_state_dicts_paper_encoder_path():
-        return ProjectPaths.sequence_data_model_state_dicts_path() / "paper_encoder"
+    def sequence_data_model_state_dicts_papers_encoder_path():
+        return ProjectPaths.sequence_data_model_state_dicts_path() / "papers_encoder"
 
     @staticmethod
     def sequence_data_model_datasets_path():
@@ -194,5 +194,5 @@ class ProjectPaths:
         return ProjectPaths.sequence_data_path() / "mind"
     
     @staticmethod
-    def sequence_data_users_ratings_path():
-        return ProjectPaths.sequence_data_path() / "sequence_users_ratings.parquet"
+    def sequence_data_processed_users_ratings_path():
+        return ProjectPaths.sequence_data_path() / "processed_users_ratings.parquet"

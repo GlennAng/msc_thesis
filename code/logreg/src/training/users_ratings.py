@@ -487,6 +487,13 @@ def save_sequence_users_ids(
     print(f"Saved sequence user IDs to {path}")
 
 
+def select_users_ids_high_sessions(users_ratings: pd.DataFrame, n_users: int = 75) -> list:
+    users_ratings = users_ratings.copy()
+    users_ratings = users_ratings[users_ratings["split"] == "val"]
+    users_ratings = users_ratings[users_ratings["rating"] == 1]
+    return users_ratings.nlargest(n_users, "session_id")["user_id"].unique().tolist()
+
+
 def load_users_ratings_from_selection(
     users_ratings_selection: UsersRatingsSelection,
     relevant_users_ids: list = None,
@@ -525,6 +532,8 @@ def load_users_ratings_from_selection(
             relevant_users_ids = load_sequence_users_ids(selection="val")
         elif relevant_users_ids == "sequence_test":
             relevant_users_ids = load_sequence_users_ids(selection="test")
+        elif relevant_users_ids == "sequence_high_sessions":
+            relevant_users_ids = select_users_ids_high_sessions(users_ratings)
         assert_sorted_and_unique(relevant_users_ids)
         full_users_ids = users_ratings["user_id"].unique().tolist()
         assert set(relevant_users_ids).issubset(set(full_users_ids))

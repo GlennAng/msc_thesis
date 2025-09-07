@@ -28,7 +28,6 @@ def load_users_ratings(
 ) -> pd.DataFrame:
     users_ratings = pd.read_parquet(path, engine="pyarrow")
     assert users_ratings["user_id"].is_monotonic_increasing
-    users_ratings["rating_id"] = users_ratings.index
     if relevant_users_ids is not None:
         users_ratings = users_ratings[users_ratings["user_id"].isin(relevant_users_ids)]
     assert not users_ratings.isnull().any().any()

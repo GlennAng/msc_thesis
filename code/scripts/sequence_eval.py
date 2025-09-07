@@ -29,9 +29,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embed_function", type=str, choices=VALID_EMBED_FUNCTIONS, required=True)
     parser.add_argument("--embedding_path", type=str, required=False, default=None)
 
+    parser.add_argument("--hard_constraint_min_n_train_posrated", type=int, default=10)
+    parser.add_argument("--hard_constraint_max_n_train_rated", type=int, default=None)
     parser.add_argument("--soft_constraint_max_n_train_sessions", type=int, default=None)
     parser.add_argument("--soft_constraint_max_n_train_days", type=int, default=None)
-    parser.add_argument("--hard_constraint_min_n_train_posrated", type=int, default=10)
+    parser.add_argument("--remove_negrated_from_history", action="store_true", default=False)
     parser.add_argument("--single_random_state", action="store_true", default=False)
     parser.add_argument("--single_val_session", action="store_true", default=False)
     parser.add_argument("--use_existing_embeddings", action="store_true", default=False)
