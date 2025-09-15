@@ -8,7 +8,7 @@ import numpy as np
 
 from ...scripts.create_example_configs import create_example_config
 from ...src.load_files import load_finetuning_users_ids
-from ...src.project_paths import ProjectPaths
+from ...src.project_paths import ProjectPaths, FINETUNING_MODEL
 
 
 def create_finetuning_config_train(example_config: dict) -> dict:
@@ -38,7 +38,7 @@ def create_finetuning_config_val(example_config: dict) -> dict:
 
 def create_finetuning_configs() -> None:
     example_config = create_example_config(
-        ProjectPaths.logreg_embeddings_path() / "after_pca" / "gte_large_256_categories_l2_unit_100"
+        ProjectPaths.logreg_embeddings_path() / "after_pca" / f"{FINETUNING_MODEL}_categories_l2_unit_100"
     )
     finetuning_config_train = create_finetuning_config_train(example_config)
     finetuning_config_val = create_finetuning_config_val(example_config)

@@ -42,13 +42,14 @@ def print_train_ratings_batch(batch: dict) -> str:
 
 
 def get_non_cs_users_sorted_indices(
-    unique_users_idxs: torch.Tensor, non_cs_users_selection: str
+    unique_users_idxs: torch.Tensor, non_cs_users_selection: str, no_seq_eval: bool = False
 ) -> torch.Tensor:
     assert len(unique_users_idxs) == len(torch.unique(unique_users_idxs))
     assert torch.all(unique_users_idxs[:-1] <= unique_users_idxs[1:])
     non_cs_users_ids = load_finetuning_users_ids(
         selection=non_cs_users_selection,
         select_non_cs_users_only=True,
+        no_seq_eval=no_seq_eval,
     )
     users_ids_to_idxs = load_users_coefs_ids_to_idxs()
     non_cs_users_idxs = [users_ids_to_idxs[user_id] for user_id in non_cs_users_ids]
@@ -63,6 +64,7 @@ class FinetuningDataset(Dataset):
         self,
         dataset: dict,
         non_cs_users_selection: str = None,
+        no_seq_eval: bool = False,
     ) -> None:
         """
         dataset: Dictionary containing the following keys:
@@ -83,7 +85,7 @@ class FinetuningDataset(Dataset):
 
         if non_cs_users_selection is not None:
             self.non_cs_users_selection = get_non_cs_users_sorted_indices(
-                unique_users_idxs, non_cs_users_selection
+                unique_users_idxs, non_cs_users_selection, no_seq_eval=no_seq_eval
             )
         self.get_users_data()
 
@@ -385,7 +387,10 @@ class TrainDatasetBatchSampler(BatchSampler):
 
 
 def get_train_dataset_dataloader(args_dict: dict) -> DataLoader:
-    train_dataset = FinetuningDataset(dataset=load_finetuning_dataset(dataset_type="train"))
+    train_dataset = FinetuningDataset(
+        dataset=load_finetuning_dataset(dataset_type="train"),
+        no_seq_eval=args_dict.get("no_seq_eval", False),
+    )
     train_dataset_batch_sampler = TrainDatasetBatchSampler(train_dataset, args_dict)
     train_dataset_dataloader = DataLoader(
         train_dataset,
@@ -553,15 +558,18 @@ def get_train_negative_samples_dataloader(
     return train_negative_samples_dataloader
 
 
-def load_val_data() -> dict:
+def load_val_data(no_seq_eval: bool = False) -> dict:
     val_data = {}
-    val_data["val_users_embeddings_idxs"] = load_val_users_embeddings_idxs()
+    val_data["val_users_embeddings_idxs"] = load_val_users_embeddings_idxs(no_seq_eval=no_seq_eval)
     val_data["val_dataset"] = FinetuningDataset(
-        dataset=load_finetuning_dataset("val"),
+        dataset=load_finetuning_dataset("val", no_seq_eval=no_seq_eval),
         non_cs_users_selection="val",
+        no_seq_eval=no_seq_eval,
     )
     val_data["val_negative_samples"] = load_finetuning_papers_tokenized(
         papers_type="negative_samples_val"
     )
-    val_data["val_negative_samples_matrix"] = load_negative_samples_matrix_val()
+    val_data["val_negative_samples_matrix"] = load_negative_samples_matrix_val(
+        no_seq_eval=no_seq_eval
+    )
     return val_data

@@ -105,15 +105,17 @@ def compute_user_ranking_metrics(
         pos_rank_explicit_negatives = (
             torch.sum(user_scores_explicit_negatives[i] >= pos_score).item() + 1
         )
-        pos_rank_negative_samples = torch.sum(user_scores_negative_samples >= pos_score).item() + 1
-        pos_rank_all = (
-            torch.sum(
-                torch.cat((user_scores_explicit_negatives[i], user_scores_negative_samples))
-                >= pos_score
-            ).item()
-            + 1
+        if user_scores_negative_samples.dim() == 1:
+            user_scores_negative_samples_i = user_scores_negative_samples
+            info_nce_tensor_negative_samples_i = info_nce_tensor_negative_samples
+        else:
+            user_scores_negative_samples_i = user_scores_negative_samples[i]
+            info_nce_tensor_negative_samples_i = info_nce_tensor_negative_samples[i]
+        pos_rank_negative_samples = (
+            torch.sum(user_scores_negative_samples_i >= pos_score).item() + 1
         )
-
+        cat = torch.cat((user_scores_explicit_negatives[i], user_scores_negative_samples_i))
+        pos_rank_all = torch.sum(cat >= pos_score).item() + 1
         user_ranking_metrics_explicit_negatives[i] = compute_user_ranking_metrics_single(
             pos_rank_explicit_negatives
         )
@@ -125,12 +127,12 @@ def compute_user_ranking_metrics(
             pos_rank_negative_samples
         )
         user_ranking_metrics_negative_samples[i, -1] = -torch.log_softmax(
-            torch.cat((pos_score_unsqueezed, info_nce_tensor_negative_samples)) + 1e-10,
+            torch.cat((pos_score_unsqueezed, info_nce_tensor_negative_samples_i)) + 1e-10,
             dim=0,
         )[0].item()
         user_ranking_metrics_all[i] = compute_user_ranking_metrics_single(pos_rank_all)
         info_nce_tensor_all = torch.cat(
-            (info_nce_tensor_explicit_negatives[i], info_nce_tensor_negative_samples)
+            (info_nce_tensor_explicit_negatives[i], info_nce_tensor_negative_samples_i)
         )
         user_ranking_metrics_all[i, -1] = -torch.log_softmax(
             torch.cat((pos_score_unsqueezed, info_nce_tensor_all)) + 1e-10, dim=0
@@ -182,30 +184,45 @@ def print_metrics(scores_dict: dict, metrics: list) -> str:
 
 def print_validation(scores_dict: dict) -> str:
     validation_str = ""
-    validation_str += "\nClassification:   " + print_metrics(
-        scores_dict, [f"val_{metric}" for metric in FINETUNING_CLASSIFICATION_METRICS]
-    )
-    validation_str += "\nRanking (Explicit Negatives):   " + print_metrics(
-        scores_dict,
-        [f"val_{metric}_explicit_negatives" for metric in FINETUNING_RANKING_METRICS],
-    )
-    validation_str += "\nRanking (Negative Samples): " + print_metrics(
-        scores_dict,
-        [f"val_{metric}_negative_samples" for metric in FINETUNING_RANKING_METRICS],
-    )
-    validation_str += "\nRanking (All):   " + print_metrics(
-        scores_dict, [f"val_{metric}_all" for metric in FINETUNING_RANKING_METRICS]
-    )
-    validation_str += "\nRanking (All) No CS:   " + print_metrics(
-        scores_dict, [f"val_{metric}_all_no_cs" for metric in FINETUNING_RANKING_METRICS]
-    )
+    if all(f"val_{metric}" in scores_dict for metric in FINETUNING_CLASSIFICATION_METRICS):
+        validation_str += "\nClassification:   " + print_metrics(
+            scores_dict, [f"val_{metric}" for metric in FINETUNING_CLASSIFICATION_METRICS]
+        )
+    if all(
+        f"val_{metric}_explicit_negatives" in scores_dict for metric in FINETUNING_RANKING_METRICS
+    ):
+        validation_str += "\nRanking (Explicit Negatives):   " + print_metrics(
+            scores_dict,
+            [f"val_{metric}_explicit_negatives" for metric in FINETUNING_RANKING_METRICS],
+        )
+    if all(
+        f"val_{metric}_negative_samples" in scores_dict for metric in FINETUNING_RANKING_METRICS
+    ):
+        validation_str += "\nRanking (Negative Samples): " + print_metrics(
+            scores_dict,
+            [f"val_{metric}_negative_samples" for metric in FINETUNING_RANKING_METRICS],
+        )
+    if all(f"val_{metric}_all" in scores_dict for metric in FINETUNING_RANKING_METRICS):
+        validation_str += "\nRanking (All):   " + print_metrics(
+            scores_dict, [f"val_{metric}_all" for metric in FINETUNING_RANKING_METRICS]
+        )
+    if all(f"val_{metric}_all_no_cs" in scores_dict for metric in FINETUNING_RANKING_METRICS):
+        validation_str += "\nRanking (All) No CS:   " + print_metrics(
+            scores_dict, [f"val_{metric}_all_no_cs" for metric in FINETUNING_RANKING_METRICS]
+        )
+    if all(f"val_{metric}_all_cs" in scores_dict for metric in FINETUNING_RANKING_METRICS):
+        validation_str += "\nRanking (All) CS:   " + print_metrics(
+            scores_dict, [f"val_{metric}_all_cs" for metric in FINETUNING_RANKING_METRICS]
+        )
     metric_strings = get_metric_strings()
-    validation_str += "\nWorst nDCG:   "
-    for i, ndcg_str in enumerate(["worst_10_ndcg", "worst_3_ndcg", "worst_ndcg"]):
-        score = scores_dict[ndcg_str]
-        if i > 0:
-            validation_str += ", "
-        validation_str += f"{metric_strings[ndcg_str]}: {format_number(score)}"
+    ndcg_string = ["worst_10_ndcg", "worst_3_ndcg", "worst_ndcg"]
+    if all(ndcg in scores_dict for ndcg in ndcg_string):
+        validation_str += "\nWorst nDCG:   "
+        for i, ndcg_str in enumerate(["worst_10_ndcg", "worst_3_ndcg", "worst_ndcg"]):
+            score = scores_dict[ndcg_str]
+            if i > 0:
+                validation_str += ", "
+            validation_str += f"{metric_strings[ndcg_str]}: {format_number(score)}"
     diff_strings_worst = ["worst_10_ndcg_diff", "worst_3_ndcg_diff", "worst_ndcg_diff"]
     if all(diff_string in scores_dict for diff_string in diff_strings_worst):
         validation_str += "\nWorst nDCG Diff:   "
@@ -337,13 +354,14 @@ def run_validation(
     return scores_dict, validation_str, ndcg_scores
 
 
-def test_validation(finetuning_model: FinetuningModel) -> None:
+def test_validation(finetuning_model: FinetuningModel, no_seq_eval: bool = False) -> None:
     dataset = FinetuningDataset(
-        dataset=load_finetuning_dataset("val"),
+        dataset=load_finetuning_dataset("val", no_seq_eval=no_seq_eval),
         non_cs_users_selection="val",
+        no_seq_eval=no_seq_eval,
     )
     negative_samples = load_finetuning_papers_tokenized("negative_samples_val")
-    negative_samples_matrix = load_negative_samples_matrix_val()
+    negative_samples_matrix = load_negative_samples_matrix_val(no_seq_eval=no_seq_eval)
     run_validation(
         finetuning_model=finetuning_model,
         val_dataset=dataset,

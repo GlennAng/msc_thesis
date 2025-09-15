@@ -85,7 +85,7 @@ if __name__ == "__main__":
         finetuning_model_path=model_path,
         device=device,
         mode="eval",
-        n_unfreeze_layers=0,
+        unfreeze_parameters_dict={"n_unfreeze_layers": 0},
     )
     finetuning_model_with_projection.categories_embeddings_l1 = None
     embedding_wrapper_with_projection = CustomEmbeddingWrapper(
@@ -105,7 +105,7 @@ if __name__ == "__main__":
         finetuning_model_path=model_path,
         device=device,
         mode="eval",
-        n_unfreeze_layers=0,
+        unfreeze_parameters_dict={"n_unfreeze_layers": 0},
     )
     finetuning_model_without_projection.categories_embeddings_l1 = None
     finetuning_model_without_projection.projection = None

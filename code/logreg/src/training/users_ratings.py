@@ -18,6 +18,7 @@ N_NEGRATED_RANKING = 4
 
 class UsersRatingsSelection(Enum):
     FINETUNING_TRAIN = auto()
+    SEQUENCE_TRAIN = auto()
     SESSION_BASED_NO_FILTERING = auto()
     SESSION_BASED_NO_FILTERING_OLD = auto()
     SESSION_BASED_FILTERING = auto()
@@ -494,21 +495,55 @@ def select_users_ids_high_sessions(users_ratings: pd.DataFrame, n_users: int = 7
     return users_ratings.nlargest(n_users, "session_id")["user_id"].unique().tolist()
 
 
+def save_sequence_train_ratings(users_ratings: pd.DataFrame) -> None:
+    path = ProjectPaths.data_sequence_train_ratings_path()
+    if path.exists():
+        print(f"{path} already exists. Skipping saving.")
+        return
+
+    MIN_SESSION_ID = 1
+    MIN_N_POSRATED_CAME_BEFORE = 3
+    users_ratings = users_ratings.copy()
+    sequence_users_ids = load_sequence_users_ids(selection="all")
+    exclude_users_ids = sequence_users_ids["val"] + sequence_users_ids["test"]
+    users_ratings = users_ratings[~users_ratings["user_id"].isin(exclude_users_ids)]
+    users_ratings["split"] = "train"
+    val_mask = (users_ratings["session_id"] >= MIN_SESSION_ID) & (
+        users_ratings["n_posrated_came_before"] >= MIN_N_POSRATED_CAME_BEFORE
+    )
+    users_ratings.loc[val_mask, "split"] = "val"
+    users_with_val = users_ratings[users_ratings["split"] == "val"]["user_id"].unique()
+    users_ratings = users_ratings[users_ratings["user_id"].isin(users_with_val)]
+    val_positive_counts = users_ratings[
+        (users_ratings["split"] == "val") & (users_ratings["rating"] == 1)
+    ]["user_id"].value_counts()
+    users_with_val_positives = val_positive_counts[val_positive_counts > 0].index
+    users_ratings = users_ratings[users_ratings["user_id"].isin(users_with_val_positives)]
+    users_ratings = users_ratings.reset_index(drop=True)
+    users_ratings.to_parquet(path, index=False)
+    print(
+        f"Saved sequence train ratings to {path}. Total Users: {users_ratings['user_id'].nunique()}."
+    )
+
+
 def load_users_ratings_from_selection(
     users_ratings_selection: UsersRatingsSelection,
     relevant_users_ids: list = None,
     ids_only: bool = False,
 ) -> pd.DataFrame:
-    if users_ratings_selection == UsersRatingsSelection.SESSION_BASED_NO_FILTERING:
+    if users_ratings_selection == UsersRatingsSelection.FINETUNING_TRAIN:
+        users_ids = load_finetuning_users_ids(selection="train")
+        users_ratings = load_users_ratings(relevant_users_ids=users_ids)
+        users_ratings["split"] = "train"
+    elif users_ratings_selection == UsersRatingsSelection.SEQUENCE_TRAIN:
+        path = ProjectPaths.data_sequence_train_ratings_path()
+        users_ratings = pd.read_parquet(path, engine="pyarrow")
+    elif users_ratings_selection == UsersRatingsSelection.SESSION_BASED_NO_FILTERING:
         path = ProjectPaths.data_session_based_no_filtering_ratings_path()
         users_ratings = pd.read_parquet(path, engine="pyarrow")
     elif users_ratings_selection == UsersRatingsSelection.SESSION_BASED_FILTERING:
         path = ProjectPaths.data_session_based_filtering_ratings_path()
         users_ratings = pd.read_parquet(path, engine="pyarrow")
-    elif users_ratings_selection == UsersRatingsSelection.FINETUNING_TRAIN:
-        users_ids = load_finetuning_users_ids(selection="train")
-        users_ratings = load_users_ratings(relevant_users_ids=users_ids)
-        users_ratings["split"] = "train"
     elif users_ratings_selection == UsersRatingsSelection.SESSION_BASED_NO_FILTERING_OLD:
         path = ProjectPaths.data_session_based_no_filtering_ratings_old_path()
         users_ratings = pd.read_parquet(path, engine="pyarrow")
@@ -594,3 +629,4 @@ if __name__ == "__main__":
         users_ratings_selection=UsersRatingsSelection.SESSION_BASED_FILTERING
     )
     save_sequence_users_ids(seq_users_ratings)
+    save_sequence_train_ratings(users_ratings=users_ratings)

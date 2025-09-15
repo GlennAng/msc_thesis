@@ -152,8 +152,11 @@ class FinetuningModel(nn.Module):
         papers_embeddings = self.transformer_model(
             input_ids=input_ids_tensor, attention_mask=attention_mask_tensor
         ).last_hidden_state[:, 0, :]
-        papers_embeddings = self.projection(papers_embeddings)
+        if self.projection is not None:
+            papers_embeddings = self.projection(papers_embeddings)
         papers_embeddings = F.normalize(papers_embeddings, p=2, dim=1)
+        if self.categories_embeddings_l1 is None and category_l1_tensor is None:
+            return papers_embeddings
         categories_embeddings = self.categories_embeddings_l1(category_l1_tensor)
         if self.categories_embeddings_l2 is not None and category_l2_tensor is not None:
             categories_embeddings_l2 = self.categories_embeddings_l2(category_l2_tensor)

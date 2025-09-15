@@ -48,6 +48,10 @@ def parse_args() -> argparse.Namespace:
 
 def get_output_folder(args_dict: dict) -> Path:
     s = args_dict["embed_function"]
+    if args_dict["users_selection"] is not None:
+        s += f"_{args_dict['users_selection']}"
+    else:
+        s += "_all"
     s += f"_pos_{args_dict['hard_constraint_min_n_train_posrated']}"
     s += f"_sess_{args_dict['soft_constraint_max_n_train_sessions']}"
     s += f"_days_{args_dict['soft_constraint_max_n_train_days']}"
@@ -203,7 +207,7 @@ if __name__ == "__main__":
     process_args_dict(args_dict=args_dict)
     os.makedirs(args_dict["output_folder"], exist_ok=True)
     if args_dict["use_existing_embeddings"]:
-        for random_state in args_dict["random_states"]:
+        for random_state in args_dict["embed_random_states"]:
             embedding_path = args_dict["output_folder"] / "users_embeddings" / f"s_{random_state}"
             assert embedding_path.exists()
     else:

@@ -104,7 +104,7 @@ def parse_arguments() -> dict:
     parser.add_argument("--n_batches_total", type=int, default=50000)
     parser.add_argument("--n_batches_per_val", type=int, default=2000)
     parser.add_argument("--val_metric", type=str, default="ndcg_all")
-    parser.add_argument("--early_stopping_patience", type=int, default=None)
+    parser.add_argument("--early_stopping_patience", type=int, default=10)
 
     parser.add_argument(
         "--model_path", type=str, default=str(ProjectPaths.finetuning_data_model_state_dicts_path())
@@ -145,6 +145,8 @@ def parse_arguments() -> dict:
     parser.add_argument("--l2_regularization_transformer_model", type=float, default=0)
     parser.add_argument("--l2_regularization_other", type=float, default=0)
     parser.add_argument("--n_warmup_steps", type=float, default=500)
+
+    parser.add_argument("--no_seq_eval", action="store_true", default=False)
 
     args_dict = vars(parser.parse_args())
     args_dict["model_path"] = Path(args_dict["model_path"]).resolve()
@@ -295,6 +297,7 @@ def cat_negatives_scores_user(
     batch_negatives_scores_user: torch.Tensor,
 ) -> torch.Tensor:
     negatives_scores_user = negative_train_ratings_scores_user
+    
     if negative_samples_scores_user.numel() > 0:
         negatives_scores_user = torch.cat(
             (negatives_scores_user, negative_samples_scores_user),
@@ -627,11 +630,11 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args_dict = parse_arguments()
     set_all_seeds(args_dict["seed"])
-    val_data = load_val_data()
-
-    print(args_dict["include_l2_categories"])
+    val_data = load_val_data(no_seq_eval=args_dict["no_seq_eval"])
 
     unfreeze_parameters_dict, tensors_parameters_dict = construct_model_parameters_dicts(args_dict)
+    val_users_embeddings_idxs = load_val_users_embeddings_idxs(no_seq_eval=args_dict["no_seq_eval"])
+
     finetuning_model = load_finetuning_model(
         finetuning_model_path=args_dict["model_path"],
         device=device,
@@ -639,7 +642,7 @@ if __name__ == "__main__":
         unfreeze_parameters_dict=unfreeze_parameters_dict,
         tensors_parameters_dict=tensors_parameters_dict,
         include_categories_embeddings_l2=args_dict["include_l2_categories"],
-        val_users_embeddings_idxs=load_val_users_embeddings_idxs(),
+        val_users_embeddings_idxs=val_users_embeddings_idxs,
     )
     print(finetuning_model.get_memory_footprint())
     args_dict["n_transformer_layers"] = finetuning_model.count_transformer_layers()

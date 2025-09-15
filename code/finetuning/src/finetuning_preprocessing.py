@@ -66,10 +66,10 @@ def load_users_coefs_ids_to_idxs() -> dict:
 
 
 def load_val_users_embeddings_idxs(
-    val_users_ids: list = None, users_coefs_ids_to_idxs: dict = None
+    val_users_ids: list = None, users_coefs_ids_to_idxs: dict = None, no_seq_eval: bool = False
 ) -> torch.Tensor:
     if val_users_ids is None:
-        val_users_ids = load_finetuning_users_ids(selection="val")
+        val_users_ids = load_finetuning_users_ids(selection="val", no_seq_eval=no_seq_eval)
     if users_coefs_ids_to_idxs is None:
         users_coefs_ids_to_idxs = load_users_coefs_ids_to_idxs()
     val_users_embeddings_idxs = [users_coefs_ids_to_idxs[user_id] for user_id in val_users_ids]
@@ -363,6 +363,7 @@ def save_negative_samples_val(
     users_ids: list = None,
     tokenizer: AutoTokenizer = None,
     max_sequence_length: int = 512,
+    no_seq_eval: bool = False,
 ) -> None:
     if tensor_path is None:
         tensor_path = (
@@ -370,6 +371,11 @@ def save_negative_samples_val(
         )
     if matrix_path is None:
         matrix_path = ProjectPaths.finetuning_data_model_datasets_negative_samples_matrix_val_path()
+        if no_seq_eval:
+            matrix_path = (
+                ProjectPaths.finetuning_data_model_datasets_path()
+                / "negative_samples_matrix_val_no_seq_eval.pt"
+            )
     if tensor_path.exists() and matrix_path.exists():
         print("Validation negative samples tensor and matrix already exist - skipping saving.")
         return
@@ -377,7 +383,7 @@ def save_negative_samples_val(
         tokenizer = AutoTokenizer.from_pretrained(ProjectPaths.finetuning_data_model_hf())
     papers = load_papers(relevant_columns=["paper_id", "in_ratings", "l1"])
     if users_ids is None:
-        users_ids = load_finetuning_users_ids(selection="val")
+        users_ids = load_finetuning_users_ids(selection="val", no_seq_eval=no_seq_eval)
     negative_samples_ids, negative_samples_ids_flattened = get_categories_samples_ids(
         papers=papers,
         n_categories_samples=N_VAL_NEGATIVE_SAMPLES,
@@ -393,15 +399,23 @@ def save_negative_samples_val(
     matrix_map = np.vectorize(negative_samples_ids_to_idxs.get)
     negative_samples_matrix = matrix_map(negative_samples_matrix)
     negative_samples_matrix = torch.from_numpy(negative_samples_matrix).to(torch.int64)
-    torch.save(negative_samples, tensor_path)
-    print(f"Validation negative samples tensor saved to {tensor_path}.")
+    if not no_seq_eval:
+        torch.save(negative_samples, tensor_path)
+        print(f"Validation negative samples tensor saved to {tensor_path}.")
     torch.save(negative_samples_matrix, matrix_path)
     print(f"Validation negative samples matrix tensor saved to {matrix_path}.")
 
 
-def load_negative_samples_matrix_val(matrix_path: Path = None) -> torch.Tensor:
+def load_negative_samples_matrix_val(
+    matrix_path: Path = None, no_seq_eval: bool = False
+) -> torch.Tensor:
     if matrix_path is None:
         matrix_path = ProjectPaths.finetuning_data_model_datasets_negative_samples_matrix_val_path()
+        if no_seq_eval:
+            matrix_path = (
+                ProjectPaths.finetuning_data_model_datasets_path()
+                / "negative_samples_matrix_val_no_seq_eval.pt"
+            )
     if not matrix_path.exists():
         raise FileNotFoundError(
             f"Validation negative samples matrix tensor not found: {matrix_path}."
@@ -864,7 +878,9 @@ def save_finetuning_datasets() -> None:
         save_finetuning_dataset(dataset_type)
 
 
-def load_finetuning_dataset(dataset_type: str, check: bool = False) -> dict:
+def load_finetuning_dataset(
+    dataset_type: str, check: bool = False, no_seq_eval: bool = False
+) -> dict:
     if dataset_type not in ["train", "val"]:
         raise ValueError(f"Invalid dataset type: {dataset_type}. Choose from ['train', 'val'].")
     if dataset_type == "train":
@@ -876,16 +892,26 @@ def load_finetuning_dataset(dataset_type: str, check: bool = False) -> dict:
             f"{dataset_type.capitalize()} dataset file not found: {tensor_path}."
         )
     dataset = torch.load(tensor_path, weights_only=True)
+    if no_seq_eval:
+        users_ids = load_finetuning_users_ids(no_seq_eval=True)
+        if dataset_type == "train":
+            users_ids = users_ids["train"] + users_ids["val"]
+        elif dataset_type == "val":
+            users_ids = users_ids["val"]
+        users_coefs_ids_to_idxs = load_users_coefs_ids_to_idxs()
+        users_idxs_to_keep = [users_coefs_ids_to_idxs[user_id] for user_id in users_ids]
+        mask = torch.isin(dataset["user_idx"], torch.tensor(users_idxs_to_keep))
+        dataset = {key: value[mask] for key, value in dataset.items()}
     if check:
         users_coefs_ids_to_idxs = load_users_coefs_ids_to_idxs()
         users_coefs_idxs_to_ids = {idx: user_id for user_id, idx in users_coefs_ids_to_idxs.items()}
-        finetuning_users_ids = load_finetuning_users_ids()
+        finetuning_users_ids = load_finetuning_users_ids(no_seq_eval=no_seq_eval)
         unique_users_idxs = torch.unique(dataset["user_idx"]).tolist()
         unique_users_ids = [users_coefs_idxs_to_ids[idx] for idx in unique_users_idxs]
         if dataset_type == "val":
             assert unique_users_ids == finetuning_users_ids["val"]
         elif dataset_type == "train":
-            assert unique_users_ids == (finetuning_users_ids["train"] + finetuning_users_ids["val"])
+            assert unique_users_ids == finetuning_users_ids["train"] + finetuning_users_ids["val"]
     return dataset
 
 
@@ -977,6 +1003,7 @@ if __name__ == "__main__":
     save_categories_embeddings_tensor()
     save_eval_papers_tokenized()
     save_negative_samples_val()
+    save_negative_samples_val(no_seq_eval=True)
     save_rated_papers_tokenized()
     save_finetuning_datasets()
     save_negative_samples_tokenized_train()

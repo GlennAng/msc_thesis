@@ -116,7 +116,10 @@ def select_non_cs_users_ids(users_significant_categories: pd.DataFrame) -> list:
 
 
 def load_finetuning_users_ids(
-    selection: str = "all", select_non_cs_users_only: bool = False, old: bool = False
+    selection: str = "all",
+    select_non_cs_users_only: bool = False,
+    old: bool = False,
+    no_seq_eval: bool = False,
 ) -> dict:
     if old:
         path = ProjectPaths.data_finetuning_users_ids_old_path()
@@ -134,6 +137,16 @@ def load_finetuning_users_ids(
         finetuning_users_ids = pickle.load(f)
     assert isinstance(finetuning_users_ids, dict)
     assert selection == "all" or selection in finetuning_users_ids
+
+    if no_seq_eval:
+        seq_users_ids = load_sequence_users_ids(selection="all")
+        seq_users_ids_exclude = seq_users_ids["val"] + seq_users_ids["test"]
+        for split in finetuning_users_ids:
+            finetuning_users_ids[split] = [
+                user_id
+                for user_id in finetuning_users_ids[split]
+                if user_id not in seq_users_ids_exclude
+            ]
 
     assert all(isinstance(users_ids, list) for users_ids in finetuning_users_ids.values())
     assert all(users_ids == sorted(users_ids) for users_ids in finetuning_users_ids.values())

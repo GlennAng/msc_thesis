@@ -58,7 +58,10 @@ class ProjectPaths:
     def data_session_based_filtering_ratings_old_path():
         return ProjectPaths.data_path() / "session_based_filtering_ratings_old.parquet"
     
-
+    @staticmethod
+    def data_sequence_train_ratings_path():
+        return ProjectPaths.data_path() / "sequence_train_ratings.parquet"
+    
     @staticmethod
     def finetuning_path():
         return ProjectPaths._base_path() / "code" / "finetuning"
@@ -184,6 +187,10 @@ class ProjectPaths:
     @staticmethod
     def sequence_data_model_state_dicts_papers_encoder_path():
         return ProjectPaths.sequence_data_model_state_dicts_path() / "papers_encoder"
+    
+    @staticmethod
+    def sequence_data_model_state_dicts_papers_encoder_finetuned_path():
+        return ProjectPaths.finetuning_data_checkpoints_path() / "no_seq_eval" / "state_dicts"
 
     @staticmethod
     def sequence_data_model_datasets_path():
@@ -192,7 +199,3 @@ class ProjectPaths:
     @staticmethod
     def sequence_data_mind_path():
         return ProjectPaths.sequence_data_path() / "mind"
-    
-    @staticmethod
-    def sequence_data_processed_users_ratings_path():
-        return ProjectPaths.sequence_data_path() / "processed_users_ratings.parquet"
