@@ -186,6 +186,7 @@ def get_user_outputs_dict(
     val_negrated_ranking_idxs: np.ndarray = None,
     negative_samples_embeddings: np.ndarray = None,
 ) -> dict:
+    #adapt this for multi interest
     user_outputs_dict = {}
     if "X_train_rated" in val_data_dict:
         X_train_rated = val_data_dict["X_train_rated"]

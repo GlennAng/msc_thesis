@@ -526,7 +526,38 @@ class Evaluator:
             random_state=self.config["ranking_random_state"],
             same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
         )
-        # TODO
+        if user_id == 1:
+            print(user_info)
+            print(train_negrated_ranking_idxs.shape)  # number of upvotes in train set, 4
+            print(val_negrated_ranking_idxs.shape)    # number of upvotes in val set, 4
+            print(train_data_dict.keys())             # used to train
+            print(val_data_dict.keys())             # used to evaluate (including training performance)
+            print(train_data_dict["X_train"].shape)     # pos + neg in train set + cache, embedding_dim
+            print(val_data_dict["X_train_rated"].shape)   # pos + neg in train set, embedding_dim
+            print(val_data_dict["X_train_negrated_ranking"].shape)    # neg in train set, embedding_dim
+            print(val_data_dict["categories_dict"].keys())
+            print(val_data_dict["categories_dict"]["l1_train_rated"].shape)  # pos + neg in train set with string of l1 cat
+            print(val_negative_samples_embeddings.shape) # n_negative_samples (100 randomly drawn), embedding_dim
+        # EVERYTHING BELOW THIS ROW NEEDS TO BE CHANGED
+        user_models = self.train_user_models(train_data_dict=train_data_dict, user_id=user_id)
+        user_results, user_predictions = score_user_models(
+            scores_to_indices_dict=self.config["scores"],
+            val_data_dict=val_data_dict,
+            user_models=user_models,
+            negative_samples_embeddings=val_negative_samples_embeddings,
+            train_negrated_ranking_idxs=train_negrated_ranking_idxs,
+            val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+            user_info=user_info,
+            save_users_predictions_bool=self.config["save_users_predictions"],
+        )
+        # EVERYTHING ABOVE THIS ROW NEEDS TO BE CHANGED
+        user_results_dict[0] = user_results
+        user_predictions_dict[0].update(user_predictions)
+        if self.config["save_users_coefs"]:
+            assert len(user_models) == 1
+            model = user_models[0]
+            user_coefs = np.hstack([model.coef_[0], model.intercept_[0]])
+            save_user_coefs(self.config["outputs_dir"], user_id, user_coefs=user_coefs)
         
 
     def load_user_model(self, user_coefs: np.ndarray) -> object:

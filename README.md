@@ -28,7 +28,7 @@ python -m code.scripts.from_db_to_files --scholar_inbox_dict --papers_categories
 ```
 
 ```bash
-python -m logreg.src.training.get_users_ratings
+python -m logreg.src.training.users_ratings
 ```
 ```bash
 python -m logreg.src.embeddings.find_relevant_papers
