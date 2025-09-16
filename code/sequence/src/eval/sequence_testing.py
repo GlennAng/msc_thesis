@@ -1,40 +1,46 @@
 import argparse
 import json
 import os
+import sys
+import subprocess
 from pathlib import Path
 
 import torch
 
 from ....scripts.sequence_eval import get_output_folder
 from ....src.load_files import VAL_RANDOM_STATE
-from ..data.sequence_dataset import load_sequence_dataset_by_split, load_val_dataloader
-from ..models.recommender import Recommender, load_recommender
+from ....src.project_paths import ProjectPaths
+from ..data.eval_data import load_eval_dataloader
+from ..data.sessions_dataset import load_sessions_dataset_by_split
+from ..data.eval_papers import get_eval_papers_ids
+from ..models.recommender import Recommender, load_recommender_pretrained
 from ..models.users_encoder import save_users_embeddings_as_pickle
+
+TEST_MODEL_PATH = ProjectPaths.data_path() / "test_recommender_model"
+TEST_EMBEDDINGS_PATH = ProjectPaths.sequence_finetuned_embeddings_path()
 
 
 def parse_args() -> dict:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_path", type=str, required=True)
+    parser.add_argument("--model_path", type=str, required=False)
+    parser.add_argument("--papers_embeddings_path", type=str, required=False)
     parser.add_argument("--config_path", type=str, required=False)
     parser.add_argument("--test", action="store_true", default=False)
-    parser.add_argument("--embeddings_path", type=str, required=False)
     args = vars(parser.parse_args())
-    args["model_path"] = Path(args["model_path"]).resolve()
-    if args.get("config_path", None) is not None:
-        args["config_path"] = Path(args["config_path"]).resolve()
-    if args.get("embeddings_path", None) is not None:
-        args["embeddings_path"] = Path(args["embeddings_path"]).resolve()
+    if not args["test"]:
+        args["model_path"] = Path(args["model_path"]).resolve()
+        args["papers_embeddings_path"] = Path(args["papers_embeddings_path"]).resolve()
     return args
 
 
 def get_config(args_dict: dict) -> dict:
     if args_dict["test"]:
         return {
-            "hard_constraint_min_n_train_posrated": 0,
-            "hard_constraint_max_n_train_rated": None,
-            "soft_constraint_max_n_train_sessions": None,
-            "soft_constraint_max_n_train_days": None,
-            "remove_negrated_from_history": True,
+            "histories_hard_constraint_min_n_train_posrated": 10,
+            "histories_hard_constraint_max_n_train_rated": None,
+            "histories_soft_constraint_max_n_train_sessions": None,
+            "histories_soft_constraint_max_n_train_days": None,
+            "histories_remove_negrated_from_history": True,
         }
     config_path = args_dict.get("config_path", None)
     if config_path is None:
@@ -43,33 +49,33 @@ def get_config(args_dict: dict) -> dict:
         return json.load(f)
 
 
+def create_recommender_for_testing(args_dict: dict) -> None:
+    from ..models.recommender import load_recommender_from_scratch
+
+    recommender = load_recommender_from_scratch(
+        users_encoder_type="MeanPoolingUsersEncoder",
+        embeddings_path=TEST_EMBEDDINGS_PATH,
+    )
+    recommender.save_model(TEST_MODEL_PATH)
+    args_dict["model_path"] = TEST_MODEL_PATH
+    args_dict["papers_embeddings_path"] = TEST_EMBEDDINGS_PATH
+
+
 def load_recommender_for_testing(args_dict: dict, device: torch.device) -> Recommender:
-    users_encoder_dict = {"device": device}
-    if args_dict["embeddings_path"] is None:
-        papers_encoder_dict = {
-            "path": args_dict["model_path"] / "papers_encoder",
-            "device": device,
-        }
-        recommender = load_recommender(
-            users_encoder_dict=users_encoder_dict,
-            papers_encoder_dict=papers_encoder_dict,
-            use_papers_encoder=True,
-        )
-    else:
-        papers_encoder_dict = {
-            "papers_embeddings_path": args_dict["embeddings_path"],
-            "device": device,
-        }
-        recommender = load_recommender(
-            users_encoder_dict=users_encoder_dict,
-            papers_encoder_dict=papers_encoder_dict,
-            use_papers_encoder=False,
-        )
+    recommender = load_recommender_pretrained(
+        recommender_model_path=args_dict["model_path"],
+        embeddings_path=args_dict["papers_embeddings_path"],
+        device=device,
+    )
+    if args_dict["test"]:
+        import shutil
+        
+        shutil.rmtree(TEST_MODEL_PATH, ignore_errors=True)
     recommender.eval()
     return recommender
 
 
-def get_output_folder_for_testing(args_dict: dict, config: dict) -> Path:
+def get_output_folder_for_testing(config: dict) -> Path:
     output_folder = get_output_folder(
         {
             **config,
@@ -84,70 +90,42 @@ def get_output_folder_for_testing(args_dict: dict, config: dict) -> Path:
     return output_folder
 
 
-"""
-
-def save_papers_embeddings_as_numpy_testing(
-    args_dict: dict, papers_embeddings: torch.Tensor, papers_ids_to_idxs: dict
-) -> None:
-    if args_dict["test"]:
-        path = (
-            ProjectPaths.sequence_data_model_path()
-            / "papers_encoder_verification"
-            / "eval_test_users"
-        )
-        path.mkdir(parents=True, exist_ok=True)
-        save_papers_embeddings_as_numpy(path, papers_embeddings, papers_ids_to_idxs)
-
-
-def load_histories_dataset_args_testing(args_dict: dict) -> dict:
-    if args_dict["test"]:
-        return {
-            "split": "test",
-            "hard_constraint_min_n_train_posrated": 0,
-            "hard_constraint_max_n_train_rated": None,
-            "soft_constraint_max_n_train_sessions": None,
-            "soft_constraint_max_n_train_days": None,
-            "remove_negrated_from_history": True,
-        }
-
-
-def load_recommender_testing(args_dict: dict, device: torch.device) -> Recommender:
-    if args_dict["test"]:
-        papers_encoder_dict = {"device": device}
-        users_encoder_dict = {"device": device}
-        return load_recommender(papers_encoder_dict, users_encoder_dict)
-
-"""
-
-
 if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     args_dict = parse_args()
     config = get_config(args_dict)
-    recommender = load_recommender_for_testing(args_dict=args_dict, device=device)
 
-    if recommender.use_papers_encoder:
-        pass
-    else:
-        embeddings = recommender.papers_embeddings
-        papers_ids_to_idxs = recommender.papers_ids_to_idxs
-    test_dataset = load_sequence_dataset_by_split(
+    if args_dict["test"]:
+        create_recommender_for_testing(args_dict=args_dict)
+    recommender = load_recommender_for_testing(args_dict=args_dict, device=device)
+    test_dataset = load_sessions_dataset_by_split(
         split="test",
-        hard_constraint_min_n_train_posrated=config["hard_constraint_min_n_train_posrated"],
-        hard_constraint_max_n_train_rated=config["hard_constraint_max_n_train_rated"],
-        soft_constraint_max_n_train_sessions=config["soft_constraint_max_n_train_sessions"],
-        soft_constraint_max_n_train_days=config["soft_constraint_max_n_train_days"],
-        remove_negrated_from_history=config["remove_negrated_from_history"],
+        histories_hard_constraint_min_n_train_posrated=config[
+            "histories_hard_constraint_min_n_train_posrated"
+        ],
+        histories_hard_constraint_max_n_train_rated=config[
+            "histories_hard_constraint_max_n_train_rated"
+        ],
+        histories_soft_constraint_max_n_train_sessions=config[
+            "histories_soft_constraint_max_n_train_sessions"
+        ],
+        histories_soft_constraint_max_n_train_days=config[
+            "histories_soft_constraint_max_n_train_days"
+        ],
+        histories_remove_negrated_from_history=config["histories_remove_negrated_from_history"],
     )
-    test_dataloader = load_val_dataloader(
+    papers_embeddings, papers_ids_to_idxs = recommender.extract_papers_embeddings(
+        papers_ids=get_eval_papers_ids(papers_type="eval_test_users")
+    )
+    test_dataloader = load_eval_dataloader(
         dataset=test_dataset,
-        papers_embeddings=embeddings,
+        papers_embeddings=papers_embeddings,
         papers_ids_to_idxs=papers_ids_to_idxs,
     )
     users_embeddings, users_sessions_ids_to_idxs = (
         recommender.users_encoder.compute_users_embeddings(dataloader=test_dataloader)
     )
-    output_folder = get_output_folder_for_testing(args_dict=args_dict, config=config)
+    output_folder = get_output_folder_for_testing(config=config)
     save_users_embeddings_as_pickle(
         path=output_folder,
         embeddings=users_embeddings,
@@ -155,32 +133,36 @@ if __name__ == "__main__":
     )
     print("Testing run completed.")
 
-    """
-    eval_papers_dataloader = get_eval_papers_dataloader(papers_type="eval_test_users")
-    papers_embeddings, papers_ids_to_idxs = recommender.papers_encoder.compute_papers_embeddings(
-        dataloader=eval_papers_dataloader
-    )
-    recommender.papers_encoder.to_device(torch.device("cpu"))
-    save_papers_embeddings_as_numpy_testing(
-        args_dict=args_dict,
-        papers_embeddings=papers_embeddings,
-        papers_ids_to_idxs=papers_ids_to_idxs,
-    )
-    histories_dataset_args = load_histories_dataset_args_testing(args_dict=args_dict)
-    histories_dataset = load_histories_dataset_by_split(**histories_dataset_args)
-    histories_dataloader = load_histories_dataloader(
-        dataset=histories_dataset,
-        papers_embeddings=papers_embeddings,
-        papers_ids_to_idxs=papers_ids_to_idxs,
-    )
-    users_embeddings, users_sessions_ids_to_idxs = (
-        recommender.users_encoder.compute_users_embeddings(dataloader=histories_dataloader)
-    )
-    output_folder = get_output_folder_testing(args_dict=args_dict)
-    save_users_embeddings_as_pickle(
-        path=output_folder,
-        embeddings=users_embeddings,
-        users_sessions_ids_to_idxs=users_sessions_ids_to_idxs,
-    )
-    print("Testing run completed.")
-    """
+
+    args = [
+        sys.executable,
+        "-m",
+        "code.scripts.sequence_eval",
+        "--embed_function",
+        "neural",
+        "--embedding_path",
+        str(TEST_EMBEDDINGS_PATH),
+        "--histories_hard_constraint_min_n_train_posrated",
+        str(config["histories_hard_constraint_min_n_train_posrated"]),
+        "--use_existing_embeddings",
+        "--users_selection",
+        "sequence_test",
+    ]
+    if config["histories_hard_constraint_max_n_train_rated"] is not None:
+        args += [
+            "--histories_hard_constraint_max_n_train_rated",
+            str(config["histories_hard_constraint_max_n_train_rated"]),
+        ]
+    if config["histories_soft_constraint_max_n_train_sessions"] is not None:
+        args += [
+            "--histories_soft_constraint_max_n_train_sessions",
+            str(config["histories_soft_constraint_max_n_train_sessions"]),
+        ]
+    if config["histories_soft_constraint_max_n_train_days"] is not None:
+        args += [
+            "--histories_soft_constraint_max_n_train_days",
+            str(config["histories_soft_constraint_max_n_train_days"]),
+        ]
+    if config["histories_remove_negrated_from_history"]:
+        args += ["--histories_remove_negrated_from_history"]
+    subprocess.run(args, check=True)

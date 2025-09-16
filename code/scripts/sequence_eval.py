@@ -29,11 +29,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embed_function", type=str, choices=VALID_EMBED_FUNCTIONS, required=True)
     parser.add_argument("--embedding_path", type=str, required=False, default=None)
 
-    parser.add_argument("--hard_constraint_min_n_train_posrated", type=int, default=10)
-    parser.add_argument("--hard_constraint_max_n_train_rated", type=int, default=None)
-    parser.add_argument("--soft_constraint_max_n_train_sessions", type=int, default=None)
-    parser.add_argument("--soft_constraint_max_n_train_days", type=int, default=None)
-    parser.add_argument("--remove_negrated_from_history", action="store_true", default=False)
+    parser.add_argument("--histories_hard_constraint_min_n_train_posrated", type=int, default=10)
+    parser.add_argument("--histories_hard_constraint_max_n_train_rated", type=int, default=None)
+    parser.add_argument("--histories_soft_constraint_max_n_train_sessions", type=int, default=None)
+    parser.add_argument("--histories_soft_constraint_max_n_train_days", type=int, default=None)
+    parser.add_argument("--histories_remove_negrated_from_history", action="store_true", default=False)
     parser.add_argument("--single_random_state", action="store_true", default=False)
     parser.add_argument("--single_val_session", action="store_true", default=False)
     parser.add_argument("--use_existing_embeddings", action="store_true", default=False)
@@ -52,9 +52,9 @@ def get_output_folder(args_dict: dict) -> Path:
         s += f"_{args_dict['users_selection']}"
     else:
         s += "_all"
-    s += f"_pos_{args_dict['hard_constraint_min_n_train_posrated']}"
-    s += f"_sess_{args_dict['soft_constraint_max_n_train_sessions']}"
-    s += f"_days_{args_dict['soft_constraint_max_n_train_days']}"
+    s += f"_pos_{args_dict['histories_hard_constraint_min_n_train_posrated']}"
+    s += f"_sess_{args_dict['histories_soft_constraint_max_n_train_sessions']}"
+    s += f"_days_{args_dict['histories_soft_constraint_max_n_train_days']}"
     if args_dict["single_val_session"]:
         s += "_single"
     return ProjectPaths.sequence_data_users_embeddings_path() / s

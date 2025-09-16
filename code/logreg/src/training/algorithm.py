@@ -46,6 +46,7 @@ class Evaluation(Enum):
     TRAIN_TEST_SPLIT = auto()
     SESSION_BASED = auto()
     SLIDING_WINDOW = auto()
+    MULTI_INTEREST = auto()
 
 
 def get_evaluation_from_arg(evaluation_arg: str) -> Evaluation:

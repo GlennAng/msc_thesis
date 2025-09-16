@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import pickle
+import random
 import time
 from pathlib import Path
 
@@ -159,6 +160,7 @@ def parse_arguments() -> dict:
 
 
 def set_all_seeds(seed: int) -> None:
+    random.seed(seed)
     torch.manual_seed(seed)
     np.random.seed(seed)
     if torch.cuda.is_available():
@@ -297,7 +299,7 @@ def cat_negatives_scores_user(
     batch_negatives_scores_user: torch.Tensor,
 ) -> torch.Tensor:
     negatives_scores_user = negative_train_ratings_scores_user
-    
+
     if negative_samples_scores_user.numel() > 0:
         negatives_scores_user = torch.cat(
             (negatives_scores_user, negative_samples_scores_user),

@@ -16,7 +16,7 @@ from .compute_users_embeddings_logreg import (
     logreg_get_embed_function_params,
     logreg_transform_embed_function_params,
 )
-from ..data.users_embeddings_data import (
+from .users_embeddings_data import (
     get_users_val_sessions_ids,
     save_users_embeddings,
 )
@@ -26,7 +26,6 @@ USERS_SELECTIONS_CHOICES = [None, "sequence_val", "sequence_test", "sequence_hig
 VALID_EMBED_FUNCTIONS_RANDOMNESS = {
     "mean_pos": False,
     "logreg": True,
-    "neural": False,
 }
 VALID_EMBED_FUNCTIONS = list(VALID_EMBED_FUNCTIONS_RANDOMNESS.keys())
 
@@ -211,10 +210,10 @@ def compute_users_embeddings(args_dict: dict, random_state: int = None) -> dict:
             users_val_sessions_ids=users_val_sessions_ids,
             embedding=embedding,
             embed_function=embed_function,
-            hard_constraint_min_n_train_posrated=args_dict["histories_hard_constraint_min_n_train_posrated"],
-            hard_constraint_max_n_train_rated=args_dict["histories_hard_constraint_max_n_train_rated"],
-            soft_constraint_max_n_train_sessions=args_dict["histories_soft_constraint_max_n_train_sessions"],
-            soft_constraint_max_n_train_days=args_dict["histories_soft_constraint_max_n_train_days"],
+            hard_constraint_min_n_train_posrated=args_dict["hard_constraint_min_n_train_posrated"],
+            hard_constraint_max_n_train_rated=args_dict["hard_constraint_max_n_train_rated"],
+            soft_constraint_max_n_train_sessions=args_dict["soft_constraint_max_n_train_sessions"],
+            soft_constraint_max_n_train_days=args_dict["soft_constraint_max_n_train_days"],
             remove_negrated_from_history=True,
         )
     elif embed_function == "logreg":
@@ -227,10 +226,10 @@ def compute_users_embeddings(args_dict: dict, random_state: int = None) -> dict:
             users_val_sessions_ids=users_val_sessions_ids,
             embedding=embedding,
             embed_function=compute_logreg_user_embedding,
-            hard_constraint_min_n_train_posrated=args_dict["histories_hard_constraint_min_n_train_posrated"],
-            hard_constraint_max_n_train_rated=args_dict["histories_hard_constraint_max_n_train_rated"],
-            soft_constraint_max_n_train_sessions=args_dict["histories_soft_constraint_max_n_train_sessions"],
-            soft_constraint_max_n_train_days=args_dict["histories_soft_constraint_max_n_train_days"],
+            hard_constraint_min_n_train_posrated=args_dict["hard_constraint_min_n_train_posrated"],
+            hard_constraint_max_n_train_rated=args_dict["hard_constraint_max_n_train_rated"],
+            soft_constraint_max_n_train_sessions=args_dict["soft_constraint_max_n_train_sessions"],
+            soft_constraint_max_n_train_days=args_dict["soft_constraint_max_n_train_days"],
             embed_function_params=embed_function_params,
             embed_function_params_transform=logreg_transform_embed_function_params,
             remove_negrated_from_history=False,

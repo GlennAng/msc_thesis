@@ -8,8 +8,8 @@ from ....finetuning.src.finetuning_val import (
 from ....logreg.src.training.users_ratings import N_NEGRATED_RANKING
 from ....src.load_files import load_sequence_users_ids
 from ....src.project_paths import ProjectPaths
-from ..data.eval_data import load_eval_dataloader
-from ..models.recommender import Recommender
+from ..data.sequence_dataset import load_val_data, load_val_dataloader
+from ..models.recommender import Recommender, load_recommender
 
 
 def get_users_ids_sessions_ids_flattened(users_sessions_ids_to_idxs: dict) -> tuple:
@@ -64,6 +64,8 @@ def compute_scores_negative_samples_val(
         user_val_negative_samples_embeddings = negative_samples_embeddings[
             user_val_negative_samples_idxs
         ]
+        if user_embeddings.shape[1] == user_val_negative_samples_embeddings.shape[1] + 1:
+            user_embeddings = user_embeddings[:, :-1]
         scores.append(user_embeddings @ user_val_negative_samples_embeddings.T)
     scores = torch.cat(scores, dim=0)
     assert scores.shape == (n_sessions_total, n_val_negative_samples)
@@ -83,6 +85,8 @@ def compute_scores_ranking_val(
         user_session_rated_papers_embeddings = rated_papers_embeddings[
             ranking_matrix[user_session_starting_index : users_sessions_endings_indices[i], :]
         ]
+        if user_session_embedding.shape[0] == user_session_rated_papers_embeddings.shape[-1] + 1:
+            user_session_embedding = user_session_embedding[:-1]
         result = user_session_rated_papers_embeddings @ user_session_embedding.unsqueeze(-1)
         result = result.squeeze(-1)
         scores.append(result)
@@ -195,20 +199,32 @@ def extract_ranking_metrics_from_scores(
 
 def run_validation(recommender: Recommender, val_data: dict) -> None:
     recommender.eval()
-    rated_papers_embeddings, rated_papers_ids_to_idxs = recommender.extract_papers_embeddings(
-        papers_ids=val_data["rated_papers_ids"]
-    )
-    negative_samples_embeddings, _ = recommender.extract_papers_embeddings(
-        papers_ids=val_data["negative_samples_ids"]
-    )
-    val_dataloader = load_eval_dataloader(
+    if recommender.use_papers_encoder:
+        rated_papers_embeddings, rated_papers_ids_to_idxs = (
+            recommender.papers_encoder.compute_papers_embeddings(
+                dataloader=val_data["rated_papers_dataloader"]
+            )
+        )
+        negative_samples_embeddings, _ = recommender.papers_encoder.compute_papers_embeddings(
+            dataloader=val_data["negative_samples_dataloader"]
+        )
+        recommender.papers_encoder.to_device(torch.device("cpu"))
+    else:
+        rated_papers_embeddings, rated_papers_ids_to_idxs = recommender.extract_papers_embeddings(
+            papers_ids=val_data["rated_papers_ids"]
+        )
+        negative_samples_embeddings, _ = recommender.extract_papers_embeddings(
+            papers_ids=val_data["negative_samples_ids"]
+        )
+    val_dataloader = load_val_dataloader(
         dataset=val_data["dataset"],
         papers_embeddings=rated_papers_embeddings,
         papers_ids_to_idxs=rated_papers_ids_to_idxs,
     )
-    users_embeddings, users_sessions_ids_to_idxs = recommender.compute_users_embeddings(
-        dataloader=val_dataloader
+    users_embeddings, users_sessions_ids_to_idxs = (
+        recommender.users_encoder.compute_users_embeddings(dataloader=val_dataloader)
     )
+    recommender.users_encoder.to_device(torch.device("cpu"))
     users_ending_indices = get_users_ending_indices(users_sessions_ids_to_idxs)
     scores_negative_samples = compute_scores_negative_samples_val(
         negative_samples_embeddings=negative_samples_embeddings,
@@ -234,17 +250,42 @@ def run_validation(recommender: Recommender, val_data: dict) -> None:
     )
 
 
-if __name__ == "__main__":
-    from ..data.eval_data import load_val_data
-    from ..models.recommender import load_recommender_from_scratch
+def test_validation_load_recommender(device: torch.device, use_papers_encoder: bool) -> Recommender:
+    users_encoder_dict = {"device": device}
+    if use_papers_encoder:
+        papers_encoder_dict = {
+            "device": device,
+            "path": ProjectPaths.sequence_data_model_state_dicts_papers_encoder_finetuned_path(),
+        }
+        recommender = load_recommender(
+            users_encoder_dict=users_encoder_dict,
+            papers_encoder_dict=papers_encoder_dict,
+            use_papers_encoder=True,
+        )
+    else:
+        path = ProjectPaths.sequence_data_model_state_dicts_papers_encoder_finetuned_path().parent
+        papers_encoder_dict = {
+            "device": device,
+            "papers_embeddings_path": path / "all_embeddings",
+        }
+        recommender = load_recommender(
+            users_encoder_dict=users_encoder_dict,
+            papers_encoder_dict=papers_encoder_dict,
+            use_papers_encoder=False,
+        )
+    return recommender
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    users_encoder_type = "MeanPoolingUsersEncoder"
-    embeddings_path = ProjectPaths.sequence_finetuned_embeddings_path()
-    recommender = load_recommender_from_scratch(
-        users_encoder_type=users_encoder_type,
-        embeddings_path=embeddings_path,
-        device=device,
+
+def test_validation(device: torch.device, use_papers_encoder: bool) -> None:
+    recommender = test_validation_load_recommender(device, use_papers_encoder)
+    val_data = load_val_data(
+        use_papers_encoder=use_papers_encoder,
+        remove_negrated_from_history=True,
     )
-    val_data = load_val_data(histories_remove_negrated_from_history=True)
     run_validation(recommender=recommender, val_data=val_data)
+
+
+if __name__ == "__main__":
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    for use_papers_encoder in [False, True]:
+        test_validation(device=device, use_papers_encoder=use_papers_encoder)

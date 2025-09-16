@@ -56,7 +56,18 @@ def load_recommender_main(args_dict: dict) -> Recommender:
 def parse_arguments() -> dict:
     parser = argparse.ArgumentParser(description="Sequence script")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--embeddings_path", type=str, required=True)
+    parser.add_argument("--start_from_finetuning", action="store_true", default=False)
+
+    parser.add_argument("--l1_scale", type=float, default=1.0)
+    parser.add_argument("--freeze_l1_scale", action="store_true", default=False)
+    parser.add_argument(
+        "--not_use_l2_embeddings", action="store_false", dest="use_l2_embeddings", default=True
+    )
+    parser.add_argument("--l2_scale", type=float, default=1.0)
+    parser.add_argument("--freeze_l2_scale", action="store_true", default=False)
+    parser.add_argument("--n_unfreeze_layers", type=int, default=4)
+    parser.add_argument("--unfreeze_word_embeddings", action="store_true", default=False)
+    parser.add_argument("--unfreeze_from_bottom", action="store_true", default=False)
 
     args = vars(parser.parse_args())
     args["model_path"] = select_model(args["start_from_finetuning"])

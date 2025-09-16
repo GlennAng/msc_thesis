@@ -259,6 +259,17 @@ class Evaluator:
                     user_predictions_dict=user_predictions_dict,
                 )
 
+            elif self.config["evaluation"] == Evaluation.MULTI_INTEREST:
+                self.evaluate_user_multi_interest(
+                    user_id=user_id,
+                    user_ratings=user_ratings,
+                    val_negative_samples_embeddings=val_negative_samples_embeddings,
+                    user_cache_papers=user_cache_papers,
+                    user_info=user_info,
+                    user_results_dict=user_results_dict,
+                    user_predictions_dict=user_predictions_dict,
+                )
+
             save_user_info(self.config["outputs_dir"], user_id, user_info)
             save_user_results(self.config["outputs_dir"], user_id, user_results_dict)
             save_user_predictions(self.config["outputs_dir"], user_id, user_predictions_dict)
@@ -467,12 +478,68 @@ class Evaluator:
         user_results_dict[0] = user_results
         user_predictions_dict[0].update(user_predictions)
 
+    def evaluate_user_multi_interest(
+        self,
+        user_id: int,
+        user_ratings: pd.DataFrame,
+        val_negative_samples_embeddings: np.ndarray,
+        user_cache_papers: dict,
+        user_info: dict,
+        user_results_dict: dict,
+        user_predictions_dict: dict,
+    ) -> None:
+        train_ratings, val_ratings, removed_ratings = split_ratings(user_ratings)
+        update_user_info_split(user_info, train_ratings, val_ratings)
+        train_negrated_ranking, val_negrated_ranking = split_negrated_ranking(
+            train_ratings, val_ratings, removed_ratings
+        )
+
+        train_data_dict, val_data_dict = load_user_data_dicts(
+            train_ratings=train_ratings,
+            val_ratings=val_ratings,
+            train_negrated_ranking=train_negrated_ranking,
+            val_negrated_ranking=val_negrated_ranking,
+            embedding=self.embedding,
+            load_user_train_data_dict_bool=True,
+            cache_embedding_idxs=user_cache_papers["cache_embedding_idxs"],
+            y_cache=user_cache_papers["y_cache"],
+            random_state=self.config["model_random_state"],
+        )
+        user_predictions_dict[0] = fill_user_predictions_dict(val_data_dict)
+        val_causal_mask = self.config["users_ratings_selection"] in [
+            UsersRatingsSelection.SESSION_BASED_FILTERING,
+            UsersRatingsSelection.SESSION_BASED_FILTERING_OLD,
+        ]
+        train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
+            ratings=train_ratings,
+            negrated_ranking=train_negrated_ranking,
+            timesort=True,
+            causal_mask=False,
+            random_state=self.config["ranking_random_state"],
+            same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
+        )
+        val_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
+            ratings=val_ratings,
+            negrated_ranking=val_negrated_ranking,
+            timesort=True,
+            causal_mask=val_causal_mask,
+            random_state=self.config["ranking_random_state"],
+            same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
+        )
+        # TODO
+        
+
     def load_user_model(self, user_coefs: np.ndarray) -> object:
         assert len(self.hyperparameters_combinations) == 1
         model = self.get_model_for_user(self.hyperparameters_combinations[0])
         model.n_features_in = user_coefs.shape[0]
-        model.coef_ = user_coefs[:-1].reshape(1, -1)
-        model.intercept_ = user_coefs[-1].reshape(1, -1)
+        if self.embedding.matrix.shape[1] == user_coefs.shape[0]:
+            model.coef_ = user_coefs.reshape(1, -1)
+            model.intercept_ = np.array([0.0]).reshape(1, -1)
+        else:
+            assert self.embedding.matrix.shape[1] + 1 == user_coefs.shape[0]
+            model.coef_ = user_coefs[:-1].reshape(1, -1)
+            model.intercept_ = user_coefs[-1].reshape(1, -1)
         model.classes_ = np.array([0, 1])
         return model
 

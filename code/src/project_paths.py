@@ -185,12 +185,12 @@ class ProjectPaths:
         return ProjectPaths.sequence_data_model_path() / "state_dicts"
     
     @staticmethod
-    def sequence_data_model_state_dicts_papers_encoder_path():
-        return ProjectPaths.sequence_data_model_state_dicts_path() / "papers_encoder"
+    def sequence_non_finetuned_embeddings_path():
+        return ProjectPaths.logreg_embeddings_path() / "after_pca" / "gte_large_256_categories_l2_unit_100"
     
     @staticmethod
-    def sequence_data_model_state_dicts_papers_encoder_finetuned_path():
-        return ProjectPaths.finetuning_data_checkpoints_path() / "no_seq_eval" / "state_dicts"
+    def sequence_finetuned_embeddings_path():
+        return ProjectPaths.finetuning_data_checkpoints_path() / "no_seq_eval" / "all_embeddings"
 
     @staticmethod
     def sequence_data_model_datasets_path():

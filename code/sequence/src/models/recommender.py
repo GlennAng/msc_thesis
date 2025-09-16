@@ -1,77 +1,51 @@
+import json
 import pickle
+import random
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader
 
-from .papers_encoder import PapersEncoder, load_papers_encoder
-from .users_encoder import UsersEncoder, load_users_encoder
+from .mean_pooling_users_encoder import MeanPoolingUsersEncoder
+from .nrms_users_encoder import NRMSUsersEncoder
+from .users_encoder import UsersEncoder
 
 
 class Recommender(nn.Module):
     def __init__(
         self,
         users_encoder: UsersEncoder,
-        papers_encoder: PapersEncoder = None,
-        papers_embeddings: torch.Tensor = None,
-        papers_ids_to_idxs: dict = None,
-        use_papers_encoder: bool = False,
+        papers_embeddings: torch.Tensor,
+        papers_ids_to_idxs: dict,
     ):
         super(Recommender, self).__init__()
         self.users_encoder = users_encoder
-        self.use_papers_encoder = use_papers_encoder
-        if self.use_papers_encoder:
-            assert papers_encoder is not None
-            self.papers_encoder = papers_encoder
-        else:
-            assert papers_embeddings is not None
-            assert papers_ids_to_idxs is not None
-            self.papers_embeddings = papers_embeddings
-            self.papers_ids_to_idxs = papers_ids_to_idxs
+        self.papers_embeddings = papers_embeddings
+        self.papers_ids_to_idxs = papers_ids_to_idxs
 
     def save_model(self, path: Path) -> None:
         if not isinstance(path, Path):
             path = Path(path).resolve()
         path.mkdir(parents=True, exist_ok=True)
-        self.users_encoder.save_model(path / "users_encoder")
-        if self.use_papers_encoder:
-            self.papers_encoder.save_model(path / "papers_encoder")
+        self.users_encoder.save_model(path)
 
     def to_device(self, device: torch.device) -> None:
-        self.users_encoder.to(device)
-        if self.use_papers_encoder:
-            self.papers_encoder.to(device)
-        users_encoder_device, papers_encoders_device = self.get_devices()
-        assert users_encoder_device == device
-        if self.use_papers_encoder:
-            assert papers_encoders_device == device
+        self.users_encoder.to_device(device)
+        assert self.users_encoder.get_device() == device
 
-    def get_devices(self) -> tuple:
-        users_encoder_device = self.users_encoder.get_device()
-        if self.use_papers_encoder:
-            papers_encoder_device = self.papers_encoder.get_device()
-        else:
-            papers_encoder_device = None
-        return users_encoder_device, papers_encoder_device
+    def get_device(self) -> tuple:
+        return self.users_encoder.get_device()
 
     def get_memory_footprint(self) -> dict:
-        memory_info = {}
-        total_params = sum(p.numel() for p in self.parameters())
-        trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        memory_info["total_parameters"] = total_params
-        memory_info["trainable_parameters"] = trainable_params
-        if total_params > 0:
-            memory_info["trainable_percentage"] = trainable_params / total_params
-        else:
-            memory_info["trainable_percentage"] = 0.0
-        if torch.cuda.is_available():
-            memory_info["gpu_memory_allocated (GB)"] = torch.cuda.memory_allocated() / 1024**3
-            memory_info["gpu_memory_reserved (GB)"] = torch.cuda.memory_reserved() / 1024**3
-        return memory_info
+        return self.users_encoder.get_memory_footprint()
+
+    def compute_users_embeddings(self, dataloader: DataLoader) -> tuple:
+        return self.users_encoder.compute_users_embeddings(dataloader)
 
     def extract_papers_embeddings(self, papers_ids: list) -> tuple:
-        assert not self.use_papers_encoder
         if isinstance(papers_ids, torch.Tensor):
             papers_ids = papers_ids.tolist()
         idxs = [self.papers_ids_to_idxs[pid] for pid in papers_ids]
@@ -81,29 +55,111 @@ class Recommender(nn.Module):
         return papers_embeddings, papers_ids_to_idxs
 
 
-def load_recommender(
-    users_encoder_dict: dict, papers_encoder_dict: dict, use_papers_encoder: bool = False
-) -> Recommender:
-    users_encoder = load_users_encoder(**users_encoder_dict)
-    if use_papers_encoder:
-        papers_encoder = load_papers_encoder(**papers_encoder_dict)
-        recommender = Recommender(
-            users_encoder=users_encoder, papers_encoder=papers_encoder, use_papers_encoder=True
-        )
+def get_users_encoder_class(users_encoder_type: str):
+    if users_encoder_type == "MeanPoolingUsersEncoder":
+        return MeanPoolingUsersEncoder
+    elif users_encoder_type == "NRMSUsersEncoder":
+        return NRMSUsersEncoder
     else:
-        assert "papers_embeddings_path" in papers_encoder_dict
-        path = papers_encoder_dict["papers_embeddings_path"]
-        if not isinstance(path, Path):
-            path = Path(path).resolve()
-        embed_path = path / "abs_X.npy"
-        ids_to_idxs_path = path / "abs_paper_ids_to_idx.pkl"
-        papers_embeddings = torch.from_numpy(np.load(embed_path)).requires_grad_(False)
-        with open(ids_to_idxs_path, "rb") as f:
-            papers_ids_to_idxs = pickle.load(f)
-        recommender = Recommender(
-            users_encoder=users_encoder,
-            papers_embeddings=papers_embeddings,
-            papers_ids_to_idxs=papers_ids_to_idxs,
-            use_papers_encoder=False,
+        raise ValueError(f"Unknown users_encoder_type: {users_encoder_type}")
+
+
+def load_recommender_pretrained_users_encoder(recommender_model_path: Path) -> UsersEncoder:
+    if not isinstance(recommender_model_path, Path):
+        recommender_model_path = Path(recommender_model_path).resolve()
+    config_path = recommender_model_path / "config.json"
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found at: {config_path}")
+    users_encoder_state_dict_path = recommender_model_path / "users_encoder.pt"
+    if not users_encoder_state_dict_path.exists():
+        raise FileNotFoundError(
+            f"Users Encoder state dict not found at: {users_encoder_state_dict_path}"
         )
+
+    with open(config_path, "r") as f:
+        config = json.load(f)
+    users_encoder_class = get_users_encoder_class(config["users_encoder_type"])
+    config = {k: v for k, v in config.items() if k != "users_encoder_type"}
+    users_encoder = users_encoder_class(**config)
+    users_encoder.load_state_dict(torch.load(users_encoder_state_dict_path, weights_only=True))
+    return users_encoder
+
+
+def load_recommender_pretrained_embeddings(embeddings_path: Path) -> tuple:
+    if not isinstance(embeddings_path, Path):
+        embeddings_path = Path(embeddings_path).resolve()
+    papers_embeddings_path = embeddings_path / "abs_X.npy"
+    if not papers_embeddings_path.exists():
+        raise FileNotFoundError(f"Papers embeddings not found at: {papers_embeddings_path}")
+    papers_ids_to_idxs_path = embeddings_path / "abs_paper_ids_to_idx.pkl"
+    if not papers_ids_to_idxs_path.exists():
+        raise FileNotFoundError(f"Papers ids to idxs not found at: {papers_ids_to_idxs_path}")
+
+    papers_embeddings = torch.from_numpy(np.load(papers_embeddings_path)).requires_grad_(False)
+    with open(papers_ids_to_idxs_path, "rb") as f:
+        papers_ids_to_idxs = pickle.load(f)
+    return papers_embeddings, papers_ids_to_idxs
+
+
+def load_recommender_pretrained(
+    recommender_model_path: Path,
+    embeddings_path: Path,
+    device: torch.device = None,
+) -> Recommender:
+    users_encoder = load_recommender_pretrained_users_encoder(recommender_model_path)
+    papers_embeddings, papers_ids_to_idxs = load_recommender_pretrained_embeddings(embeddings_path)
+    recommender = Recommender(
+        users_encoder=users_encoder,
+        papers_embeddings=papers_embeddings,
+        papers_ids_to_idxs=papers_ids_to_idxs,
+    )
+    if device is not None:
+        recommender.to_device(device)
+    return recommender
+
+
+@contextmanager
+def temporary_seed(seed: int):
+    python_state = random.getstate()
+    numpy_state = np.random.get_state()
+    torch_state = torch.get_rng_state()
+    cuda_state = None
+    if torch.cuda.is_available():
+        cuda_state = torch.cuda.get_rng_state_all()
+    try:
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+        yield
+    finally:
+        random.setstate(python_state)
+        np.random.set_state(numpy_state)
+        torch.set_rng_state(torch_state)
+        if cuda_state is not None:
+            torch.cuda.set_rng_state_all(cuda_state)
+
+
+def load_recommender_from_scratch(
+    users_encoder_type: str,
+    embeddings_path: Path,
+    random_seed: int = None,
+    device: torch.device = None,
+    **users_encoder_kwargs,
+) -> Recommender:
+    if random_seed is not None:
+        with temporary_seed(random_seed):
+            users_encoder_class = get_users_encoder_class(users_encoder_type)
+    else:
+        users_encoder_class = get_users_encoder_class(users_encoder_type)
+    users_encoder = users_encoder_class(**users_encoder_kwargs)
+    papers_embeddings, papers_ids_to_idxs = load_recommender_pretrained_embeddings(embeddings_path)
+    recommender = Recommender(
+        users_encoder=users_encoder,
+        papers_embeddings=papers_embeddings,
+        papers_ids_to_idxs=papers_ids_to_idxs,
+    )
+    if device is not None:
+        recommender.to_device(device)
     return recommender
