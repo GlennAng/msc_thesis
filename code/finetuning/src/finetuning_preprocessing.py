@@ -590,12 +590,18 @@ def load_finetuning_papers_tokenized(
 
 
 def get_negative_samples_ids_per_category_dict_train(
-    selection_random_state: int,
+    finetuning: bool = True,
+    n_train_negative_samples_per_category_max: int = N_TRAIN_NEGATIVE_SAMPLES_PER_CATEGORY_MAX,
+    selection_random_state: int = None,
 ) -> dict:
     papers = load_papers(relevant_columns=["paper_id", "in_ratings", "l1"])
     ratings_papers_ids = papers[papers["in_ratings"]]["paper_id"].tolist()
-    val_users_ids = load_finetuning_users_ids(selection="val")
-    test_users_ids = load_finetuning_users_ids(selection="test")
+    if finetuning:
+        val_users_ids = load_finetuning_users_ids(selection="val")
+        test_users_ids = load_finetuning_users_ids(selection="test")
+    else:
+        val_users_ids = load_sequence_users_ids(selection="val")
+        test_users_ids = load_sequence_users_ids(selection="test")
     eval_users_ids = sorted(list(set(val_users_ids + test_users_ids)))
     users_ratings = load_users_ratings(relevant_users_ids=eval_users_ids)
     papers_ids_to_exclude = set(users_ratings["paper_id"].unique().tolist())
@@ -613,16 +619,18 @@ def get_negative_samples_ids_per_category_dict_train(
     categories = list(get_categories_ratios_for_validation().keys())
     for category in categories:
         category_papers = papers[papers["l1"] == category]
-        if len(category_papers) > N_TRAIN_NEGATIVE_SAMPLES_PER_CATEGORY_MAX:
-            category_papers = category_papers.sample(
-                n=N_TRAIN_NEGATIVE_SAMPLES_PER_CATEGORY_MAX,
-                random_state=selection_random_state,
-                replace=False,
-            )
+        if n_train_negative_samples_per_category_max is not None:
+            if len(category_papers) > n_train_negative_samples_per_category_max:
+                category_papers = category_papers.sample(
+                    n=n_train_negative_samples_per_category_max,
+                    random_state=selection_random_state,
+                    replace=False,
+                )
         category_papers_ids = sorted(list(category_papers["paper_id"].unique()))
         assert len(category_papers_ids) == len(set(category_papers_ids))
         assert category_papers_ids == sorted(category_papers_ids)
-        assert len(category_papers_ids) <= N_TRAIN_NEGATIVE_SAMPLES_PER_CATEGORY_MAX
+        if n_train_negative_samples_per_category_max is not None:
+            assert len(category_papers_ids) <= n_train_negative_samples_per_category_max
         papers_ids_per_category_dict[category] = category_papers_ids
     return papers_ids_per_category_dict
 

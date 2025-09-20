@@ -23,19 +23,20 @@ TEST_EMBEDDINGS_PATH = ProjectPaths.sequence_finetuned_embeddings_path()
 def parse_args() -> dict:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, required=False)
-    parser.add_argument("--papers_embeddings_path", type=str, required=False)
     parser.add_argument("--config_path", type=str, required=False)
     parser.add_argument("--test", action="store_true", default=False)
     args = vars(parser.parse_args())
     if not args["test"]:
         args["model_path"] = Path(args["model_path"]).resolve()
-        args["papers_embeddings_path"] = Path(args["papers_embeddings_path"]).resolve()
+    else:
+        args["model_path"] = TEST_MODEL_PATH
     return args
 
 
 def get_config(args_dict: dict) -> dict:
     if args_dict["test"]:
         return {
+            "embeddings_path": str(TEST_EMBEDDINGS_PATH),
             "histories_hard_constraint_min_n_train_posrated": 10,
             "histories_hard_constraint_max_n_train_rated": None,
             "histories_soft_constraint_max_n_train_sessions": None,
@@ -45,8 +46,17 @@ def get_config(args_dict: dict) -> dict:
     config_path = args_dict.get("config_path", None)
     if config_path is None:
         config_path = args_dict["model_path"].parent / "config.json"
+    else:
+        config_path = Path(config_path).resolve()
     with open(config_path) as f:
         return json.load(f)
+    
+
+def get_papers_embeddings_path(args_dict: dict, config: dict) -> None:
+    if args_dict["test"]:
+        args_dict["embeddings_path"] = TEST_EMBEDDINGS_PATH
+    else:
+        args_dict["embeddings_path"] = Path(config["embeddings_path"]).resolve()
 
 
 def create_recommender_for_testing(args_dict: dict) -> None:
@@ -57,14 +67,11 @@ def create_recommender_for_testing(args_dict: dict) -> None:
         embeddings_path=TEST_EMBEDDINGS_PATH,
     )
     recommender.save_model(TEST_MODEL_PATH)
-    args_dict["model_path"] = TEST_MODEL_PATH
-    args_dict["papers_embeddings_path"] = TEST_EMBEDDINGS_PATH
-
 
 def load_recommender_for_testing(args_dict: dict, device: torch.device) -> Recommender:
     recommender = load_recommender_pretrained(
         recommender_model_path=args_dict["model_path"],
-        embeddings_path=args_dict["papers_embeddings_path"],
+        embeddings_path=args_dict["embeddings_path"],
         device=device,
     )
     if args_dict["test"]:
@@ -94,6 +101,7 @@ if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     args_dict = parse_args()
     config = get_config(args_dict)
+    get_papers_embeddings_path(args_dict, config)
 
     if args_dict["test"]:
         create_recommender_for_testing(args_dict=args_dict)

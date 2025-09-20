@@ -1,5 +1,8 @@
+import logging
+
 import torch
 
+from ....finetuning.src.finetuning_main import log_string
 from ....finetuning.src.finetuning_val import (
     FINETUNING_RANKING_METRICS,
     compute_user_ranking_metrics,
@@ -126,8 +129,7 @@ def extract_ranking_metrics_from_scores(
     merged_scores: torch.Tensor,
     users_endings_indices: torch.Tensor,
     users_sessions_endings_indices: torch.Tensor,
-    print_results: bool = True,
-) -> tuple:
+) -> dict:
     scores_dict = {}
     n_users = users_endings_indices.shape[0]
     val_ranking_metrics_explicit_negatives = torch.zeros(
@@ -188,12 +190,11 @@ def extract_ranking_metrics_from_scores(
         scores_dict[f"val_{metric}_all"] = val_ranking_metrics_all[i].item()
         scores_dict[f"val_{metric}_all_no_cs"] = val_ranking_metrics_all_non_cs[i].item()
         scores_dict[f"val_{metric}_all_cs"] = val_ranking_metrics_all_cs[i].item()
-    validation_str = print_validation(scores_dict)
-    if print_results:
-        print(validation_str)
+    return scores_dict
 
 
-def run_validation(recommender: Recommender, val_data: dict) -> None:
+def run_validation(recommender: Recommender, val_data: dict, print_results: bool = True) -> tuple:
+    train_mode = recommender.training
     recommender.eval()
     rated_papers_embeddings, rated_papers_ids_to_idxs = recommender.extract_papers_embeddings(
         papers_ids=val_data["rated_papers_ids"]
@@ -227,11 +228,52 @@ def run_validation(recommender: Recommender, val_data: dict) -> None:
         scores_ranking=scores_ranking,
         users_sessions_endings_indices=val_data["users_sessions_endings_indices"],
     )
-    extract_ranking_metrics_from_scores(
+    ranking_scores_dict = extract_ranking_metrics_from_scores(
         merged_scores=scores,
         users_endings_indices=users_ending_indices,
         users_sessions_endings_indices=val_data["users_sessions_endings_indices"],
     )
+    if train_mode:
+        recommender.train()
+    val_string = print_validation(ranking_scores_dict)
+    if print_results:
+        print(val_string)
+    return ranking_scores_dict, val_string
+
+
+def process_validation(
+    recommender: Recommender,
+    args_dict: dict,
+    val_data: dict,
+    previous_best_score: float = None,
+    early_stopping_counter: int = 0,
+    logger: logging.Logger = None,
+) -> tuple:
+    ranking_scores_dict, val_string = run_validation(recommender, val_data, print_results=False)
+    val_score_name = args_dict["val_score_name"]
+    current_score = ranking_scores_dict[f"val_{val_score_name}"]
+    if previous_best_score is None:
+        is_improvement = True
+        previous_best_score_string = previous_best_score
+    else:
+        if val_score_name.startswith("infonce"):
+            is_improvement = current_score < previous_best_score
+        else:
+            is_improvement = current_score > previous_best_score
+        previous_best_score_string = f"{previous_best_score:.4f}"
+    if is_improvement:
+        early_stopping_counter = 0
+        best_score = current_score
+        recommender.save_model(args_dict["outputs_folder"] / "model")
+        val_string += f"\nNew Optimal Value of {val_score_name.upper()}: {current_score:.4f}"
+    else:
+        early_stopping_counter += 1
+        best_score = previous_best_score
+        val_string += f"\nNo Improvement of {val_score_name.upper()}: {current_score:.4f}."
+    val_string += f" (Previous Best was {previous_best_score_string}).\n"
+    if logger is not None:
+        log_string(logger, val_string)
+    return best_score, early_stopping_counter, current_score
 
 
 if __name__ == "__main__":

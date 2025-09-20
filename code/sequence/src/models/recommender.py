@@ -8,7 +8,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from torch_geometric.utils import to_dense_batch
 
+from .gru_users_encoder import GRUUsersEncoder
 from .mean_pooling_users_encoder import MeanPoolingUsersEncoder
 from .nrms_users_encoder import NRMSUsersEncoder
 from .users_encoder import UsersEncoder
@@ -25,6 +27,34 @@ class Recommender(nn.Module):
         self.users_encoder = users_encoder
         self.papers_embeddings = papers_embeddings
         self.papers_ids_to_idxs = papers_ids_to_idxs
+
+    def forward(self, batch: dict) -> tuple:
+        users_embeddings = self.users_encoder(batch)
+        negative_samples_dot_products = torch.matmul(
+            users_embeddings, batch["x_negative_samples"].T
+        )
+        negrated_vector_agg, mask_negrated = self.get_negrated(batch)
+        candidates_expanded = batch["x_candidates"].unsqueeze(1)
+        stacked_items = torch.cat([candidates_expanded, negrated_vector_agg], dim=1)
+        candidates_and_negrated_dots = torch.bmm(
+            users_embeddings.unsqueeze(1), stacked_items.transpose(1, 2)
+        ).squeeze(1)
+        all_dot_products = torch.cat(
+            [candidates_and_negrated_dots, negative_samples_dot_products], dim=1
+        )
+        return all_dot_products, mask_negrated
+
+    def get_negrated(self, batch: dict) -> tuple:
+        batch_size = batch["x_candidates"].size(0)
+        if len(batch["batch_negrated"]) == 0:
+            feature_dim = batch["x_candidates"].size(-1)
+            negrated_vector_agg = torch.zeros(batch_size, 0, feature_dim, device=self.get_device())
+            mask_negrated = torch.zeros(batch_size, 0, device=self.get_device(), dtype=torch.bool)
+        else:
+            negrated_vector_agg, mask_negrated = to_dense_batch(
+                batch["x_negrated"], batch["batch_negrated"], batch_size=batch_size
+            )
+        return negrated_vector_agg, mask_negrated
 
     def save_model(self, path: Path) -> None:
         if not isinstance(path, Path):
@@ -60,6 +90,8 @@ def get_users_encoder_class(users_encoder_type: str):
         return MeanPoolingUsersEncoder
     elif users_encoder_type == "NRMSUsersEncoder":
         return NRMSUsersEncoder
+    elif users_encoder_type == "GRUUsersEncoder":
+        return GRUUsersEncoder
     else:
         raise ValueError(f"Unknown users_encoder_type: {users_encoder_type}")
 

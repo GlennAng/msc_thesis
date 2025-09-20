@@ -202,10 +202,6 @@ def print_validation(scores_dict: dict) -> str:
             scores_dict,
             [f"val_{metric}_negative_samples" for metric in FINETUNING_RANKING_METRICS],
         )
-    if all(f"val_{metric}_all" in scores_dict for metric in FINETUNING_RANKING_METRICS):
-        validation_str += "\nRanking (All):   " + print_metrics(
-            scores_dict, [f"val_{metric}_all" for metric in FINETUNING_RANKING_METRICS]
-        )
     if all(f"val_{metric}_all_no_cs" in scores_dict for metric in FINETUNING_RANKING_METRICS):
         validation_str += "\nRanking (All) No CS:   " + print_metrics(
             scores_dict, [f"val_{metric}_all_no_cs" for metric in FINETUNING_RANKING_METRICS]
@@ -213,6 +209,10 @@ def print_validation(scores_dict: dict) -> str:
     if all(f"val_{metric}_all_cs" in scores_dict for metric in FINETUNING_RANKING_METRICS):
         validation_str += "\nRanking (All) CS:   " + print_metrics(
             scores_dict, [f"val_{metric}_all_cs" for metric in FINETUNING_RANKING_METRICS]
+        )
+    if all(f"val_{metric}_all" in scores_dict for metric in FINETUNING_RANKING_METRICS):
+        validation_str += "\nRanking (All):   " + print_metrics(
+            scores_dict, [f"val_{metric}_all" for metric in FINETUNING_RANKING_METRICS]
         )
     metric_strings = get_metric_strings()
     ndcg_string = ["worst_10_ndcg", "worst_3_ndcg", "worst_ndcg"]

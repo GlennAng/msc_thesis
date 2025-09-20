@@ -199,3 +199,11 @@ class ProjectPaths:
     @staticmethod
     def sequence_data_mind_path():
         return ProjectPaths.sequence_data_path() / "mind"
+    
+    @staticmethod
+    def sequence_data_checkpoints_path():
+        return ProjectPaths.sequence_data_path() / "checkpoints"
+
+    @staticmethod
+    def sequence_data_experiments_path():
+        return ProjectPaths.sequence_data_path() / "experiments"
