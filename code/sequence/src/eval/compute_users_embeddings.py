@@ -20,27 +20,18 @@ from .compute_users_embeddings_logreg import (
     logreg_get_embed_function_params,
     logreg_transform_embed_function_params,
 )
-
-EMBEDDING_DIM = 357
-USERS_SELECTIONS_CHOICES = [None, "sequence_val", "sequence_test", "sequence_high_sessions"]
-VALID_EMBED_FUNCTIONS_RANDOMNESS = {
-    "mean_pos": False,
-    "logreg": True,
-    "neural": False,
-}
-VALID_EMBED_FUNCTIONS = list(VALID_EMBED_FUNCTIONS_RANDOMNESS.keys())
+from .compute_users_embeddings_utils import EmbedFunction, get_embed_function_from_arg
 
 
 def parse_args() -> tuple:
     parser = argparse.ArgumentParser(description="Compute users embeddings")
-    parser.add_argument("--config_file", type=str, required=True)
+    parser.add_argument("--eval_settings_path", type=str, required=True)
     parser.add_argument("--random_state", type=int, required=False, default=None)
-    parser.add_argument(
-        "--users_selection", type=str, default=None, choices=USERS_SELECTIONS_CHOICES
-    )
     args_dict = vars(parser.parse_args())
-    args_dict["config_file"] = Path(args_dict["config_file"]).resolve()
-    return args_dict["config_file"], args_dict["random_state"]
+    eval_settings_path = Path(args_dict["eval_settings_path"]).resolve()
+    with open(eval_settings_path, "r") as f:
+        eval_settings = json.load(f)
+    return eval_settings, args_dict["random_state"]
 
 
 def compute_mean_pos_user_embedding(
@@ -193,15 +184,15 @@ def compute_users_embeddings_general(
     return users_embeddings
 
 
-def init_users_ratings(args_dict: dict) -> tuple:
-    if args_dict["old_ratings"]:
+def init_users_ratings(eval_settings: dict) -> tuple:
+    if eval_settings["old_ratings"]:
         urs = UsersRatingsSelection.SESSION_BASED_FILTERING_OLD
     else:
         urs = UsersRatingsSelection.SESSION_BASED_FILTERING
     users_ratings = load_users_ratings_from_selection(
-        users_ratings_selection=urs, relevant_users_ids=args_dict["users_selection"]
+        users_ratings_selection=urs, relevant_users_ids=eval_settings["users_selection"]
     )
-    if args_dict["single_val_session"]:
+    if eval_settings["single_val_session"]:
         users_ids = users_ratings["user_id"].unique().tolist()
         users_ratings = users_ratings.copy()
         val_mask = users_ratings["split"] == "val"
@@ -215,30 +206,30 @@ def init_users_ratings(args_dict: dict) -> tuple:
     return users_ratings
 
 
-def compute_users_embeddings(args_dict: dict, random_state: int = None) -> dict:
-    users_ratings = init_users_ratings(args_dict)
+def compute_users_embeddings(eval_settings: dict, random_state: int = None) -> dict:
+    users_ratings = init_users_ratings(eval_settings)
     users_val_sessions_ids = get_users_val_sessions_ids(users_ratings)
-    embedding = Embedding(args_dict["embedding_path"])
-    embed_function = args_dict["embed_function"]
+    embedding = Embedding(eval_settings["papers_embedding_path"])
+    embed_function = get_embed_function_from_arg(eval_settings["embed_function"])
 
     users_embeddings = None
-    if embed_function == "mean_pos":
+    if embed_function == EmbedFunction.MEAN_POS_POOLING:
         embed_function = compute_mean_pos_user_embedding
         users_embeddings = compute_users_embeddings_general(
             users_ratings=users_ratings,
             users_val_sessions_ids=users_val_sessions_ids,
             embedding=embedding,
             embed_function=embed_function,
-            hard_constraint_min_n_train_posrated=args_dict[
+            hard_constraint_min_n_train_posrated=eval_settings[
                 "histories_hard_constraint_min_n_train_posrated"
             ],
-            hard_constraint_max_n_train_rated=args_dict[
+            hard_constraint_max_n_train_rated=eval_settings[
                 "histories_hard_constraint_max_n_train_rated"
             ],
-            soft_constraint_max_n_train_sessions=args_dict[
+            soft_constraint_max_n_train_sessions=eval_settings[
                 "histories_soft_constraint_max_n_train_sessions"
             ],
-            soft_constraint_max_n_train_days=args_dict[
+            soft_constraint_max_n_train_days=eval_settings[
                 "histories_soft_constraint_max_n_train_days"
             ],
             remove_negrated_from_history=True,
@@ -247,22 +238,23 @@ def compute_users_embeddings(args_dict: dict, random_state: int = None) -> dict:
         embed_function_params = logreg_get_embed_function_params(
             users_ids=users_ratings["user_id"].unique().tolist(),
             random_state=random_state,
+            eval_settings=eval_settings,
         )
         users_embeddings = compute_users_embeddings_general(
             users_ratings=users_ratings,
             users_val_sessions_ids=users_val_sessions_ids,
             embedding=embedding,
             embed_function=compute_logreg_user_embedding,
-            hard_constraint_min_n_train_posrated=args_dict[
+            hard_constraint_min_n_train_posrated=eval_settings[
                 "histories_hard_constraint_min_n_train_posrated"
             ],
-            hard_constraint_max_n_train_rated=args_dict[
+            hard_constraint_max_n_train_rated=eval_settings[
                 "histories_hard_constraint_max_n_train_rated"
             ],
-            soft_constraint_max_n_train_sessions=args_dict[
+            soft_constraint_max_n_train_sessions=eval_settings[
                 "histories_soft_constraint_max_n_train_sessions"
             ],
-            soft_constraint_max_n_train_days=args_dict[
+            soft_constraint_max_n_train_days=eval_settings[
                 "histories_soft_constraint_max_n_train_days"
             ],
             embed_function_params=embed_function_params,
@@ -271,16 +263,20 @@ def compute_users_embeddings(args_dict: dict, random_state: int = None) -> dict:
         )
 
     for user_id in users_embeddings:
-        assert users_embeddings[user_id]["sessions_embeddings"].shape[1] == EMBEDDING_DIM
+        assert users_embeddings[user_id]["sessions_embeddings"].shape[1] in [
+            embedding.matrix.shape[1],
+            embedding.matrix.shape[1] + 1,
+        ]
     return users_embeddings
 
 
 if __name__ == "__main__":
-    config_file, random_state = parse_args()
-    with open(config_file, "r") as f:
-        args_dict = json.load(f)
-    
-    args_dict["output_folder"] = args_dict["output_folder"] / "users_embeddings"
-    args_dict["output_folder"] = args_dict["output_folder"] / f"s_{random_state}"
-    users_embeddings = compute_users_embeddings(args_dict, random_state)
-    save_users_embeddings(users_embeddings=users_embeddings, args_dict=args_dict)
+    eval_settings, random_state = parse_args()
+    users_embeddings = compute_users_embeddings(eval_settings, random_state)
+    eval_data_folder = Path(eval_settings["eval_data_folder"]).resolve()
+    users_embeddings_folder = (
+        eval_data_folder / "users_embeddings" / f"s_{random_state}"
+    )
+    save_users_embeddings(
+        users_embeddings, users_embeddings_folder, eval_settings["single_val_session"]
+    )

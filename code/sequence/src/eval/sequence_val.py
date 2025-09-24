@@ -282,7 +282,7 @@ if __name__ == "__main__":
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     users_encoder_type = "MeanPoolingUsersEncoder"
-    embeddings_path = ProjectPaths.sequence_finetuned_embeddings_path()
+    embeddings_path = ProjectPaths.sequence_non_finetuned_embeddings_path()
     recommender = load_recommender_from_scratch(
         users_encoder_type=users_encoder_type,
         embeddings_path=embeddings_path,
