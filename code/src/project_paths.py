@@ -173,8 +173,8 @@ class ProjectPaths:
         return ProjectPaths.sequence_path() / "data"
     
     @staticmethod
-    def sequence_data_users_embeddings_path():
-        return ProjectPaths.sequence_data_path() / "users_embeddings"
+    def sequence_data_sliding_window_eval_path():
+        return ProjectPaths.sequence_data_path() / "sliding_window_eval"
     
     @staticmethod
     def sequence_data_model_path():

@@ -1,7 +1,6 @@
 import argparse
 import json
 import os
-import pickle
 import shutil
 import subprocess
 import sys
@@ -37,6 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--single_random_state", action="store_true", default=False)
     parser.add_argument("--single_val_session", action="store_true", default=False)
     parser.add_argument("--use_existing_embeddings", action="store_true", default=False)
+    parser.add_argument("--existing_embeddings_path", type=str, required=False, default=None)
 
     parser.add_argument("--old_ratings", action="store_true", default=False)
     parser.add_argument(
@@ -52,15 +52,24 @@ def get_output_folder(args_dict: dict) -> Path:
         s += f"_{args_dict['users_selection']}"
     else:
         s += "_all"
-    s += f"_pos_{args_dict['histories_hard_constraint_min_n_train_posrated']}"
-    s += f"_sess_{args_dict['histories_soft_constraint_max_n_train_sessions']}"
-    s += f"_days_{args_dict['histories_soft_constraint_max_n_train_days']}"
     if args_dict["single_val_session"]:
         s += "_single"
-    return ProjectPaths.sequence_data_users_embeddings_path() / s
+    else:
+        s += "_multi"
+    s += "_seed"
+    s += time.strftime("_%Y_%m_%d_%H_%M_%S")
+    return ProjectPaths.sequence_data_sliding_window_eval_path() / s
 
 
 def process_args_dict(args_dict: dict) -> None:
+    if args_dict["use_existing_embeddings"]:
+        path = args_dict["existing_embeddings_path"]
+        assert path is not None
+        path = Path(path).resolve()
+        if path.stem != "users_embeddings":
+            path = path / "users_embeddings"
+        assert path.exists()
+        args_dict["existing_embeddings_path"] = path
     if args_dict["single_random_state"]:
         args_dict["embed_random_states"] = [VAL_RANDOM_STATE]
         args_dict["eval_random_states"] = [VAL_RANDOM_STATE]
@@ -84,9 +93,13 @@ def process_args_dict(args_dict: dict) -> None:
 
 
 def compute_users_embeddings(args_dict: dict) -> None:
-    config_path = args_dict["output_folder"] / "config.pkl"
-    with open(config_path, "wb") as f:
-        pickle.dump(args_dict, f)
+    config_path = args_dict["output_folder"] / "config.json"
+    args_dict_for_config = args_dict.copy()
+    for key, value in args_dict_for_config.items():
+        if isinstance(value, Path):
+            args_dict_for_config[key] = str(value)
+    with open(config_path, "w") as f:
+        json.dump(args_dict_for_config, f, indent=4)
     for random_state in args_dict["embed_random_states"]:
         args = [
             sys.executable,
@@ -208,7 +221,7 @@ if __name__ == "__main__":
     os.makedirs(args_dict["output_folder"], exist_ok=True)
     if args_dict["use_existing_embeddings"]:
         for random_state in args_dict["embed_random_states"]:
-            embedding_path = args_dict["output_folder"] / "users_embeddings" / f"s_{random_state}"
+            embedding_path = args_dict["existing_embeddings_path"] / f"s_{random_state}"
             assert embedding_path.exists()
     else:
         compute_users_embeddings(args_dict=args_dict)

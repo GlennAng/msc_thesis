@@ -1,3 +1,5 @@
+from enum import Enum, auto
+
 import numpy as np
 import pandas as pd
 
@@ -21,6 +23,22 @@ LOGREG_HYPERPARAMETERS = {"weights_neg_scale": 0, "weights_cache_v": 1, "clf_C":
 LOGREG_HYPERPARAMETERS_COMBINATION = (5.0, 0.9, 0.1)
 LOGREG_MAX_ITER = 10000
 LOGREG_SOLVER = "lbfgs"
+
+
+class TemporalDecay(Enum):
+    NONE = auto()
+    LINEAR = auto()
+    EXPONENTIAL = auto()
+    CUT_OFF = auto()
+
+
+def get_temporal_decay_from_arg(temporal_decay_arg: str) -> TemporalDecay:
+    valid_temporal_decay_args = [decay.name.lower() for decay in TemporalDecay]
+    if temporal_decay_arg.lower() not in valid_temporal_decay_args:
+        raise ValueError(
+            f"Invalid argument {temporal_decay_arg} 'temporal_decay'. Possible values: {valid_temporal_decay_args}."
+        )
+    return TemporalDecay[temporal_decay_arg.upper()]
 
 
 def logreg_get_embed_function_params(users_ids: list, random_state: int) -> dict:
@@ -114,6 +132,7 @@ def get_sample_weights(user_train_set_ratings: np.ndarray, n_cache: int) -> np.n
 def compute_logreg_user_embedding(
     user_train_set_embeddings: np.ndarray,
     user_train_set_ratings: np.ndarray,
+    user_train_set_time_diffs: np.ndarray,
     X_cache: np.ndarray,
     random_state: int,
 ) -> np.ndarray:

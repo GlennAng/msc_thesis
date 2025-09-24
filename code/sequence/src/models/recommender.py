@@ -92,6 +92,9 @@ def get_users_encoder_class(users_encoder_type: str):
         return NRMSUsersEncoder
     elif users_encoder_type == "GRUUsersEncoder":
         return GRUUsersEncoder
+    elif users_encoder_type == "MultiLayerNRMSUsersEncoder":
+        from .nrms_extended_users_encoder import MultiLayerNRMSUsersEncoder
+        return MultiLayerNRMSUsersEncoder
     else:
         raise ValueError(f"Unknown users_encoder_type: {users_encoder_type}")
 

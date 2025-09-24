@@ -7,6 +7,9 @@ import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
 from ....src.load_files import load_users_significant_categories
+from ..embeddings.find_multi_interest_users import (
+    find_users_ids_with_multiple_interests,
+)
 from ..training.algorithm import Algorithm, Evaluation
 from ..training.scores_definitions import SCORES_DICT, Score, get_score_from_arg
 from .results_handling import (
@@ -242,13 +245,18 @@ class Global_Visualizer:
             "legend": hi_pos_val_time_legend,
         }
 
-    def extract_high_low_negrated_train_users(self) -> None:
+    def extract_high_negrated_train_users(self) -> None:
         n = self.n_users_special_groups
         hi_negrated_train_users = self.users_info.nlargest(n, "n_negrated_train")["user_id"].values
-        lo_negrated_train_users = self.users_info.nsmallest(n, "n_negrated_train")["user_id"].values
-        legend = f"HiNegTr/LoNegTr: The {n} Users with the highest/lowest Negative Training Votes."
+        legend = f"HiNegTr: The {n} Users with the highest Negative Training Votes."
         self.users_groups_dict["HiNegTr"] = {"users_ids": hi_negrated_train_users, "legend": legend}
-        self.users_groups_dict["LoNegTr"] = {"users_ids": lo_negrated_train_users}
+
+    def extract_high_multi_interest_users(self) -> None:
+        n = self.n_users_special_groups
+        multi_interest_users = find_users_ids_with_multiple_interests(n_max_users=n)
+        multi_interest_n = len(multi_interest_users)
+        legend = f"MultiInt: The {multi_interest_n} Users with the highest multi-interest Score."
+        self.users_groups_dict["MultiInt"] = {"users_ids": multi_interest_users, "legend": legend}
 
     def extract_cs_non_cs_users(self) -> None:
         cs_users = self.users_significant_categories[
@@ -266,7 +274,8 @@ class Global_Visualizer:
         self.users_groups_dict = {}
         self.extract_head_tail_users()
         self.extract_high_pos_val_ratings_sessions_time_users()
-        self.extract_high_low_negrated_train_users()
+        self.extract_high_negrated_train_users()
+        self.extract_high_multi_interest_users()
         self.extract_cs_non_cs_users()
 
     def extract_best_individual_hyperparameters_combination_data(self) -> None:

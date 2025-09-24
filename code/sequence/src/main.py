@@ -104,6 +104,9 @@ def get_users_encoder_type_specific_args(args_dict: dict) -> dict:
             "num_layers": args_dict.get("gru_num_layers", 1),
             "dropout": args_dict.get("gru_dropout", 0.2),
         }
+    elif users_encoder_type == "MultiLayerNRMSUsersEncoder":
+        return {
+        }
     else:
         raise ValueError(f"Unknown users_encoder_type: {users_encoder_type}")
 

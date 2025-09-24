@@ -8,7 +8,7 @@ We provide code for automatically computing and evaluating papers embeddings for
 
 Here is an overview of their results (256-dimensional with 100-dimensional category embeddings attached):
 
-## Session-based Evaluation (no filter)
+## Session-based Evaluation (1070 Users, no causal Mask for Ranking Negatives)
 
 | Model Name | Bal. Acc. | NDCG | MRR | InfoNCE |
 |------------|------------------|------|-----|---------|
@@ -20,7 +20,7 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 | Qwen3-Embedding-4B | 73.80 | 82.88 | 77.18 | 1.0680 |
 | Qwen3-Embedding-8B | **74.07** | **83.20** | **77.59** | **1.0389** |
 
-## Cross-Validation
+## Cross-Validation (1070 Users, Ranking Negatives sampled randomly)
 
 | Model Name | Bal. Acc. | NDCG | MRR | InfoNCE |
 |------------|------------------|------|-----|---------|
@@ -32,8 +32,7 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 | Qwen3-Embedding-4B | **79.42** | **86.85** | **82.41** | **0.8381** |
 | Qwen3-Embedding-8B | 79.34 | 86.82 | 82.37 | 0.8382 |
 
-
-## Fine-tuning Session-based Evaluation NDCG (still no filter but on Test Users only)
+## Session-based Evaluation NDCG (like above but only on the 500 Test Users)
 
 | Model Name | Total | CS Users | Non-CS Users
 |------------|------------------|------|-----|

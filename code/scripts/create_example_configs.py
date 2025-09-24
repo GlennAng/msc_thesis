@@ -97,24 +97,12 @@ def create_example_config_tfidf_cross_val(embeddings_folder: Path = None) -> dic
 def create_example_config_sliding_window(users_embeddings_dict_path: Path = None) -> dict:
     example_config = create_example_config()
     if users_embeddings_dict_path is None:
-        users_embeddings_dict_path = ProjectPaths.sequence_data_users_embeddings_path() / "logreg"
+        users_embeddings_dict_path = ProjectPaths.sequence_data_sliding_window_eval_path() / "logreg"
     update_dict = {
         "users_ratings_selection": "session_based_filtering",
         "evaluation": "sliding_window",
         "users_coefs_path": str(users_embeddings_dict_path.resolve()),
         "n_cache": 0,
-    }
-    example_config.update(update_dict)
-    return example_config
-
-
-def create_example_config_multi_interest(users_embeddings_dict_path: Path = None) -> dict:
-    example_config = create_example_config()
-    if users_embeddings_dict_path is None:
-        users_embeddings_dict_path = ProjectPaths.sequence_data_users_embeddings_path() / "logreg"
-    update_dict = {
-        "users_ratings_selection": "session_based_filtering_old",
-        "evaluation": "multi_interest",
     }
     example_config.update(update_dict)
     return example_config
@@ -143,9 +131,3 @@ if __name__ == "__main__":
     example_config_tfidf_cross_val = create_example_config_tfidf_cross_val()
     with open(logreg_experiments_path / "example_config_tfidf_cross_val.json", "w") as f:
         json.dump(example_config_tfidf_cross_val, f, indent=4)
-    example_config_sliding_window = create_example_config_sliding_window()
-    with open(logreg_experiments_path / "example_config_sliding_window.json", "w") as f:
-        json.dump(example_config_sliding_window, f, indent=4)
-    example_config_multi_interest = create_example_config_multi_interest()
-    with open(logreg_experiments_path / "example_config_multi_interest.json", "w") as f:
-        json.dump(example_config_multi_interest, f, indent=4)
