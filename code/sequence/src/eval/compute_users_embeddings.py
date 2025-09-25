@@ -20,6 +20,9 @@ from .compute_users_embeddings_logreg import (
     logreg_get_embed_function_params,
     logreg_transform_embed_function_params,
 )
+from .compute_users_embeddings_mean_pos_pooling import (
+    compute_mean_pos_pooling_user_embedding,
+)
 from .compute_users_embeddings_utils import EmbedFunction, get_embed_function_from_arg
 
 
@@ -32,20 +35,6 @@ def parse_args() -> tuple:
     with open(eval_settings_path, "r") as f:
         eval_settings = json.load(f)
     return eval_settings, args_dict["random_state"]
-
-
-def compute_mean_pos_user_embedding(
-    user_train_set_embeddings: np.ndarray,
-    user_train_set_ratings: np.ndarray,
-    user_train_set_time_diffs: np.ndarray = None,
-) -> np.ndarray:
-    assert user_train_set_embeddings.shape[0] == user_train_set_ratings.shape[0]
-    assert np.all(user_train_set_ratings >= 0)
-    if user_train_set_embeddings.shape[0] == 0:
-        return np.zeros(user_train_set_embeddings.shape[1] + 1)
-    mean_pos_user_embedding = user_train_set_embeddings.mean(axis=0)
-    mean_pos_user_embedding = np.hstack([mean_pos_user_embedding, 0])
-    return mean_pos_user_embedding
 
 
 def get_user_train_set_starting_session_id(
@@ -130,6 +119,7 @@ def compute_users_embeddings_general(
     users_val_sessions_ids: dict,
     embedding: Embedding,
     embed_function: callable,
+    embed_dim: int,
     hard_constraint_min_n_train_posrated: int,
     hard_constraint_max_n_train_rated: int = None,
     soft_constraint_max_n_train_sessions: int = None,
@@ -150,7 +140,7 @@ def compute_users_embeddings_general(
         else:
             user_embed_function_params = embed_function_params
         user_sessions_ids = users_val_sessions_ids[user_id]
-        user_embeddings = np.zeros((len(user_sessions_ids), embedding.matrix.shape[1] + 1))
+        user_embeddings = np.zeros((len(user_sessions_ids), embed_dim))
         for i, session_id in enumerate(user_sessions_ids):
             session_min_time = compute_session_min_time(user_ratings, session_id)
             user_train_set = get_user_train_set(
@@ -168,7 +158,7 @@ def compute_users_embeddings_general(
                 embedding.get_idxs(user_train_set_papers_ids)
             ]
             user_train_set_time_diffs = (
-                session_min_time - user_train_set["time"]
+               session_min_time - user_train_set["time"]
             ).dt.days.to_numpy()
             assert np.all(user_train_set_time_diffs >= 0)
             user_embeddings[i] = embed_function(
@@ -214,12 +204,14 @@ def compute_users_embeddings(eval_settings: dict, random_state: int = None) -> d
 
     users_embeddings = None
     if embed_function == EmbedFunction.MEAN_POS_POOLING:
-        embed_function = compute_mean_pos_user_embedding
+        embed_function = compute_mean_pos_pooling_user_embedding
+        embed_dim = embedding.matrix.shape[1]
         users_embeddings = compute_users_embeddings_general(
             users_ratings=users_ratings,
             users_val_sessions_ids=users_val_sessions_ids,
             embedding=embedding,
             embed_function=embed_function,
+            embed_dim=embed_dim,
             hard_constraint_min_n_train_posrated=eval_settings[
                 "histories_hard_constraint_min_n_train_posrated"
             ],
@@ -234,17 +226,19 @@ def compute_users_embeddings(eval_settings: dict, random_state: int = None) -> d
             ],
             remove_negrated_from_history=True,
         )
-    elif embed_function == "logreg":
+    elif embed_function == EmbedFunction.LOGISTIC_REGRESSION:
         embed_function_params = logreg_get_embed_function_params(
             users_ids=users_ratings["user_id"].unique().tolist(),
             random_state=random_state,
             eval_settings=eval_settings,
         )
+        embed_dim = embedding.matrix.shape[1] + 1
         users_embeddings = compute_users_embeddings_general(
             users_ratings=users_ratings,
             users_val_sessions_ids=users_val_sessions_ids,
             embedding=embedding,
             embed_function=compute_logreg_user_embedding,
+            embed_dim=embed_dim,
             hard_constraint_min_n_train_posrated=eval_settings[
                 "histories_hard_constraint_min_n_train_posrated"
             ],
@@ -263,10 +257,9 @@ def compute_users_embeddings(eval_settings: dict, random_state: int = None) -> d
         )
 
     for user_id in users_embeddings:
-        assert users_embeddings[user_id]["sessions_embeddings"].shape[1] in [
-            embedding.matrix.shape[1],
-            embedding.matrix.shape[1] + 1,
-        ]
+        assert (
+            users_embeddings[user_id]["sessions_embeddings"].shape[1] == embed_dim
+        )
     return users_embeddings
 
 
@@ -274,9 +267,7 @@ if __name__ == "__main__":
     eval_settings, random_state = parse_args()
     users_embeddings = compute_users_embeddings(eval_settings, random_state)
     eval_data_folder = Path(eval_settings["eval_data_folder"]).resolve()
-    users_embeddings_folder = (
-        eval_data_folder / "users_embeddings" / f"s_{random_state}"
-    )
+    users_embeddings_folder = eval_data_folder / "users_embeddings" / f"s_{random_state}"
     save_users_embeddings(
         users_embeddings, users_embeddings_folder, eval_settings["single_val_session"]
     )

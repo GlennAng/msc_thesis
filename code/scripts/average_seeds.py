@@ -98,7 +98,13 @@ subprocess.run(
     ],
     check=True,
 )
-print(f"Saved averaged results to {averaged_results_file}.")
+files = [
+    f.name
+    for f in outputs_folder.iterdir()
+    if f.name.startswith("global_visu") and f.name.endswith(".pdf")
+]
+if files:
+    print(f"Saved visualization to {outputs_folder / files[0]}")
 
 for random_state in TEST_RANDOM_STATES:
     outputs_folder = ProjectPaths.logreg_outputs_path() / (config_stem + f"_s{random_state}")

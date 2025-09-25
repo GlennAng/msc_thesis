@@ -52,16 +52,28 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 | Astronomy | 39.52 | 71.77 | 43.53
 | Physics | 57.18 | 85.96 | 64.07
 
-## Session-based Evaluation NDCG (filtering, predicting whole Validation Set at once vs. Sliding Window)
+## Sliding Window Evaluation NDCG (666 Users)
 *First/Last Sess:* The first/last Validation Session with at least one Upvote in it  
-*HiSess:* The 100 Users who have the largest number of Validation Sessions with at least one Upvote in it
+*HiSess:* The 75 Users who have the largest number of Validation Sessions with at least one Upvote in it
 
 | Model Name | Total | First Sess | Last Sess | HiSess Total | HiSess First Sess | HiSess Last Sess 
 |------------|------------------|------|-----|-----|-----|-----|
-| LogReg w/o Sliding Window | 80.39 | 80.82 | 80.29 | 82.27 | 84.57 | 81.69
-| LogReg w/ Sliding Window | 81.02 | 80.83 | 81.67 | 83.33 | 84.79 | 84.04
-| MeanPos w/o Sliding Window | 77.46 | 78.19 | 77.39 | 77.28 | 77.34 | 75.88
-| MeanPos w/ Sliding Window | 77.77 | 78.19 | 78.02 | 77.97 | 77.34 | 77.81
+| LogReg w/o Sliding Window | 77.27 | 79.10 | 77.43 | 77.25 | 86.08 | 74.49
+| LogReg w/ Sliding Window | 79.83 | 79.11 | 81.55 | 82.34 | 86.17 | 84.70
+| MeanPos w/o Sliding Window | 75.97 | 77.44 | 76.35 | 75.64 | 83.14 | 74.66
+| MeanPos w/ Sliding Window | 77.30 | 77.44 | 78.34 | 78.34 | 83.14 | 78.71
+| TF-IDF w/ Sliding Window | 73.19 | 73.47 | 74.40 | 75.49 | 77.55 | 75.63
+
+
+## Temporal Decay Evaluation NDCG (666 Users)
+*HiTime:* The 75 Users who have the largest time span between Upvotes in their Validation Set
+| Model Name | Total | First Sess | Last Sess | HiTime Total | HiTime First Sess | HiTime Last Sess 
+|------------|------------------|------|-----|-----|-----|-----|
+| No Decay | 79.83 | 79.11 | 81.55 | 78.20 | 79.65 | 79.39
+| Exponential Decay, Separate Normalization, Param 0.01 | 80.11 | 79.21 | 82.36 | 78.92 | 79.76 | 81.37
+| Exponential Decay, Joint Normalization, Param 0.01 | 80.06 | 79.29 | 82.45 | 78.90 | 80.06 | 82.10
+
+
 
 
 ## LogReg Sliding Window NDCG (drop ratings which are too old (but at least 10 Train Positives))

@@ -46,6 +46,19 @@ def parse_args() -> argparse.Namespace:
         "--histories_remove_negrated_from_history", action="store_true", default=False
     )
 
+    parser.add_argument("--logreg_cache_type", type=str, default="categories_cache")
+    parser.add_argument("--logreg_n_cache", type=int, default=5000)
+    parser.add_argument("--logreg_n_categories_cache", type=int, default=0)
+    parser.add_argument("--logreg_n_val_negative_samples", type=int, default=100)
+    parser.add_argument("--logreg_weights_neg_scale", type=float, default=5.0)
+    parser.add_argument("--logreg_weights_cache_v", type=float, default=0.9)
+    parser.add_argument("--logreg_clf_C", type=float, default=0.1)
+    parser.add_argument("--logreg_max_iter", type=int, default=10000)
+    parser.add_argument("--logreg_solver", type=str, default="lbfgs")
+    parser.add_argument("--logreg_temporal_decay", type=str, default="none")
+    parser.add_argument("--logreg_temporal_decay_normalization", type=str, default="jointly")
+    parser.add_argument("--logreg_temporal_decay_param", type=float, default=1.0)
+
     args_dict = vars(parser.parse_args())
     return args_dict
 
@@ -69,16 +82,7 @@ def process_papers_embedding_path(args_dict: dict) -> None:
     else:
         papers_embedding_path = Path(args_dict["papers_embedding_path"]).resolve()
     assert papers_embedding_path.exists()
-    if (papers_embedding_path / "abs_X.npz").exists():
-        tf_idf = True
-    elif (papers_embedding_path / "abs_X.npy").exists():
-        tf_idf = False
-    else:
-        raise ValueError(f"Invalid papers_embedding_path {papers_embedding_path}.")
-    if args_dict["embed_function"] == EmbedFunction.NEURAL_PRECOMPUTED:
-        assert not tf_idf
     args_dict["papers_embedding_path"] = papers_embedding_path
-    args_dict["tf_idf"] = tf_idf
 
 
 def process_random_states(args_dict: dict) -> None:
@@ -241,7 +245,13 @@ def create_visualization(args_dict: dict, time_taken: float) -> None:
         ],
         check=True,
     )
-    print(f"Saved averaged results to {averaged_results_file}.")
+    files = [
+        f.name
+        for f in outputs_folder.iterdir()
+        if f.name.startswith("global_visu") and f.name.endswith(".pdf")
+    ]
+    if files:
+        print(f"Saved visualization to {outputs_folder / files[0]}")
     for random_state in args_dict["eval_random_states"]:
         outputs_folder = ProjectPaths.logreg_outputs_path() / f"s_{random_state}"
         if outputs_folder.exists():
