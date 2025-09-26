@@ -27,6 +27,8 @@ def get_users_selections_choices() -> list:
 def get_eval_data_folder(
     embed_function: EmbedFunction, users_selection: str, single_val_session: bool
 ) -> Path:
+    if isinstance(embed_function, str):
+        embed_function = get_embed_function_from_arg(embed_function)
     s = embed_function.name.lower()
     if users_selection is not None:
         s += f"_{users_selection}"

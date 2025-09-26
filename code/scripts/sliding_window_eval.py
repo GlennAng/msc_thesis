@@ -29,6 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embed_function", type=str, required=True)
     parser.add_argument("--users_selection", type=str, required=False, default=None)
     parser.add_argument("--papers_embedding_path", type=str, required=False, default=None)
+    parser.add_argument("--move_outputs_folder", type=str, required=False, default=None)
 
     parser.add_argument("--single_random_state", action="store_true", default=False)
     parser.add_argument("--single_val_session", action="store_true", default=False)
@@ -258,6 +259,15 @@ def create_visualization(args_dict: dict, time_taken: float) -> None:
             shutil.rmtree(outputs_folder)
 
 
+def move_outputs_folder(args_dict: dict) -> None:
+    if args_dict["move_outputs_folder"] is not None:
+        dest_path = Path(args_dict["move_outputs_folder"]).resolve()
+        if dest_path.exists():
+            shutil.rmtree(dest_path)
+        shutil.move(str(args_dict["eval_data_folder"] / "outputs"), str(dest_path))
+        print(f"Moved outputs folder to {dest_path}")
+
+
 if __name__ == "__main__":
     args_dict = parse_args()
     process_args_dict(args_dict=args_dict)
@@ -269,3 +279,4 @@ if __name__ == "__main__":
     run_logreg_configs(args_dict=args_dict)
     time_taken = time.time() - start_time
     create_visualization(args_dict=args_dict, time_taken=time_taken)
+    move_outputs_folder(args_dict=args_dict)

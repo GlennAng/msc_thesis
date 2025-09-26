@@ -70,8 +70,9 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 | Model Name | Total | First Sess | Last Sess | HiTime Total | HiTime First Sess | HiTime Last Sess 
 |------------|------------------|------|-----|-----|-----|-----|
 | No Decay | 79.83 | 79.11 | 81.55 | 78.20 | 79.65 | 79.39
+| No Decay, 200 Days Max | 79.91 | 79.12 | 81.81 | 78.77 | 79.83 | 79.99
 | Exponential Decay, Separate Normalization, Param 0.01 | 80.11 | 79.21 | 82.36 | 78.92 | 79.76 | 81.37
-| Exponential Decay, Joint Normalization, Param 0.01 | 80.06 | 79.29 | 82.45 | 78.90 | 80.06 | 82.10
+| Exponential Decay, Joint Normalization, Param 0.01 | 80.10 | 79.17 | 82.31 | 78.93 | 79.92 | 81.27
 
 
 

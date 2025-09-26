@@ -47,16 +47,18 @@ def get_sample_weights_temporal_decay_normalization_jointly(
 ) -> tuple:
     sum_all_decays = np.sum(pos_decays) + np.sum(neg_decays)
     pos_decays = pos_decays / sum_all_decays if pos_decays.shape[0] > 0 else pos_decays
-    pos_sum = np.sum(pos_decays)
-    pos_decays = pos_decays / pos_sum if pos_sum > 0 else pos_decays
-
     neg_decays = neg_decays / sum_all_decays if neg_decays.shape[0] > 0 else neg_decays
+    pos_sum, neg_sum = np.sum(pos_decays),np.sum(neg_decays)
     train_negrated_n = neg_decays.shape[0]
     neg_denominator = weights_cache_v * train_negrated_n + (1.0 - weights_cache_v) * n_cache
     assert neg_denominator > 0
-    neg_weight = weights_neg_scale * weights_cache_v / neg_denominator / (1.0 - pos_sum)
+    neg_weight = weights_neg_scale * weights_cache_v / neg_denominator
     neg_decays = train_negrated_n * neg_weight * neg_decays
-    cache_weight = weights_neg_scale * (1.0 - weights_cache_v) / neg_denominator
+    cache_weight = weights_neg_scale * neg_sum * (1.0 - weights_cache_v) / neg_denominator
+    correction = (weights_neg_scale + 1.0) / (pos_sum + weights_neg_scale * neg_sum)
+    pos_decays = correction * pos_decays
+    neg_decays = correction * neg_decays
+    cache_weight = correction * cache_weight
     return pos_decays, neg_decays, cache_weight
 
 

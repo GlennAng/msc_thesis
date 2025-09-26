@@ -27,7 +27,9 @@ def save_users_embeddings_as_pickle(
             embeddings[list(users_sessions_ids_to_idxs[uid].values())].numpy().astype(np.float64)
         )
     save_users_embeddings(
-        users_dict, args_dict={"output_folder": path, "single_val_session": False}
+        users_embeddings=users_dict,
+        users_embeddings_folder=path,
+        single_val_session=False,
     )
 
 

@@ -1,7 +1,7 @@
 import subprocess
 import sys
 
-params = [0.001, 0.005, 0.01, 0.05, 0.1]
+params = [100, 200, 300, 500, 750]
 
 for param in params:
     subprocess.run(
@@ -12,12 +12,8 @@ for param in params:
                     "--embed_function",
                     "logistic_regression",
                     "--single_random_state",
-                    "--logreg_temporal_decay",
-                    "exponential",
-                    "--logreg_temporal_decay_param",
-                    str(param),
-                    "--logreg_temporal_decay_normalization",
-                    "jointly",
+                    "--histories_soft_constraint_max_n_train_days",
+                    str(param)
                 ],
                 check=True,
             )

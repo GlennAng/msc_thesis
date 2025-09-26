@@ -89,7 +89,7 @@ def get_user_train_set(
     n_pos_train = user_train_set[user_train_set["rating"] > 0].shape[0]
     if n_pos_train < hard_constraint_min_n_train_posrated:
         raise ValueError(
-            f"Fewer than {hard_constraint_min_n_train_posrated} positive ratings in training set."
+            f"Fewer than {hard_constraint_min_n_train_posrated} positive ratings in training set. Only {n_pos_train}."
         )
     if soft_constraint_max_n_train_days is None and soft_constraint_max_n_train_sessions is None:
         return user_train_set
@@ -104,13 +104,15 @@ def get_user_train_set(
     positive_sessions_ids = user_train_set[user_train_set["rating"] > 0]["session_id"].unique()
     sessions_to_try = positive_sessions_ids[positive_sessions_ids <= user_train_set_session_id]
     sessions_to_try = sorted(sessions_to_try, reverse=True)
+    if user_train_set_session_id not in sessions_to_try:
+        sessions_to_try = [user_train_set_session_id] + sessions_to_try
     for session_id in sessions_to_try:
         user_train_set_c = user_train_set[user_train_set["session_id"] >= session_id]
         n_pos_train_c = (user_train_set_c["rating"] > 0).sum()
         if n_pos_train_c >= hard_constraint_min_n_train_posrated:
             return user_train_set_c
     raise ValueError(
-        f"Fewer than {hard_constraint_min_n_train_posrated} positive ratings in training set."
+        f"Fewer than {hard_constraint_min_n_train_posrated} positive ratings in training set. Only {n_pos_train}."
     )
 
 
