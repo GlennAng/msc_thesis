@@ -247,6 +247,13 @@ def load_optimizer(
                 "weight_decay": l2_regularization_other,
             }
         )
+        param_groups.append(
+            {
+                "params": [finetuning_model.categories_l1_weight, finetuning_model.categories_l2_weight],
+                "lr": lr_transformer_model,
+                "weight_decay": l2_regularization_other,
+            }
+        )
     optimizer = torch.optim.Adam(param_groups)
     if lr_scheduler == "constant":
         return optimizer, None
@@ -563,6 +570,7 @@ def run_training(
         train_negative_samples_iter = iter(train_negative_samples_dataloader)
     start_time = time.time()
     for i in tqdm(range(args_dict["n_batches_total"]), desc="Training Batches", unit="Batch"):
+
         train_dataset_batch = next(train_dataset_iter)
         train_negative_samples_batch = None
         if train_negative_samples_dataloader is not None:

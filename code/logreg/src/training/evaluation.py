@@ -221,6 +221,12 @@ class Evaluator:
             user_categories_ratios=user_categories_ratios,
             embedding=self.embedding,
         )
+        sessions_min_times = (
+            user_ratings.groupby("session_id")["time"].min().reset_index(name="session_min_time")
+        )
+        sessions_min_times = dict(
+            zip(sessions_min_times["session_id"], sessions_min_times["session_min_time"])
+        )
         user_info = store_user_info_initial(user_ratings, user_cache_papers["cache_n"])
 
         try:
@@ -236,6 +242,7 @@ class Evaluator:
                     user_info=user_info,
                     user_results_dict=user_results_dict,
                     user_predictions_dict=user_predictions_dict,
+                    sessions_min_times=sessions_min_times,
                 )
 
             elif self.config["evaluation"] == Evaluation.CROSS_VALIDATION:
@@ -247,6 +254,7 @@ class Evaluator:
                     user_info=user_info,
                     user_results_dict=user_results_dict,
                     user_predictions_dict=user_predictions_dict,
+                    sessions_min_times=sessions_min_times,
                 )
 
             elif self.config["evaluation"] == Evaluation.SLIDING_WINDOW:
@@ -257,6 +265,7 @@ class Evaluator:
                     user_info=user_info,
                     user_results_dict=user_results_dict,
                     user_predictions_dict=user_predictions_dict,
+                    sessions_min_times=sessions_min_times,
                 )
 
             save_user_info(self.config["outputs_dir"], user_id, user_info)
@@ -276,6 +285,7 @@ class Evaluator:
         user_info: dict,
         user_results_dict: dict,
         user_predictions_dict: dict,
+        sessions_min_times: dict,
     ) -> None:
         train_ratings, val_ratings, removed_ratings = split_ratings(user_ratings)
         update_user_info_split(user_info, train_ratings, val_ratings)
@@ -325,6 +335,7 @@ class Evaluator:
             train_negrated_ranking_idxs=train_negrated_ranking_idxs,
             val_negrated_ranking_idxs=val_negrated_ranking_idxs,
             user_info=user_info,
+            sessions_min_times=sessions_min_times,
             save_users_predictions_bool=self.config["save_users_predictions"],
         )
         user_results_dict[0] = user_results
@@ -344,7 +355,8 @@ class Evaluator:
         user_info: dict,
         user_results_dict: dict,
         user_predictions_dict: dict,
-    ) -> None:        
+        sessions_min_times: dict,
+    ) -> None:
         split = self.cross_val.split(X=range(len(user_ratings)), y=user_ratings["rating"])
         train_rated_ratios = []
         for fold_idx, (fold_train_idxs, fold_val_idxs) in enumerate(split):
@@ -395,6 +407,7 @@ class Evaluator:
                 train_negrated_ranking_idxs=train_negrated_ranking_idxs,
                 val_negrated_ranking_idxs=val_negrated_ranking_idxs,
                 user_info=user_info,
+                sessions_min_times=sessions_min_times,
                 save_users_predictions_bool=self.config["save_users_predictions"],
             )
             user_results_dict[fold_idx] = fold_results
@@ -411,6 +424,7 @@ class Evaluator:
         val_negative_samples_embeddings: np.ndarray,
         user_info: dict,
         user_results_dict: dict,
+        sessions_min_times: dict,
         user_predictions_dict: dict,
     ) -> None:
         train_ratings, val_ratings, removed_ratings = split_ratings(user_ratings)
@@ -462,6 +476,7 @@ class Evaluator:
             train_negrated_ranking_idxs=train_negrated_ranking_idxs,
             val_negrated_ranking_idxs=val_negrated_ranking_idxs,
             user_info=user_info,
+            sessions_min_times=sessions_min_times,
             save_users_predictions_bool=self.config["save_users_predictions"],
         )
         user_results_dict[0] = user_results

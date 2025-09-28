@@ -607,7 +607,7 @@ def plot_score(
     vertical_line: float = None,
     results_tail_df: pd.DataFrame = None,
 ) -> tuple:
-    score_name, subtitle = score.name.lower(), SCORES_DICT[score]["name"]
+    score_name, subtitle = score.name.lower(), SCORES_DICT[score]["abbreviation"]
     alpha_plot, alpha_fill, line_width, X_hyperparameter = (
         PLOT_CONSTANTS["ALPHA_PLOT"],
         PLOT_CONSTANTS["ALPHA_FILL"],

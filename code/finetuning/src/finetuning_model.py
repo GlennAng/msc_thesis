@@ -28,6 +28,8 @@ class FinetuningModel(nn.Module):
         users_embeddings: nn.Embedding,
         categories_embeddings_l1: nn.Embedding,
         categories_embeddings_l2: nn.Embedding = None,
+        categories_l1_weight: nn.Parameter = None,
+        categories_l2_weight: nn.Parameter = None,
         val_users_embeddings_idxs: torch.Tensor = None,
         n_unfreeze_layers: int = 4,
         unfreeze_word_embeddings: bool = False,
@@ -39,6 +41,9 @@ class FinetuningModel(nn.Module):
         self.users_embeddings = users_embeddings
         self.categories_embeddings_l1 = categories_embeddings_l1
         self.categories_embeddings_l2 = categories_embeddings_l2
+        if self.categories_embeddings_l2 is not None:
+            self.categories_l1_weight = categories_l1_weight
+            self.categories_l2_weight = categories_l2_weight
 
         self.device = next(transformer_model.parameters()).device
         self._validate_and_setup_components(val_users_embeddings_idxs)
@@ -52,6 +57,8 @@ class FinetuningModel(nn.Module):
         ]
         if self.categories_embeddings_l2 is not None:
             components.append(self.categories_embeddings_l2.weight)
+            components.append(self.categories_l1_weight)
+            components.append(self.categories_l2_weight)
         if val_users_embeddings_idxs is not None:
             self.val_users_embeddings_idxs = val_users_embeddings_idxs.to(self.device)
             components.append(self.val_users_embeddings_idxs)
@@ -159,8 +166,11 @@ class FinetuningModel(nn.Module):
             return papers_embeddings
         categories_embeddings = self.categories_embeddings_l1(category_l1_tensor)
         if self.categories_embeddings_l2 is not None and category_l2_tensor is not None:
+            categories_embeddings = self.categories_l1_weight * categories_embeddings
             categories_embeddings_l2 = self.categories_embeddings_l2(category_l2_tensor)
+            categories_embeddings_l2 = self.categories_l2_weight * categories_embeddings_l2
             categories_embeddings = categories_embeddings + categories_embeddings_l2
+        categories_embeddings = F.normalize(categories_embeddings, p=2, dim=1)
         papers_embeddings = torch.cat((papers_embeddings, categories_embeddings), dim=1)
         return papers_embeddings
 
@@ -195,14 +205,15 @@ class FinetuningModel(nn.Module):
         categories_dot_products = None
         if categories_cosine_term:
             categories_dot_products = self._compute_categories_repulsion_loss(
-                negative_samples_embeddings, category_l1_tensor)
+                negative_samples_embeddings, category_l1_tensor
+            )
         return dot_products, categories_dot_products
 
     def _compute_categories_repulsion_loss(
         self,
         negative_samples_embeddings: torch.Tensor,
         category_l1_tensor: torch.Tensor,
-        margin: float = 0.4
+        margin: float = 0.4,
     ) -> torch.Tensor:
         non_cs_mask = category_l1_tensor != CS_ID
         if non_cs_mask.sum() <= 1:
@@ -210,7 +221,9 @@ class FinetuningModel(nn.Module):
         non_cs_embeddings = negative_samples_embeddings[non_cs_mask]
         non_cs_categories = category_l1_tensor[non_cs_mask]
         category_mask = non_cs_categories.unsqueeze(0) != non_cs_categories.unsqueeze(1)
-        diagonal_mask = ~torch.eye(len(non_cs_categories), dtype=torch.bool, device=category_mask.device)
+        diagonal_mask = ~torch.eye(
+            len(non_cs_categories), dtype=torch.bool, device=category_mask.device
+        )
         mask = category_mask & diagonal_mask
         normalized_embeddings = F.normalize(non_cs_embeddings, p=2, dim=1)
         similarity_matrix = torch.mm(normalized_embeddings, normalized_embeddings.t())
@@ -278,6 +291,8 @@ class FinetuningModel(nn.Module):
                 self.categories_embeddings_l2.state_dict(),
                 model_path / "categories_embeddings_l2.pt",
             )
+            torch.save(self.categories_l1_weight, model_path / "categories_l1_weight.pt")
+            torch.save(self.categories_l2_weight, model_path / "categories_l2_weight.pt")
 
     def count_transformer_layers(self) -> int:
         return len(self.transformer_model.encoder.layer)
@@ -616,6 +631,7 @@ def load_finetuning_model(
         device=device,
         embeddings_path=finetuning_model_path / "users_embeddings.pt",
     )
+    categories_l1_weight, categories_l2_weight = None, None
     categories_embeddings_l2 = None
     if include_categories_embeddings_l2:
         tensors_parameters_dict.update(
@@ -627,6 +643,22 @@ def load_finetuning_model(
             device=device,
             embeddings_path=finetuning_model_path / "categories_embeddings_l2.pt",
         )
+        if (finetuning_model_path / "categories_l1_weight.pt").exists():
+            categories_l1_weight = torch.load(
+                finetuning_model_path / "categories_l1_weight.pt",
+                map_location=device,
+                weights_only=True,
+            )
+            categories_l1_weight = nn.Parameter(categories_l1_weight.to(device))
+            categories_l2_weight = torch.load(
+                finetuning_model_path / "categories_l2_weight.pt",
+                map_location=device,
+                weights_only=True,
+            )
+            categories_l2_weight = nn.Parameter(categories_l2_weight.to(device))
+        else:
+            categories_l1_weight = nn.Parameter(torch.tensor(1.0, device=device))
+            categories_l2_weight = nn.Parameter(torch.tensor(1.0, device=device))
 
     return FinetuningModel(
         transformer_model=transformer_model,
@@ -634,6 +666,8 @@ def load_finetuning_model(
         users_embeddings=users_embeddings,
         categories_embeddings_l1=categories_embeddings_l1,
         categories_embeddings_l2=categories_embeddings_l2,
+        categories_l1_weight=categories_l1_weight,
+        categories_l2_weight=categories_l2_weight,
         val_users_embeddings_idxs=val_users_embeddings_idxs,
         n_unfreeze_layers=n_unfreeze_layers,
         unfreeze_word_embeddings=unfreeze_word_embeddings,

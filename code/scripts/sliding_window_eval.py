@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--logreg_solver", type=str, default="lbfgs")
     parser.add_argument("--logreg_temporal_decay", type=str, default="none")
     parser.add_argument("--logreg_temporal_decay_normalization", type=str, default="jointly")
-    parser.add_argument("--logreg_temporal_decay_param", type=float, default=1.0)
+    parser.add_argument("--logreg_temporal_decay_param", type=float, default=0.01)
 
     args_dict = vars(parser.parse_args())
     return args_dict
@@ -95,7 +95,11 @@ def process_random_states(args_dict: dict) -> None:
         ef = args_dict["embed_function"]
         if ef in [EmbedFunction.MEAN_POS_POOLING, EmbedFunction.NEURAL_PRECOMPUTED]:
             args_dict["embed_random_states"] = [VAL_RANDOM_STATE]
-        elif ef == EmbedFunction.LOGISTIC_REGRESSION:
+        elif ef in [
+            EmbedFunction.LOGISTIC_REGRESSION,
+            EmbedFunction.MAX_POS_POOLING_SCORES,
+            EmbedFunction.MEAN_POS_POOLING_SCORES,
+        ]:
             args_dict["embed_random_states"] = TEST_RANDOM_STATES
 
 
@@ -139,12 +143,19 @@ def save_eval_settings(args_dict: dict) -> None:
         json.dump(args_dict_for_json, f, indent=4)
 
 
-def compute_users_embeddings(args_dict: dict) -> None:
+def compute_users_embeddings_or_scores(args_dict: dict) -> None:
+    if args_dict["embed_function"] in [
+        EmbedFunction.MAX_POS_POOLING_SCORES,
+        EmbedFunction.MEAN_POS_POOLING_SCORES,
+    ]:
+        function_call = "code.sequence.src.eval.compute_users_scores"
+    else:
+        function_call = "code.sequence.src.eval.compute_users_embeddings"
     for random_state in args_dict["embed_random_states"]:
         args = [
             sys.executable,
             "-m",
-            "code.sequence.src.eval.compute_users_embeddings",
+            function_call,
             "--eval_settings_path",
             str(args_dict["eval_settings_path"]),
             "--random_state",
@@ -265,6 +276,7 @@ def move_outputs_folder(args_dict: dict) -> None:
         if dest_path.exists():
             shutil.rmtree(dest_path)
         shutil.move(str(args_dict["eval_data_folder"] / "outputs"), str(dest_path))
+        shutil.rmtree(args_dict["eval_data_folder"])
         print(f"Moved outputs folder to {dest_path}")
 
 
@@ -274,7 +286,7 @@ if __name__ == "__main__":
     os.makedirs(args_dict["eval_data_folder"], exist_ok=True)
     save_eval_settings(args_dict=args_dict)
     if not args_dict["use_existing_users_embeddings"]:
-        compute_users_embeddings(args_dict=args_dict)
+        compute_users_embeddings_or_scores(args_dict=args_dict)
     start_time = time.time()
     run_logreg_configs(args_dict=args_dict)
     time_taken = time.time() - start_time

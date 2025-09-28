@@ -6,8 +6,10 @@ from ....src.project_paths import ProjectPaths
 
 
 class EmbedFunction(Enum):
-    MEAN_POS_POOLING = auto()
     LOGISTIC_REGRESSION = auto()
+    MAX_POS_POOLING_SCORES = auto()
+    MEAN_POS_POOLING = auto()
+    MEAN_POS_POOLING_SCORES = auto()
     NEURAL_PRECOMPUTED = auto()
 
 

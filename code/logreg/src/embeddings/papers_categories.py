@@ -99,7 +99,8 @@ def attach_papers_categories(
     glove_matrix = np.zeros((n_papers, dim), dtype=embeddings.dtype)
     for paper_id, paper_category in papers_ids_to_categories.items():
         glove_matrix[papers_ids_to_idxs[paper_id], :] = glove_categories_embeddings[paper_category]
-    return np.concatenate((embeddings, glove_matrix), axis=1)
+    concatenated = np.concatenate((embeddings, glove_matrix), axis=1)
+    return concatenated
 
 
 if __name__ == "__main__":

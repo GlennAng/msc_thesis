@@ -15,7 +15,6 @@ from ....logreg.src.training.weights_handler import Weights_Handler
 from ....src.load_files import load_papers, load_users_significant_categories
 from .logreg_temporal_decay import (
     TemporalDecay,
-    TemporalDecayNormalization,
     get_sample_weights_temporal_decay,
     get_temporal_decay_from_arg,
     get_temporal_decay_normalization_from_arg,

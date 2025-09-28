@@ -76,6 +76,7 @@ def get_user_train_set(
     soft_constraint_max_n_train_days: int = None,
     remove_negrated_from_history: bool = False,
     session_min_time: pd.Timestamp = None,
+    ignore_hard_constraint_min_n_train_posrated: bool = False,
 ) -> pd.DataFrame:
     if session_min_time is None:
         session_min_time = compute_session_min_time(user_ratings, session_id)
@@ -88,9 +89,10 @@ def get_user_train_set(
             user_train_set = user_train_set.reset_index(drop=True)
     n_pos_train = user_train_set[user_train_set["rating"] > 0].shape[0]
     if n_pos_train < hard_constraint_min_n_train_posrated:
-        raise ValueError(
-            f"Fewer than {hard_constraint_min_n_train_posrated} positive ratings in training set. Only {n_pos_train}."
-        )
+        if not ignore_hard_constraint_min_n_train_posrated:
+            raise ValueError(
+                f"Fewer than {hard_constraint_min_n_train_posrated} positive ratings in training set. Only {n_pos_train}."
+            )
     if soft_constraint_max_n_train_days is None and soft_constraint_max_n_train_sessions is None:
         return user_train_set
 
@@ -111,6 +113,8 @@ def get_user_train_set(
         n_pos_train_c = (user_train_set_c["rating"] > 0).sum()
         if n_pos_train_c >= hard_constraint_min_n_train_posrated:
             return user_train_set_c
+    if ignore_hard_constraint_min_n_train_posrated:
+        return user_train_set[user_train_set["session_id"] >= sessions_to_try[-1]]
     raise ValueError(
         f"Fewer than {hard_constraint_min_n_train_posrated} positive ratings in training set. Only {n_pos_train}."
     )

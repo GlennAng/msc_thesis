@@ -18,6 +18,8 @@ from ....finetuning.src.finetuning_compare_embeddings import (
 )
 from ..training.users_ratings import N_NEGRATED_RANKING
 
+FIRST_LAST_PERCENT = 25
+
 
 class Score_Type(Enum):
     DEFAULT = auto()
@@ -657,21 +659,37 @@ SCORES_DICT = {
         "calculator": calculate_info_nce,
         "temperature": "2",
     },
-    "NDCG_BEFORE_MIDDLE_SESSION": {
-        "abbreviation": "NDCG\n< Mid S",
+    f"NDCG_FIRST_{FIRST_LAST_PERCENT}_PERCENT_SESSIONS": {
+        "abbreviation": f"NDCG\nF{FIRST_LAST_PERCENT}% S",
         "type": Score_Type.RANKING_SESSION,
         "increase_better": True,
         "page": 3,
         "lookup": "NDCG_ALL",
-        "selection": "before_middle",
+        "selection": "first_sessions",
     },
-    "NDCG_AFTER_MIDDLE_SESSION": {
-        "abbreviation": "NDCG\n> Mid S",
+    f"NDCG_LAST_{FIRST_LAST_PERCENT}_PERCENT_SESSIONS": {
+        "abbreviation": f"NDCG\nL{FIRST_LAST_PERCENT}% S",
         "type": Score_Type.RANKING_SESSION,
         "increase_better": True,
         "page": 3,
         "lookup": "NDCG_ALL",
-        "selection": "after_middle",
+        "selection": "last_sessions",
+    },
+    f"NDCG_FIRST_{FIRST_LAST_PERCENT}_PERCENT_TIMES": {
+        "abbreviation": f"NDCG\nF{FIRST_LAST_PERCENT}% T",
+        "type": Score_Type.RANKING_SESSION,
+        "increase_better": True,
+        "page": 3,
+        "lookup": "NDCG_ALL",
+        "selection": "first_times",
+    },
+    f"NDCG_LAST_{FIRST_LAST_PERCENT}_PERCENT_TIMES": {
+        "abbreviation": f"NDCG\nL{FIRST_LAST_PERCENT}% T",
+        "type": Score_Type.RANKING_SESSION,
+        "increase_better": True,
+        "page": 3,
+        "lookup": "NDCG_ALL",
+        "selection": "last_times",
     },
     "NDCG_STD_PER_SESSION": {
         "abbreviation": "NDCG\nStd S",
@@ -688,14 +706,6 @@ SCORES_DICT = {
         "page": 3,
         "lookup": "NDCG_ALL",
         "selection": "first",
-    },
-    "NDCG_ALL_MIDDLE_SESSION": {
-        "abbreviation": "NDCG\nMid S",
-        "type": Score_Type.RANKING_SESSION,
-        "increase_better": True,
-        "page": 3,
-        "lookup": "NDCG_ALL",
-        "selection": "middle",
     },
     "NDCG_ALL_LAST_SESSION": {
         "abbreviation": "NDCG\nLast S",
@@ -984,6 +994,10 @@ def get_score_ranking_session(
     scores_per_session: dict,
     avgs_per_session: dict,
     selection: str,
+    largest_session_idx_to_include_for_first_sessions: int = None,
+    smallest_session_idx_to_include_for_last_sessions: int = None,
+    largest_session_idx_to_include_for_first_times: int = None,
+    smallest_session_idx_to_include_for_last_times: int = None,
 ) -> float:
     distinct_sessions_ids = list(avgs_per_session.keys())
     if selection in ["first", "middle", "last"]:
@@ -1002,12 +1016,19 @@ def get_score_ranking_session(
             return float(np.median(values))
         elif selection == "std":
             return float(np.std(values))
-    elif selection in ["before_middle", "after_middle"]:
-        middle_session_id_idx = len(distinct_sessions_ids) // 2
-        if selection == "before_middle":
-            sessions_ids = distinct_sessions_ids[:middle_session_id_idx]
-        elif selection == "after_middle":
-            sessions_ids = distinct_sessions_ids[middle_session_id_idx:]
+    elif selection in ["first_sessions", "last_sessions", "first_times", "last_times"]:
+        if selection == "first_sessions":
+            sessions_ids = distinct_sessions_ids[
+                : largest_session_idx_to_include_for_first_sessions + 1
+            ]
+        elif selection == "last_sessions":
+            sessions_ids = distinct_sessions_ids[smallest_session_idx_to_include_for_last_sessions:]
+        elif selection == "first_times":
+            sessions_ids = distinct_sessions_ids[
+                : largest_session_idx_to_include_for_first_times + 1
+            ]
+        elif selection == "last_times":
+            sessions_ids = distinct_sessions_ids[smallest_session_idx_to_include_for_last_times:]
         if len(sessions_ids) == 0:
             sessions_ids = distinct_sessions_ids
         values = []

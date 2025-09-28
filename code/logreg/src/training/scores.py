@@ -5,6 +5,7 @@ from sklearn.linear_model import LinearRegression
 
 from ..embeddings.embedding import Embedding
 from .scores_definitions import (
+    FIRST_LAST_PERCENT,
     SCORES_BY_TYPE,
     SCORES_DICT,
     Score,
@@ -16,6 +17,8 @@ from .scores_definitions import (
     get_score_ranking,
     get_score_ranking_session,
 )
+
+FIRST_LAST_PERCENT = float(FIRST_LAST_PERCENT) / 100.0
 
 
 def fill_user_predictions_dict(val_data_dict: dict) -> dict:
@@ -186,7 +189,6 @@ def get_user_outputs_dict(
     val_negrated_ranking_idxs: np.ndarray = None,
     negative_samples_embeddings: np.ndarray = None,
 ) -> dict:
-    #adapt this for multi interest
     user_outputs_dict = {}
     if "X_train_rated" in val_data_dict:
         X_train_rated = val_data_dict["X_train_rated"]
@@ -369,6 +371,7 @@ def score_user_models(
     train_negrated_ranking_idxs: np.ndarray,
     val_negrated_ranking_idxs: np.ndarray,
     user_info: dict,
+    sessions_min_times: dict,
     save_users_predictions_bool: bool = False,
 ) -> tuple:
     user_results, user_predictions = {}, {}
@@ -387,6 +390,7 @@ def score_user_models(
             val_data_dict=val_data_dict,
             user_outputs_dict=user_outputs_dict,
             user_info=user_info,
+            sessions_min_times=sessions_min_times,
         )
         if save_users_predictions_bool:
             user_predictions = gather_user_predictions(user_predictions, user_outputs_dict, i)
@@ -403,6 +407,7 @@ def score_user_models_sliding_window(
     train_negrated_ranking_idxs: np.ndarray,
     val_negrated_ranking_idxs: np.ndarray,
     user_info: dict,
+    sessions_min_times: dict,
     save_users_predictions_bool: bool = False,
 ) -> tuple:
     user_results, user_predictions = {}, {}
@@ -420,6 +425,7 @@ def score_user_models_sliding_window(
         val_data_dict=val_data_dict,
         user_outputs_dict=user_outputs_dict,
         user_info=user_info,
+        sessions_min_times=sessions_min_times,
     )
     if save_users_predictions_bool:
         user_predictions = gather_user_predictions(user_predictions, user_outputs_dict, 0)
@@ -821,12 +827,67 @@ def get_avgs_ranking_per_session(scores_ranking_per_session: dict) -> dict:
     return avgs_ranking_per_session
 
 
+def get_first_last_sessions_idxs(
+    scores_ranking_per_session: dict, sessions_min_times: dict
+) -> tuple:
+    first_key = list(scores_ranking_per_session.keys())[0]
+    relevant_sessions_ids = np.array(list(scores_ranking_per_session[first_key].keys()))
+    n_sessions = len(relevant_sessions_ids)
+
+    n_sessions_to_include_for_sessions = max(1, int(n_sessions * FIRST_LAST_PERCENT))
+    largest_session_idx_to_include_for_first_sessions = n_sessions_to_include_for_sessions - 1
+    smallest_session_idx_to_include_for_last_sessions = (
+        n_sessions - n_sessions_to_include_for_sessions
+    )
+
+    sessions_min_times = np.array([sessions_min_times[k] for k in relevant_sessions_ids])
+    assert len(sessions_min_times) == len(relevant_sessions_ids)
+    min_time, max_time = sessions_min_times.min(), sessions_min_times.max()
+    total_time_span = pd.Timedelta(max_time - min_time)
+    largest_time_to_include_for_first_times = min_time + total_time_span * FIRST_LAST_PERCENT
+    smallest_time_to_include_for_last_times = max_time - total_time_span * FIRST_LAST_PERCENT
+    
+    sessions_ids_before_largest_time = relevant_sessions_ids[
+        sessions_min_times <= largest_time_to_include_for_first_times
+    ]
+    assert len(sessions_ids_before_largest_time) > 0
+    largest_session_idx_to_include_for_first_times = len(sessions_ids_before_largest_time) - 1
+    sessions_ids_after_smallest_time = relevant_sessions_ids[
+        sessions_min_times >= smallest_time_to_include_for_last_times
+    ]
+    assert len(sessions_ids_after_smallest_time) > 0
+    smallest_session_idx_to_include_for_last_times = (
+        n_sessions - len(sessions_ids_after_smallest_time)
+    )
+    return (
+        largest_session_idx_to_include_for_first_sessions,
+        smallest_session_idx_to_include_for_last_sessions,
+        largest_session_idx_to_include_for_first_times,
+        smallest_session_idx_to_include_for_last_times,
+    )
+
+
+def get_mid_time_session_idx(scores_ranking_per_session: dict, sessions_min_times: dict) -> int:
+    first_key = list(scores_ranking_per_session.keys())[0]
+    relevant_sessions_ids = np.array(list(scores_ranking_per_session[first_key].keys())).tolist()
+    sessions_min_times = {k: v for k, v in sessions_min_times.items() if k in relevant_sessions_ids}
+    times = np.array(list(sessions_min_times.values()))
+    mid_time = pd.Timestamp((times.min().value + times.max().value) / 2)
+    session_ids = np.array(list(sessions_min_times.keys()))
+    sessions_ids_before_mid_time = session_ids[times <= mid_time]
+    if len(sessions_ids_before_mid_time) == 0:
+        return 0
+    mid_time_session_id = sessions_ids_before_mid_time[-1]
+    return relevant_sessions_ids.index(mid_time_session_id)
+
+
 def get_scores_ranking_session(
     user_scores: list,
     scores_to_indices_dict: dict,
     scores_ranking_before_avging_train: dict,
     scores_ranking_before_avging_val: dict,
     relevant_idxs: dict,
+    sessions_min_times: dict,
 ) -> None:
     scores_ranking_per_session = get_scores_ranking_per_session(
         scores_ranking_before_avging_train=scores_ranking_before_avging_train,
@@ -834,6 +895,20 @@ def get_scores_ranking_session(
         relevant_idxs=relevant_idxs,
     )
     avgs_ranking_per_session = get_avgs_ranking_per_session(scores_ranking_per_session)
+
+    (
+        largest_session_idx_to_include_for_first_sessions_train_rated,
+        smallest_session_idx_to_include_for_last_sessions_train_rated,
+        largest_session_idx_to_include_for_first_times_train_rated,
+        smallest_session_idx_to_include_for_last_times_train_rated,
+    ) = get_first_last_sessions_idxs(scores_ranking_per_session["train_rated"], sessions_min_times)
+    (
+        largest_session_idx_to_include_for_first_sessions_val,
+        smallest_session_idx_to_include_for_last_sessions_val,
+        largest_session_idx_to_include_for_first_times_val,
+        smallest_session_idx_to_include_for_last_times_val,
+    ) = get_first_last_sessions_idxs(scores_ranking_per_session["val"], sessions_min_times)
+
     for score in SCORES_BY_TYPE[Score_Type.RANKING_SESSION]:
         lookup = SCORES_DICT[score]["lookup"]
         selection = SCORES_DICT[score]["selection"]
@@ -841,11 +916,19 @@ def get_scores_ranking_session(
             scores_per_session=scores_ranking_per_session["train_rated"][lookup],
             avgs_per_session=avgs_ranking_per_session["train_rated"][lookup],
             selection=selection,
+            largest_session_idx_to_include_for_first_sessions=largest_session_idx_to_include_for_first_sessions_train_rated,
+            smallest_session_idx_to_include_for_last_sessions=smallest_session_idx_to_include_for_last_sessions_train_rated,
+            largest_session_idx_to_include_for_first_times=largest_session_idx_to_include_for_first_times_train_rated,
+            smallest_session_idx_to_include_for_last_times=smallest_session_idx_to_include_for_last_times_train_rated,
         )
         val_score = get_score_ranking_session(
             scores_per_session=scores_ranking_per_session["val"][lookup],
             avgs_per_session=avgs_ranking_per_session["val"][lookup],
             selection=selection,
+            largest_session_idx_to_include_for_first_sessions=largest_session_idx_to_include_for_first_sessions_val,
+            smallest_session_idx_to_include_for_last_sessions=smallest_session_idx_to_include_for_last_sessions_val,
+            largest_session_idx_to_include_for_first_times=largest_session_idx_to_include_for_first_times_val,
+            smallest_session_idx_to_include_for_last_times=smallest_session_idx_to_include_for_last_times_val,
         )
         fill_user_scores_with_score(
             score, user_scores, scores_to_indices_dict, train_score, val_score
@@ -905,6 +988,7 @@ def get_user_scores(
     val_data_dict: dict,
     user_outputs_dict: dict,
     user_info: dict,
+    sessions_min_times: dict,
 ) -> tuple:
     user_scores = [None] * len(scores_to_indices_dict)
 
@@ -958,6 +1042,7 @@ def get_user_scores(
         scores_ranking_before_avging_train=scores_ranking_before_avging_train,
         scores_ranking_before_avging_val=scores_ranking_before_avging_val,
         relevant_idxs=relevant_idxs,
+        sessions_min_times=sessions_min_times,
     )
     get_scores_info(
         user_scores=user_scores,

@@ -38,89 +38,40 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 |------------|------------------|------|-----|
 | gte-large-en-v1.5 | 80.32 | 80.21 | 82.54 |
 | Qwen3-Embedding-8B | 83.05 | 82.95 | **85.03** |
-| gte-large-en-v1.5 fine-tune no cat loss | 83.13 | 83.16 | 82.55 |
-| gte-large-en-v1.5 fine-tune cat loss | **83.23** | **83.19** | 83.99 |
+| gte-large-en-v1.5 fine-tune no cat loss | 83.21 | 83.27 | 82.02 |
+| gte-large-en-v1.5 fine-tune cat loss | **83.33** | **83.28** | 84.20 |
 
 ## Cosine Similarity Changes between Physics and other Categories
 | Category | before Fine-tuning | after Fine-tuning w/o Cat Loss | after Fine-tuning w/ Cat Loss |
 |------------|------------------|------|-----|
-| Computer Science | 20.44 | 13.28 | 14.54
-| Medicine | 25.19 | 50.09 | 31.53
-| Linguistics | 29.54 | 65.38 | 36.56
-| Psychology | 33.09 | 57.94 | 36.61
-| Biology | 39.36 | 63.51 | 39.47
-| Astronomy | 39.52 | 71.77 | 43.53
-| Physics | 57.18 | 85.96 | 64.07
+| Computer Science | 20.44 | 16.24 | 17.21
+| Medicine | 25.19 | 50.95 | 31.98
+| Linguistics | 29.54 | 65.80 | 38.28
+| Psychology | 33.09 | 58.73 | 37.81
+| Biology | 39.36 | 65.00 | 41.08
+| Astronomy | 39.52 | 72.81 | 45.42
+| Physics | 57.18 | 86.96 | 64.53
 
 ## Sliding Window Evaluation NDCG (666 Users)
-*First/Last Sess:* The first/last Validation Session with at least one Upvote in it  
-*HiSess:* The 75 Users who have the largest number of Validation Sessions with at least one Upvote in it
+*HiVotes:* The 75 Users who have the largest number of Validation Upvotes
 
-| Model Name | Total | First Sess | Last Sess | HiSess Total | HiSess First Sess | HiSess Last Sess 
+| Model Name | Total | First 25% Sess | Last 25% Sess | HiVotes Total | HiVotes First 25% Sess | HiVotes Last 25% Sess 
 |------------|------------------|------|-----|-----|-----|-----|
-| LogReg w/o Sliding Window | 77.27 | 79.10 | 77.43 | 77.25 | 86.08 | 74.49
-| LogReg w/ Sliding Window | 79.83 | 79.11 | 81.55 | 82.34 | 86.17 | 84.70
-| MeanPos w/o Sliding Window | 75.97 | 77.44 | 76.35 | 75.64 | 83.14 | 74.66
-| MeanPos w/ Sliding Window | 77.30 | 77.44 | 78.34 | 78.34 | 83.14 | 78.71
-| TF-IDF w/ Sliding Window | 73.19 | 73.47 | 74.40 | 75.49 | 77.55 | 75.63
+| LogReg w/ Sliding Window | 79.83 | 79.39 | 81.39 | 82.26 | 81.70 | 83.27
+| LogReg w/o Sliding Window | 77.27 | 78.63 | 77.46 | 77.18 | 78.93 | 76.40
+| MeanPos w/ Sliding Window | 77.30 | 77.40 | 78.03 | 78.37 | 78.72 | 78.55
+| MeanPos w/o Sliding Window | 75.97 | 76.93 | 75.94 | 76.07 | 77.25 | 75.59
+| TF-IDF w/ Sliding Window | 73.19 | 72.86 | 74.51 | 75.76 | 76.42 | 76.80
+| TF-IDF w/o Sliding Window | 70.27 | 72.03 | 70.03 | 69.86 | 72.95 | 68.94
 
 
 ## Temporal Decay Evaluation NDCG (666 Users)
 *HiTime:* The 75 Users who have the largest time span between Upvotes in their Validation Set
-| Model Name | Total | First Sess | Last Sess | HiTime Total | HiTime First Sess | HiTime Last Sess 
+| Model Name | Total | First 25% Time | Last 25% Time | HiTime Total | HiTime First 25% Sess | HiTime Last 25% Sess 
 |------------|------------------|------|-----|-----|-----|-----|
-| No Decay | 79.83 | 79.11 | 81.55 | 78.20 | 79.65 | 79.39
-| No Decay, 200 Days Max | 79.91 | 79.12 | 81.81 | 78.77 | 79.83 | 79.99
-| Exponential Decay, Separate Normalization, Param 0.01 | 80.11 | 79.21 | 82.36 | 78.92 | 79.76 | 81.37
-| Exponential Decay, Joint Normalization, Param 0.01 | 80.10 | 79.17 | 82.31 | 78.93 | 79.92 | 81.27
-
-
-
-
-## LogReg Sliding Window NDCG (drop ratings which are too old (but at least 10 Train Positives))
-We are looking for justification to use the entire context, otherwise one can reduce training time at same performance.  
-
-| Max. Number of Days | Total | First Sess | Last Sess | HiSess Total | HiSess First Sess | HiSess Last Sess 
-|------------|------------------|------|-----|-----|-----|-----|
-| 30 | 80.89 | 80.69 | 81.65 | 82.64 | 83.49 | 82.56
-| 60 | 80.98 | 80.57 | 81.83 | 83.13 | 83.15 | 83.96
-| 100 | 81.10 | 80.67 | **82.08** | 83.58 | 84.31 | **84.85**
-| 250 | **81.19** | 80.90 | 82.00 | **83.72** | 84.77 | 84.72
-| 500 | 81.13 | **80.91** | 81.80 | 83.48 | **85.02** | 84.31
-| Infinity | 81.02 | 80.83 | 81.67 | 83.33 | 84.79 | 84.04
-
-## MeanPos Sliding Window NDCG (drop ratings which are too old (but at least 1 Train Positive))
-| Max. Number of Sessions | Total | First Sess | Last Sess
-|------------|------------------|------|-----
-| 1 | 74.62 | 76.45 | 74.19
-| 3 | 78.09 | 78.42 | 78.47
-| 5 | 78.29 | **78.49** | **79.16**
-| 10 | **78.30** | 78.44 | 78.73
-| 20 | 78.13 | 78.40 | 78.64
-| 50 | 77.77 | 78.18 | 78.07
-| Infinity | 77.77 | 78.19 | 78.02
-
-## Strong Users Group: The 100 Users with the largest Sliding Validation Positive Session Cosine Similarities
-- NDCG: 86.08 (Average 81.02)
-- NDCG First Val Session: 87.34 (Average 80.83)
-- NDCG Last Val Session: 85.51 (Average 81.67)
-- Training Positives: 51.8 (Average 78.3)
-- Validation Positive Sessions: 5.1 (Average 6.0)
-- Validation Positive Days: 55.8 (Average 50.1)
-- Train Cosine Sliding Window: 46.8 (Average 34.31)
-- Validation Cosine Sliding Window: 53.29 (Average 34.27)
-
-## High Sessions vs High Votes
-HiSess: 19.7 Val Pos Sessions, 32.9 Val Pos Ratings, 138.4 Val Pos Days, 33.67 Val Cosine  
-HiVotes: 6.9 Val Pos Sessions, 58.4 Val Pos Ratings, 50.1 Val Pos Days, 31.41 Val Cosine
-
-MeanPos:  
-HiSess (NDCG): Total 80.28, First S 79.57, Last S 82.53, Random S 82.15  
-HiVotes (NDCG): Total 78.29, First S 83.08, Last S 79.96, Random S 79.27
-
-LogReg:  
-HiSess (NDCG): Total 83.39, First S 83.48, Last S 84.17, Random S: 86.62  
-HiVotes (NDCG): Total 81.02, First S 84.24, Last S 83.09, Random S: 83.21
+| No Decay | 79.83 | 79.52 | 81.30 | 78.20 | 77.48 | 79.83
+| No Decay, 200 Days Max | 79.91 | 79.54 | 81.30 | 78.77 | 77.53 | 79.89
+| Exponential Decay, Joint Normalization, Param 0.01 | 80.10 | 79.54 | 81.73 | 78.93 | 77.68 | 80.85
 
 
 # II. Experiment Setup
