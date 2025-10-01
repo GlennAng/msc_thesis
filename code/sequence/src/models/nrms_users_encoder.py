@@ -6,35 +6,117 @@ from .attention import AdditiveAttention
 from .users_encoder import UsersEncoder
 
 
+def get_times_params() -> dict:
+    return {
+        "times_dim": 64,
+        "times_buckets": [100],
+    }
+
+
 class NRMSUsersEncoder(UsersEncoder):
-    def __init__(self, num_heads: int, query_dim: int, embed_dim: int = 356):
+    def __init__(
+        self,
+        num_heads: int,
+        query_dim: int,
+        embed_dim: int = 356,
+        include_negatives: bool = False,
+        include_time_information: bool = False,
+    ):
         super().__init__()
         self.num_heads = num_heads
         self.query_dim = query_dim
         self.embed_dim = embed_dim
-        self.multihead_attention = nn.MultiheadAttention(
-            embed_dim=self.embed_dim, num_heads=self.num_heads, batch_first=True
+        self.transformer_input_dim = embed_dim
+        self.projection_input_dim = embed_dim
+        self.output_dim = embed_dim
+        self.include_negatives = include_negatives
+        self.include_time_information = include_time_information
+
+        if self.include_time_information:
+            self.times_params = get_times_params()
+            self.transformer_input_dim += self.times_params["times_dim"]
+            self.projection_input_dim += self.times_params["times_dim"]
+            self.times_embedding = nn.Embedding(
+                num_embeddings=len(self.times_params["times_buckets"]) + 1,
+                embedding_dim=self.times_params["times_dim"],
+            )
+
+        self.multihead_attention_pos = nn.MultiheadAttention(
+            embed_dim=self.transformer_input_dim, num_heads=self.num_heads, batch_first=True
         )
-        self.additive_attention = AdditiveAttention(input_dim=self.embed_dim, query_dim=self.query_dim)
+        self.additive_attention_pos = AdditiveAttention(
+            input_dim=self.transformer_input_dim, query_dim=self.query_dim
+        )
+        if self.include_negatives:
+            self.multihead_attention_neg = nn.MultiheadAttention(
+                embed_dim=self.transformer_input_dim, num_heads=self.num_heads, batch_first=True
+            )
+            self.additive_attention_neg = AdditiveAttention(
+                input_dim=self.transformer_input_dim, query_dim=self.query_dim
+            )
+            self.projection_input_dim = self.transformer_input_dim * 2
+        if self.projection_input_dim != self.output_dim:
+            self.projection = nn.Linear(self.projection_input_dim, self.output_dim)
 
     def _get_required_batch_keys(self) -> list:
-        return ["x_hist", "batch_hist"]
+        return ["x_hist", "batch_hist", "y_hist", "days_diffs_hist"]
 
     def _encode_user(self, batch: dict) -> torch.Tensor:
-        hist_vector_agg, mask_hist = to_dense_batch(batch["x_hist"], batch["batch_hist"])
-        user_vector, _ = self.multihead_attention(
-            query=hist_vector_agg,
-            key=hist_vector_agg,
-            value=hist_vector_agg,
-            key_padding_mask=~mask_hist,
+        if self.include_time_information:
+            time_buckets = torch.bucketize(
+                batch["days_diffs_hist"],
+                torch.tensor(self.times_params["times_buckets"], device=batch["days_diffs_hist"].device),
+                right=False,
+            )
+            time_embeddings = self.times_embedding(time_buckets)
+            batch["x_hist"] = torch.cat([batch["x_hist"], time_embeddings], dim=-1)
+        if self.include_negatives:
+            pos_mask, neg_mask = batch["y_hist"].bool(), ~batch["y_hist"].bool()
+            pos_batch = {k: v[pos_mask] for k, v in batch.items() if k in self._get_required_batch_keys()}
+            neg_batch = {k: v[neg_mask] for k, v in batch.items() if k in self._get_required_batch_keys()}
+        else:
+            pos_batch = batch
+        
+        pos_vector_agg, pos_mask_hist = to_dense_batch(pos_batch["x_hist"], pos_batch["batch_hist"])
+        user_vector, _ = self.multihead_attention_pos(
+            query=pos_vector_agg,
+            key=pos_vector_agg,
+            value=pos_vector_agg,
+            key_padding_mask=~pos_mask_hist,
         )
-        user_vector = self.additive_attention(user_vector)
+        user_vector = self.additive_attention_pos(user_vector)
+
+        if self.include_negatives:
+            num_users = user_vector.shape[0]
+            device = user_vector.device
+            if neg_mask.any():
+                neg_user_ids_original = neg_batch["batch_hist"].unique().sort()[0]
+                neg_vector_agg, neg_mask_hist = to_dense_batch(neg_batch["x_hist"], neg_batch["batch_hist"])
+                neg_vector_agg = neg_vector_agg[neg_user_ids_original]
+                neg_mask_hist = neg_mask_hist[neg_user_ids_original]
+                neg_user_vector_partial, _ = self.multihead_attention_neg(
+                    query=neg_vector_agg,
+                    key=neg_vector_agg,
+                    value=neg_vector_agg,
+                    key_padding_mask=~neg_mask_hist,
+                )
+                neg_user_vector_partial = self.additive_attention_neg(neg_user_vector_partial)
+                neg_user_vector = torch.zeros(num_users, self.transformer_input_dim, device=device)
+                neg_user_vector[neg_user_ids_original] = neg_user_vector_partial
+            else:
+                neg_user_vector = torch.zeros(num_users, self.transformer_input_dim, device=device)
+            user_vector = torch.cat([user_vector, neg_user_vector], dim=-1)
+        if hasattr(self, "projection"):
+            user_vector = self.projection(user_vector)
         return user_vector
-    
+
     def get_config(self) -> dict:
-        return {
+        config = {
             "users_encoder_type": "NRMSUsersEncoder",
             "num_heads": self.num_heads,
             "query_dim": self.query_dim,
             "embed_dim": self.embed_dim,
+            "include_negatives": self.include_negatives,
+            "include_time_information": self.include_time_information,
         }
+        return config

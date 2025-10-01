@@ -198,7 +198,16 @@ def run_logreg_configs(args_dict: dict) -> None:
         example_config["model_random_state"] = random_state
         example_config["cache_random_state"] = random_state
         example_config["ranking_random_state"] = random_state
-        example_config["users_coefs_path"] = get_users_coefs_path(args_dict, random_state)
+        path = get_users_coefs_path(args_dict, random_state)
+        if args_dict["embed_function"] in [
+            EmbedFunction.MAX_POS_POOLING_SCORES,
+            EmbedFunction.MEAN_POS_POOLING_SCORES,
+        ]:
+            example_config["load_users_coefs"] = False
+            example_config["load_users_scores"] = True
+            example_config["users_scores_path"] = path
+        else:
+            example_config["users_coefs_path"] = path
         config_path = configs_path / f"s_{random_state}.json"
         with open(config_path, "w") as f:
             json.dump(example_config, f)

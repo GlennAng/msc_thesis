@@ -29,6 +29,8 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
             "relevant_users_ids": None,
             "load_users_coefs": False,
             "users_coefs_path": None,
+            "load_users_scores": False,
+            "users_scores_path": None,
         }
     )
     example_config.update(

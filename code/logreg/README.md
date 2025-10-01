@@ -59,6 +59,8 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 |------------|------------------|------|-----|-----|-----|-----|
 | LogReg w/ Sliding Window | 79.83 | 79.39 | 81.39 | 82.26 | 81.70 | 83.27
 | LogReg w/o Sliding Window | 77.27 | 78.63 | 77.46 | 77.18 | 78.93 | 76.40
+| MaxPos w/ Sliding Window | 77.41 | 77.26 | 78.80 | 77.89 | 78.01 | 79.28
+| MaxPos w/o Sliding Window | 75.61 | 76.70 | 75.79 | 76.88 | 76.32 | 74.02
 | MeanPos w/ Sliding Window | 77.30 | 77.40 | 78.03 | 78.37 | 78.72 | 78.55
 | MeanPos w/o Sliding Window | 75.97 | 76.93 | 75.94 | 76.07 | 77.25 | 75.59
 | TF-IDF w/ Sliding Window | 73.19 | 72.86 | 74.51 | 75.76 | 76.42 | 76.80
@@ -72,6 +74,14 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 | No Decay | 79.83 | 79.52 | 81.30 | 78.20 | 77.48 | 79.83
 | No Decay, 200 Days Max | 79.91 | 79.54 | 81.30 | 78.77 | 77.53 | 79.89
 | Exponential Decay, Joint Normalization, Param 0.01 | 80.10 | 79.54 | 81.73 | 78.93 | 77.68 | 80.85
+
+## Neural Network Evaluation (150 Test Users)
+| Model Name | Total | First 25% Time | Last 25% Time |
+| LogReg | 79.40 | 80.76 | 79.83
+| LogReg Exponential Decay | 79.74 | 80.94 | 80.81
+| Neural | 78.23 | 79.84 | 78.10
+| MeanPos | 76.74 | 79.51 | 76.88
+
 
 
 # II. Experiment Setup

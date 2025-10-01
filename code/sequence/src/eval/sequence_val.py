@@ -279,9 +279,10 @@ def process_validation(
 if __name__ == "__main__":
     from ..data.eval_data import load_val_data
     from ..models.recommender import load_recommender_from_scratch
+    from ..models.users_encoder import get_users_encoder_type_from_arg
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    users_encoder_type = "MeanPoolingUsersEncoder"
+    users_encoder_type = get_users_encoder_type_from_arg("mean_pos_pooling")
     embeddings_path = ProjectPaths.sequence_non_finetuned_embeddings_path()
     recommender = load_recommender_from_scratch(
         users_encoder_type=users_encoder_type,

@@ -195,6 +195,15 @@ class ProjectPaths:
     @staticmethod
     def sequence_data_model_datasets_path():
         return ProjectPaths.sequence_data_model_path() / "datasets"
+    
+
+    @staticmethod
+    def sequence_data_model_datasets_standard_train_path():
+        return ProjectPaths.sequence_data_model_datasets_path() / "standard_train.pkl"
+    
+    @staticmethod
+    def sequence_data_model_datasets_standard_train_no_neg_path():
+        return ProjectPaths.sequence_data_model_datasets_path() / "standard_train_no_neg.pkl"
 
     @staticmethod
     def sequence_data_mind_path():

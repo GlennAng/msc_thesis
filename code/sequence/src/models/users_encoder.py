@@ -1,6 +1,7 @@
 import json
 import os
 from abc import ABC, abstractmethod
+from enum import Enum, auto
 from pathlib import Path
 
 import numpy as np
@@ -31,6 +32,38 @@ def save_users_embeddings_as_pickle(
         users_embeddings_folder=path,
         single_val_session=False,
     )
+
+
+class UsersEncoderType(Enum):
+    GRU = auto()
+    MEAN_POS_POOLING = auto()
+    NRMS = auto()
+
+
+def get_users_encoder_type_from_arg(users_encoder_type_arg: str) -> UsersEncoderType:
+    valid_users_encoder_type_args = [e.name.lower() for e in UsersEncoderType]
+    if users_encoder_type_arg.lower() not in valid_users_encoder_type_args:
+        raise ValueError(
+            f"Invalid argument {users_encoder_type_arg} 'users_encoder_type'. Possible values: {valid_users_encoder_type_args}."
+        )
+    return UsersEncoderType[users_encoder_type_arg.upper()]
+
+
+def get_users_encoder_type_specific_args(args_dict: dict) -> dict:
+    users_encoder_type = args_dict["users_encoder_type"]
+    if users_encoder_type == UsersEncoderType.MEAN_POS_POOLING:
+        return {}
+    elif users_encoder_type == UsersEncoderType.NRMS:
+        return {
+            "num_heads": args_dict["nrms_num_heads"],
+            "query_dim": args_dict["nrms_query_dim"],
+        }
+    elif users_encoder_type == UsersEncoderType.GRU:
+        return {
+            "hidden_dim": args_dict.get("gru_hidden_dim", 356),
+            "num_layers": args_dict.get("gru_num_layers", 1),
+            "dropout": args_dict.get("gru_dropout", 0.2),
+        }
 
 
 class UsersEncoder(nn.Module, ABC):

@@ -1,4 +1,5 @@
 import argparse
+import enum
 import json
 import logging
 import os
@@ -16,11 +17,16 @@ from ...finetuning.src.finetuning_main import log_string, set_all_seeds
 from ...src.load_files import FINETUNING_MODEL
 from ...src.project_paths import ProjectPaths
 from .data.eval_data import load_val_data
+from .data.sessions_dataset import get_standard_train_sessions_dataset_params
 from .data.train_data_negative_samples import get_train_negative_samples_dataloader
 from .data.train_data_sessions import get_train_sessions_dataloader
 from .eval.sequence_val import process_validation
-from .eval.train_utils import load_optimizer, process_batch, compute_info_nce_loss
+from .eval.train_utils import compute_info_nce_loss, load_optimizer, process_batch
 from .models.recommender import Recommender, load_recommender_from_scratch
+from .models.users_encoder import (
+    get_users_encoder_type_from_arg,
+    get_users_encoder_type_specific_args,
+)
 
 
 def get_embeddings_path(use_finetuned_embeddings: bool) -> Path:
@@ -30,7 +36,20 @@ def get_embeddings_path(use_finetuned_embeddings: bool) -> Path:
         return ProjectPaths.sequence_non_finetuned_embeddings_path()
 
 
+def process_args_dict(args_dict: dict) -> dict:
+    args_dict["users_encoder_type"] = get_users_encoder_type_from_arg(
+        args_dict["users_encoder_type"]
+    )
+    args_dict["embeddings_path"] = get_embeddings_path(args_dict["use_finetuned_embeddings"])
+    args_dict["outputs_folder"] = (
+        ProjectPaths.sequence_data_experiments_path()
+        / f"{FINETUNING_MODEL}_{time.strftime('%Y-%m-%d-%H-%M')}"
+    )
+    return args_dict
+
+
 def parse_arguments() -> dict:
+    std_train_params = get_standard_train_sessions_dataset_params()
     parser = argparse.ArgumentParser(description="Sequence script")
     parser.add_argument("--users_encoder_type", type=str, required=True)
     parser.add_argument(
@@ -39,20 +58,8 @@ def parse_arguments() -> dict:
         dest="use_finetuned_embeddings",
         default=True,
     )
-    parser.add_argument("--info_nce_temperature", type=float, default=2.5)
-
-    parser.add_argument("--n_candidates_per_batch", type=int, default=16)
-    parser.add_argument("--n_negrated_per_candidate", type=int, default=4)
-
+    parser.add_argument("--testing", action="store_true", default=False)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--val_score_name", type=str, default="ndcg_all")
-
-    parser.add_argument("--nrms_num_heads", type=int, default=4)
-    parser.add_argument("--nrms_query_dim", type=int, default=256)
-
-    parser.add_argument("--n_batches_total", type=int, default=50000)
-    parser.add_argument("--n_batches_per_val", type=int, default=5000)
-    parser.add_argument("--n_warmup_steps", type=int, default=500)
 
     parser.add_argument("--recommender_lr", type=float, default=3e-6)
     parser.add_argument(
@@ -62,53 +69,64 @@ def parse_arguments() -> dict:
         choices=["constant", "linear_decay"],
     )
     parser.add_argument("--recommender_weight_decay", type=float, default=0.0)
+    parser.add_argument("--n_warmup_steps", type=int, default=500)
 
-    parser.add_argument("--negrated_hard_constraint_max_n_ratings", type=int, default=15)
-    parser.add_argument("--negrated_hard_constraint_max_n_sessions", type=int, default=None)
-    parser.add_argument("--negrated_hard_constraint_max_n_days", type=int, default=None)
+    parser.add_argument("--nrms_num_heads", type=int, default=4)
+    parser.add_argument("--nrms_query_dim", type=int, default=256)
 
-    parser.add_argument("--histories_hard_constraint_min_n_train_posrated", type=int, default=0)
-    parser.add_argument("--histories_hard_constraint_max_n_train_rated", type=int, default=None)
-    parser.add_argument("--histories_soft_constraint_max_n_train_sessions", type=int, default=None)
-    parser.add_argument("--histories_soft_constraint_max_n_train_days", type=int, default=None)
+    parser.add_argument("--n_batches_total", type=int, default=300000)
+    parser.add_argument("--val_score_name", type=str, default="ndcg_all")
+    parser.add_argument("--n_batches_per_val", type=int, default=5000)
+    parser.add_argument("--early_stopping_patience", type=int, default=None)
+    parser.add_argument("--n_candidates_per_batch", type=int, default=16)
+    parser.add_argument("--n_negrated_per_candidate", type=int, default=4)
+    parser.add_argument("--n_train_negative_samples", type=int, default=20)
+    parser.add_argument("--info_nce_temperature", type=float, default=0.1)
+    parser.add_argument("--include_time_information", action="store_true", default=False)
+
+    parser.add_argument(
+        "--histories_hard_constraint_min_n_train_posrated",
+        type=int,
+        default=std_train_params["histories_hard_constraint_min_n_train_posrated"],
+    )
+    parser.add_argument(
+        "--histories_hard_constraint_max_n_train_rated",
+        type=int,
+        default=std_train_params["histories_hard_constraint_max_n_train_rated"],
+    )
+    parser.add_argument(
+        "--histories_soft_constraint_max_n_train_sessions",
+        type=int,
+        default=std_train_params["histories_soft_constraint_max_n_train_sessions"],
+    )
+    parser.add_argument(
+        "--histories_soft_constraint_max_n_train_days",
+        type=int,
+        default=std_train_params["histories_soft_constraint_max_n_train_days"],
+    )
     parser.add_argument(
         "--histories_remove_negrated_from_history", action="store_true", default=False
     )
-    parser.add_argument("--testing", action="store_true", default=False)
 
-    parser.add_argument("--early_stopping_patience", type=int, default=None)
-
-    parser.add_argument("--n_train_negative_samples", type=int, default=20)
+    parser.add_argument(
+        "--negrated_hard_constraint_max_n_ratings",
+        type=int,
+        default=std_train_params["negrated_hard_constraint_max_n_ratings"],
+    )
+    parser.add_argument(
+        "--negrated_hard_constraint_max_n_sessions",
+        type=int,
+        default=std_train_params["negrated_hard_constraint_max_n_sessions"],
+    )
+    parser.add_argument(
+        "--negrated_hard_constraint_max_n_days",
+        type=int,
+        default=std_train_params["negrated_hard_constraint_max_n_days"],
+    )
 
     args = vars(parser.parse_args())
-    args["embeddings_path"] = get_embeddings_path(args["use_finetuned_embeddings"])
-    args["outputs_folder"] = (
-        ProjectPaths.sequence_data_experiments_path()
-        / f"{FINETUNING_MODEL}_{time.strftime('%Y-%m-%d-%H-%M')}"
-    )
+    args = process_args_dict(args)
     return args
-
-
-def get_users_encoder_type_specific_args(args_dict: dict) -> dict:
-    users_encoder_type = args_dict["users_encoder_type"]
-    if users_encoder_type == "MeanPoolingUsersEncoder":
-        return {}
-    elif users_encoder_type == "NRMSUsersEncoder":
-        return {
-            "num_heads": args_dict["nrms_num_heads"],
-            "query_dim": args_dict["nrms_query_dim"],
-        }
-    elif users_encoder_type == "GRUUsersEncoder":
-        return {
-            "hidden_dim": args_dict.get("gru_hidden_dim", 356),
-            "num_layers": args_dict.get("gru_num_layers", 1),
-            "dropout": args_dict.get("gru_dropout", 0.2),
-        }
-    elif users_encoder_type == "MultiLayerNRMSUsersEncoder":
-        return {
-        }
-    else:
-        raise ValueError(f"Unknown users_encoder_type: {users_encoder_type}")
 
 
 def load_recommender_main(args_dict: dict, device: torch.device) -> Recommender:
@@ -117,6 +135,8 @@ def load_recommender_main(args_dict: dict, device: torch.device) -> Recommender:
         "embeddings_path": args_dict["embeddings_path"],
         "random_seed": args_dict["seed"],
         "device": device,
+        "include_negatives": not args_dict["histories_remove_negrated_from_history"],
+        "include_time_information": args_dict["include_time_information"],
     }
     recommender_args.update(get_users_encoder_type_specific_args(args_dict))
     recommender = load_recommender_from_scratch(**recommender_args).train()
@@ -168,11 +188,6 @@ def load_train_dataloaders_main(recommender: Recommender, args_dict: dict) -> tu
         n_negrated_per_candidate=args_dict["n_negrated_per_candidate"],
         n_batches_total=args_dict["n_batches_total"],
         seed=args_dict["seed"],
-        negrated_hard_constraint_max_n_ratings=args_dict["negrated_hard_constraint_max_n_ratings"],
-        negrated_hard_constraint_max_n_sessions=args_dict[
-            "negrated_hard_constraint_max_n_sessions"
-        ],
-        negrated_hard_constraint_max_n_days=args_dict["negrated_hard_constraint_max_n_days"],
         histories_hard_constraint_min_n_train_posrated=args_dict[
             "histories_hard_constraint_min_n_train_posrated"
         ],
@@ -186,6 +201,11 @@ def load_train_dataloaders_main(recommender: Recommender, args_dict: dict) -> tu
             "histories_soft_constraint_max_n_train_days"
         ],
         histories_remove_negrated_from_history=args_dict["histories_remove_negrated_from_history"],
+        negrated_hard_constraint_max_n_ratings=args_dict["negrated_hard_constraint_max_n_ratings"],
+        negrated_hard_constraint_max_n_sessions=args_dict[
+            "negrated_hard_constraint_max_n_sessions"
+        ],
+        negrated_hard_constraint_max_n_days=args_dict["negrated_hard_constraint_max_n_days"],
     )
     return train_sessions_dataloader, train_negative_samples_dataloader
 
@@ -208,6 +228,8 @@ def save_config(args_dict: dict) -> None:
     for key in args_dict:
         if isinstance(args_dict[key], Path):
             copy_args_dict[key] = str(args_dict[key])
+        if isinstance(args_dict[key], enum.Enum):
+            copy_args_dict[key] = args_dict[key].name
     with open(args_dict["outputs_folder"] / "config.json", "w") as f:
         json.dump(copy_args_dict, f, indent=4)
 
@@ -324,7 +346,7 @@ def run_training_main(
 
         total_loss = train_info_nce_loss
         total_loss.backward()
-        optimizer.step() 
+        optimizer.step()
         if scheduler:
             scheduler.step()
 

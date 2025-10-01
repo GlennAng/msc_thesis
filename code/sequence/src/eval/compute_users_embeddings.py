@@ -191,6 +191,7 @@ def init_users_ratings(eval_settings: dict) -> tuple:
     if eval_settings["single_val_session"]:
         users_ids = users_ratings["user_id"].unique().tolist()
         users_ratings = users_ratings.copy()
+        users_ratings["old_session_id"] = users_ratings["session_id"]
         val_mask = users_ratings["split"] == "val"
         min_session_ids = users_ratings[val_mask].groupby("user_id")["session_id"].min()
         assert len(min_session_ids) == len(users_ids)

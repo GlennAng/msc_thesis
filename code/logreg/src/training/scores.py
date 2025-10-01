@@ -373,18 +373,23 @@ def score_user_models(
     user_info: dict,
     sessions_min_times: dict,
     save_users_predictions_bool: bool = False,
+    user_scores: dict = None
 ) -> tuple:
     user_results, user_predictions = {}, {}
     for i, model in enumerate(user_models):
         if len(val_data_dict["y_val"]) <= 0:
             break
-        user_outputs_dict = get_user_outputs_dict(
-            model=model,
-            val_data_dict=val_data_dict,
-            train_negrated_ranking_idxs=train_negrated_ranking_idxs,
-            val_negrated_ranking_idxs=val_negrated_ranking_idxs,
-            negative_samples_embeddings=negative_samples_embeddings,
-        )
+        if user_scores is not None:
+            assert len(user_models) == 1
+            user_outputs_dict = user_scores
+        else:
+            user_outputs_dict = get_user_outputs_dict(
+                model=model,
+                val_data_dict=val_data_dict,
+                train_negrated_ranking_idxs=train_negrated_ranking_idxs,
+                val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+                negative_samples_embeddings=negative_samples_embeddings,
+            )
         user_results[i] = get_user_scores(
             scores_to_indices_dict=scores_to_indices_dict,
             val_data_dict=val_data_dict,
@@ -409,17 +414,21 @@ def score_user_models_sliding_window(
     user_info: dict,
     sessions_min_times: dict,
     save_users_predictions_bool: bool = False,
+    user_scores: dict = None
 ) -> tuple:
     user_results, user_predictions = {}, {}
-    user_outputs_dict = get_user_outputs_dict_sliding_window(
-        val_idxs_to_val_sessions_idxs=val_idxs_to_val_sessions_idxs,
-        val_pos_idxs_to_val_sessions_idxs=val_pos_idxs_to_val_sessions_idxs,
-        val_data_dict=val_data_dict,
-        user_models=user_models,
-        negative_samples_embeddings=negative_samples_embeddings,
-        train_negrated_ranking_idxs=train_negrated_ranking_idxs,
-        val_negrated_ranking_idxs=val_negrated_ranking_idxs,
-    )
+    if user_scores is not None:
+        user_outputs_dict = user_scores
+    else:
+        user_outputs_dict = get_user_outputs_dict_sliding_window(
+            val_idxs_to_val_sessions_idxs=val_idxs_to_val_sessions_idxs,
+            val_pos_idxs_to_val_sessions_idxs=val_pos_idxs_to_val_sessions_idxs,
+            val_data_dict=val_data_dict,
+            user_models=user_models,
+            negative_samples_embeddings=negative_samples_embeddings,
+            train_negrated_ranking_idxs=train_negrated_ranking_idxs,
+            val_negrated_ranking_idxs=val_negrated_ranking_idxs,
+        )
     user_results[0] = get_user_scores(
         scores_to_indices_dict=scores_to_indices_dict,
         val_data_dict=val_data_dict,

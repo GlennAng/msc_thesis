@@ -61,6 +61,7 @@ class Evaluator:
         embedding: Embedding,
         users_ratings: pd.DataFrame,
         users_embeddings: dict = None,
+        users_scores: dict = None,
     ) -> None:
         self.embedding = embedding
         users_ids = users_ratings["user_id"].unique().tolist()
@@ -93,6 +94,7 @@ class Evaluator:
                 users_significant_categories=users_significant_categories,
                 users_ratings=users_ratings,
                 users_embeddings=users_embeddings,
+                users_scores=users_scores,
             )
         else:
             self.evaluate_users_in_parallel(
@@ -100,6 +102,7 @@ class Evaluator:
                 users_significant_categories=users_significant_categories,
                 users_ratings=users_ratings,
                 users_embeddings=users_embeddings,
+                users_scores=users_scores,
             )
 
     def manage_users_coefs(self) -> None:
@@ -137,6 +140,7 @@ class Evaluator:
         users_significant_categories: pd.DataFrame,
         users_ratings: pd.DataFrame,
         users_embeddings: dict = None,
+        users_scores: dict = None,
     ) -> None:
         for user_id in users_ids:
             user_significant_categories = users_significant_categories[
@@ -146,11 +150,15 @@ class Evaluator:
             user_embeddings = None
             if users_embeddings is not None:
                 user_embeddings = users_embeddings[user_id]
+            user_scores = None
+            if users_scores is not None:
+                user_scores = users_scores[user_id]
             self.evaluate_user(
                 user_id=user_id,
                 user_significant_categories=user_significant_categories,
                 user_ratings=user_ratings,
                 user_embeddings=user_embeddings,
+                user_scores=user_scores,
             )
 
     def evaluate_users_in_parallel(
@@ -159,6 +167,7 @@ class Evaluator:
         users_significant_categories: pd.DataFrame,
         users_ratings: pd.DataFrame,
         users_embeddings: dict = None,
+        users_scores: dict = None,
     ) -> None:
         users_list = []
         for user_id in users_ids:
@@ -170,6 +179,7 @@ class Evaluator:
                     ]["category"].tolist(),
                     users_ratings[users_ratings["user_id"] == user_id].reset_index(drop=True),
                     users_embeddings[user_id] if users_embeddings else None,
+                    users_scores[user_id] if users_scores else None,
                 )
             )
         Parallel(n_jobs=self.config["n_jobs"])(
@@ -178,8 +188,9 @@ class Evaluator:
                 user_significant_categories=user_significant_categories,
                 user_ratings=user_ratings,
                 user_embeddings=user_embeddings,
+                user_scores=user_scores,
             )
-            for user_id, user_significant_categories, user_ratings, user_embeddings in users_list
+            for user_id, user_significant_categories, user_ratings, user_embeddings, user_scores in users_list
         )
 
     def evaluate_user(
@@ -188,6 +199,7 @@ class Evaluator:
         user_significant_categories: list,
         user_ratings: pd.DataFrame,
         user_embeddings: dict = None,
+        user_scores: dict = None,
     ) -> None:
         user_results_dict, user_predictions_dict = {}, {}
 
@@ -243,6 +255,7 @@ class Evaluator:
                     user_results_dict=user_results_dict,
                     user_predictions_dict=user_predictions_dict,
                     sessions_min_times=sessions_min_times,
+                    user_scores=user_scores,
                 )
 
             elif self.config["evaluation"] == Evaluation.CROSS_VALIDATION:
@@ -266,6 +279,7 @@ class Evaluator:
                     user_results_dict=user_results_dict,
                     user_predictions_dict=user_predictions_dict,
                     sessions_min_times=sessions_min_times,
+                    user_scores=user_scores,
                 )
 
             save_user_info(self.config["outputs_dir"], user_id, user_info)
@@ -286,6 +300,7 @@ class Evaluator:
         user_results_dict: dict,
         user_predictions_dict: dict,
         sessions_min_times: dict,
+        user_scores: dict = None,
     ) -> None:
         train_ratings, val_ratings, removed_ratings = split_ratings(user_ratings)
         update_user_info_split(user_info, train_ratings, val_ratings)
@@ -337,6 +352,7 @@ class Evaluator:
             user_info=user_info,
             sessions_min_times=sessions_min_times,
             save_users_predictions_bool=self.config["save_users_predictions"],
+            user_scores=user_scores,
         )
         user_results_dict[0] = user_results
         user_predictions_dict[0].update(user_predictions)
@@ -426,6 +442,7 @@ class Evaluator:
         user_results_dict: dict,
         sessions_min_times: dict,
         user_predictions_dict: dict,
+        user_scores: dict = None,
     ) -> None:
         train_ratings, val_ratings, removed_ratings = split_ratings(user_ratings)
         update_user_info_split(user_info, train_ratings, val_ratings)
@@ -462,10 +479,12 @@ class Evaluator:
             random_state=self.config["ranking_random_state"],
             same_negrated_for_all_pos=self.config["same_negrated_for_all_pos"],
         )
-        models = [
-            self.load_user_model(user_embeddings["sessions_embeddings"][i])
-            for i in range(len(user_embeddings["sessions_ids"]))
-        ]
+        models = None
+        if user_scores is None:
+            models = [
+                self.load_user_model(user_embeddings["sessions_embeddings"][i])
+                for i in range(len(user_embeddings["sessions_ids"]))
+            ]
         user_results, user_predictions = score_user_models_sliding_window(
             val_idxs_to_val_sessions_idxs=val_idxs_to_val_sessions_idxs,
             val_pos_idxs_to_val_sessions_idxs=val_pos_idxs_to_val_sessions_idxs,
@@ -478,6 +497,7 @@ class Evaluator:
             user_info=user_info,
             sessions_min_times=sessions_min_times,
             save_users_predictions_bool=self.config["save_users_predictions"],
+            user_scores=user_scores,
         )
         user_results_dict[0] = user_results
         user_predictions_dict[0].update(user_predictions)

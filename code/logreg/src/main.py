@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from ...scripts.create_example_configs import check_config
-from ...sequence.src.data.users_embeddings_data import load_users_embeddings
+from ...sequence.src.data.users_embeddings_data import load_users_embeddings, load_users_scores
 from ...src.project_paths import ProjectPaths
 from .embeddings.embedding import Embedding
 from .training.algorithm import (
@@ -226,10 +226,12 @@ if __name__ == "__main__":
         users_ratings_selection=config["users_ratings_selection"],
         relevant_users_ids=config["relevant_users_ids"],
     )
-    if config["evaluation"] == Evaluation.SLIDING_WINDOW:
-        users_embeddings = init_sliding_window(config=config, users_ratings=users_ratings)
+    users_embeddings, users_scores = None, None
+    if config["load_users_scores"]:
+        users_scores = load_users_scores(config["users_scores_path"])
     else:
-        users_embeddings = None
+        if config["evaluation"] == Evaluation.SLIDING_WINDOW:
+            users_embeddings = init_sliding_window(config=config, users_ratings=users_ratings)
     users_ids = list(users_ratings["user_id"].unique())
     print(f"Number of Users: {len(users_ids)}.")
     assert users_ids == sorted(users_ids)
@@ -246,7 +248,7 @@ if __name__ == "__main__":
     save_hyperparameters_combinations(config, hyperparameters_combinations)
 
     evaluator = Evaluator(config, hyperparameters_combinations, wh)
-    evaluator.evaluate_embedding(embedding, users_ratings, users_embeddings)
+    evaluator.evaluate_embedding(embedding, users_ratings, users_embeddings, users_scores)
     merge_users_infos(config, users_ids)
     merge_users_results(config, users_ids)
     merge_users_coefs(config, users_ids)

@@ -14,7 +14,10 @@ from ..data.eval_data import load_eval_dataloader
 from ..data.eval_papers import get_eval_papers_ids
 from ..data.sessions_dataset import load_sessions_dataset_by_split
 from ..models.recommender import Recommender, load_recommender_pretrained
-from ..models.users_encoder import save_users_embeddings_as_pickle
+from ..models.users_encoder import (
+    get_users_encoder_type_from_arg,
+    save_users_embeddings_as_pickle,
+)
 from .compute_users_embeddings_utils import get_eval_data_folder
 
 TRIAL_MODEL_PATH = ProjectPaths.data_path() / "trial_recommender_model"
@@ -30,7 +33,11 @@ def parse_args() -> dict:
     if args["trial"]:
         args["model_path"] = TRIAL_MODEL_PATH
     else:
-        args["model_path"] = Path(args["model_path"]).resolve()
+        path = Path(args["model_path"]).resolve()
+        if path.stem != "model":
+            path = path / "model"
+        args["model_path"] = path
+
     return args
 
 
@@ -59,18 +66,23 @@ def create_trial_recommender() -> None:
     from ..models.recommender import load_recommender_from_scratch
 
     recommender = load_recommender_from_scratch(
-        users_encoder_type="MeanPoolingUsersEncoder",
+        users_encoder_type="mean_pos_pooling",
         embeddings_path=TRIAL_EMBEDDINGS_PATH,
     )
     recommender.save_model(TRIAL_MODEL_PATH)
 
 
 def load_testing_recommender(
-    model_path: Path, embeddings_path: Path, device: torch.device, trial: bool = False
+    model_path: Path,
+    embeddings_path: Path,
+    users_encoder_type: str,
+    device: torch.device,
+    trial: bool = False,
 ) -> Recommender:
     recommender = load_recommender_pretrained(
         recommender_model_path=model_path,
         embeddings_path=embeddings_path,
+        users_encoder_type_str=users_encoder_type,
         device=device,
     )
     if trial:
@@ -170,6 +182,7 @@ if __name__ == "__main__":
     recommender = load_testing_recommender(
         model_path=args_dict["model_path"],
         embeddings_path=training_config["embeddings_path"],
+        users_encoder_type=training_config["users_encoder_type"],
         device=device,
         trial=args_dict["trial"],
     )

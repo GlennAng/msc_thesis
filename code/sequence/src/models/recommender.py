@@ -13,7 +13,11 @@ from torch_geometric.utils import to_dense_batch
 from .gru_users_encoder import GRUUsersEncoder
 from .mean_pooling_users_encoder import MeanPoolingUsersEncoder
 from .nrms_users_encoder import NRMSUsersEncoder
-from .users_encoder import UsersEncoder
+from .users_encoder import (
+    UsersEncoder,
+    UsersEncoderType,
+    get_users_encoder_type_from_arg,
+)
 
 
 class Recommender(nn.Module):
@@ -85,21 +89,20 @@ class Recommender(nn.Module):
         return papers_embeddings, papers_ids_to_idxs
 
 
-def get_users_encoder_class(users_encoder_type: str):
-    if users_encoder_type == "MeanPoolingUsersEncoder":
+def get_users_encoder_class(users_encoder_type: UsersEncoderType) -> UsersEncoder:
+    if users_encoder_type == UsersEncoderType.MEAN_POS_POOLING:
         return MeanPoolingUsersEncoder
-    elif users_encoder_type == "NRMSUsersEncoder":
+    elif users_encoder_type == UsersEncoderType.NRMS:
         return NRMSUsersEncoder
-    elif users_encoder_type == "GRUUsersEncoder":
+    elif users_encoder_type == UsersEncoderType.GRU:
         return GRUUsersEncoder
-    elif users_encoder_type == "MultiLayerNRMSUsersEncoder":
-        from .nrms_extended_users_encoder import MultiLayerNRMSUsersEncoder
-        return MultiLayerNRMSUsersEncoder
     else:
         raise ValueError(f"Unknown users_encoder_type: {users_encoder_type}")
 
 
-def load_recommender_pretrained_users_encoder(recommender_model_path: Path) -> UsersEncoder:
+def load_recommender_pretrained_users_encoder(
+    recommender_model_path: Path, users_encoder_type: UsersEncoderType
+) -> UsersEncoder:
     if not isinstance(recommender_model_path, Path):
         recommender_model_path = Path(recommender_model_path).resolve()
     config_path = recommender_model_path / "config.json"
@@ -113,7 +116,7 @@ def load_recommender_pretrained_users_encoder(recommender_model_path: Path) -> U
 
     with open(config_path, "r") as f:
         config = json.load(f)
-    users_encoder_class = get_users_encoder_class(config["users_encoder_type"])
+    users_encoder_class = get_users_encoder_class(users_encoder_type)
     config = {k: v for k, v in config.items() if k != "users_encoder_type"}
     users_encoder = users_encoder_class(**config)
     users_encoder.load_state_dict(torch.load(users_encoder_state_dict_path, weights_only=True))
@@ -139,9 +142,13 @@ def load_recommender_pretrained_embeddings(embeddings_path: Path) -> tuple:
 def load_recommender_pretrained(
     recommender_model_path: Path,
     embeddings_path: Path,
+    users_encoder_type_str: str,
     device: torch.device = None,
 ) -> Recommender:
-    users_encoder = load_recommender_pretrained_users_encoder(recommender_model_path)
+    users_encoder_type = get_users_encoder_type_from_arg(users_encoder_type_str)
+    users_encoder = load_recommender_pretrained_users_encoder(
+        recommender_model_path, users_encoder_type
+    )
     papers_embeddings, papers_ids_to_idxs = load_recommender_pretrained_embeddings(embeddings_path)
     recommender = Recommender(
         users_encoder=users_encoder,
@@ -177,7 +184,7 @@ def temporary_seed(seed: int):
 
 
 def load_recommender_from_scratch(
-    users_encoder_type: str,
+    users_encoder_type: UsersEncoderType,
     embeddings_path: Path,
     random_seed: int = None,
     device: torch.device = None,
