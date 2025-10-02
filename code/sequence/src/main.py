@@ -406,3 +406,8 @@ if __name__ == "__main__":
             val_data=val_data,
             logger=logger,
         )
+    else:
+        best_val_score, early_stopping_counter, _ = process_validation(
+        recommender=recommender, args_dict=args_dict, val_data=val_data,
+    )
+

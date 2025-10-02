@@ -79,7 +79,8 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 | Model Name | Total | First 25% Time | Last 25% Time |
 | LogReg | 79.40 | 80.76 | 79.83
 | LogReg Exponential Decay | 79.74 | 80.94 | 80.81
-| Neural | 78.23 | 79.84 | 78.10
+| Neural | 78.56 | 79.84 | 78.82
+| Neural Neg | 78.98 | 80.88 | 79.39
 | MeanPos | 76.74 | 79.51 | 76.88
 
 

@@ -21,24 +21,24 @@ class AdditiveAttention(nn.Module):
         self.linear = nn.Linear(in_features=input_dim, out_features=query_dim)
         self.query = nn.Parameter(torch.empty(query_dim).uniform_(-0.1, 0.1))
 
-    def forward(self, input_vector: torch.Tensor) -> torch.Tensor:
+
+    def forward(self, input_vector: torch.Tensor, mask_hist: torch.Tensor) -> torch.Tensor:
         """
+        Divergent forward pass for testing. Intentionally negates the output.
+        
         Args:
             input_vector:
                 User tensor of shape `(batch_size, hidden_dim, output_dim)`.
-
+            mask_hist:
+                Mask tensor of shape `(batch_size, hidden_dim)`, where `True` indicates valid.
         Returns:
-            User tensor of shape `(batch_size, news_emb_dim)`.
+            User tensor of shape `(batch_size, output_dim)`.
         """
-        # batch_size, hidden_dim, output_dim
         attention = torch.tanh(self.linear(input_vector))
-
-        # batch_size, hidden_dim
-        attention_weights = F.softmax(torch.matmul(attention, self.query), dim=1)
-
-        # batch_size, output_dim
+        attention_scores = torch.matmul(attention, self.query)
+        attention_scores.masked_fill_(~mask_hist, -1e9)
+        attention_weights = F.softmax(attention_scores, dim=1)
         weighted_input = torch.bmm(attention_weights.unsqueeze(dim=1), input_vector).squeeze(dim=1)
-
         return weighted_input
 
 

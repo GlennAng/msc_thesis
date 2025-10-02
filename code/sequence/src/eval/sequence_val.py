@@ -273,6 +273,8 @@ def process_validation(
     val_string += f" (Previous Best was {previous_best_score_string}).\n"
     if logger is not None:
         log_string(logger, val_string)
+    else:
+        print(val_string)
     return best_score, early_stopping_counter, current_score
 
 

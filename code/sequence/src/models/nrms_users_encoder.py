@@ -6,13 +6,6 @@ from .attention import AdditiveAttention
 from .users_encoder import UsersEncoder
 
 
-def get_times_params() -> dict:
-    return {
-        "times_dim": 64,
-        "times_buckets": [100],
-    }
-
-
 class NRMSUsersEncoder(UsersEncoder):
     def __init__(
         self,
@@ -31,16 +24,7 @@ class NRMSUsersEncoder(UsersEncoder):
         self.output_dim = embed_dim
         self.include_negatives = include_negatives
         self.include_time_information = include_time_information
-
-        if self.include_time_information:
-            self.times_params = get_times_params()
-            self.transformer_input_dim += self.times_params["times_dim"]
-            self.projection_input_dim += self.times_params["times_dim"]
-            self.times_embedding = nn.Embedding(
-                num_embeddings=len(self.times_params["times_buckets"]) + 1,
-                embedding_dim=self.times_params["times_dim"],
-            )
-
+        
         self.multihead_attention_pos = nn.MultiheadAttention(
             embed_dim=self.transformer_input_dim, num_heads=self.num_heads, batch_first=True
         )
@@ -61,15 +45,9 @@ class NRMSUsersEncoder(UsersEncoder):
     def _get_required_batch_keys(self) -> list:
         return ["x_hist", "batch_hist", "y_hist", "days_diffs_hist"]
 
+
     def _encode_user(self, batch: dict) -> torch.Tensor:
-        if self.include_time_information:
-            time_buckets = torch.bucketize(
-                batch["days_diffs_hist"],
-                torch.tensor(self.times_params["times_buckets"], device=batch["days_diffs_hist"].device),
-                right=False,
-            )
-            time_embeddings = self.times_embedding(time_buckets)
-            batch["x_hist"] = torch.cat([batch["x_hist"], time_embeddings], dim=-1)
+        
         if self.include_negatives:
             pos_mask, neg_mask = batch["y_hist"].bool(), ~batch["y_hist"].bool()
             pos_batch = {k: v[pos_mask] for k, v in batch.items() if k in self._get_required_batch_keys()}
@@ -84,7 +62,10 @@ class NRMSUsersEncoder(UsersEncoder):
             value=pos_vector_agg,
             key_padding_mask=~pos_mask_hist,
         )
-        user_vector = self.additive_attention_pos(user_vector)
+        # pos_vector_agg might be [9, 74, 356] for 9 candidates, 74 history size, 356 embedding dim
+        # pos_mask_hist might be [9, 74] with True/False values (False at the ended positions)
+        # user vector again [9, 74, 356]
+        user_vector = self.additive_attention_pos(user_vector, pos_mask_hist)
 
         if self.include_negatives:
             num_users = user_vector.shape[0]
@@ -94,13 +75,15 @@ class NRMSUsersEncoder(UsersEncoder):
                 neg_vector_agg, neg_mask_hist = to_dense_batch(neg_batch["x_hist"], neg_batch["batch_hist"])
                 neg_vector_agg = neg_vector_agg[neg_user_ids_original]
                 neg_mask_hist = neg_mask_hist[neg_user_ids_original]
+                
+                
                 neg_user_vector_partial, _ = self.multihead_attention_neg(
                     query=neg_vector_agg,
                     key=neg_vector_agg,
                     value=neg_vector_agg,
                     key_padding_mask=~neg_mask_hist,
                 )
-                neg_user_vector_partial = self.additive_attention_neg(neg_user_vector_partial)
+                neg_user_vector_partial = self.additive_attention_neg(neg_user_vector_partial, neg_mask_hist)
                 neg_user_vector = torch.zeros(num_users, self.transformer_input_dim, device=device)
                 neg_user_vector[neg_user_ids_original] = neg_user_vector_partial
             else:
