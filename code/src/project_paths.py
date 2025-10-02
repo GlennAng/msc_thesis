@@ -33,11 +33,11 @@ class ProjectPaths:
     @staticmethod
     def data_finetuning_users_ids_path():
         return ProjectPaths.data_path() / "finetuning_users_ids.pkl"
-    
+
     @staticmethod
     def data_finetuning_users_ids_old_path():
         return ProjectPaths.data_path() / "finetuning_users_ids_old.pkl"
-    
+
     @staticmethod
     def data_sequence_users_ids_path():
         return ProjectPaths.data_path() / "sequence_users_ids.pkl"
@@ -45,7 +45,7 @@ class ProjectPaths:
     @staticmethod
     def data_session_based_no_filtering_ratings_path():
         return ProjectPaths.data_path() / "session_based_no_filtering_ratings.parquet"
-    
+
     @staticmethod
     def data_session_based_no_filtering_ratings_old_path():
         return ProjectPaths.data_path() / "session_based_no_filtering_ratings_old.parquet"
@@ -57,11 +57,11 @@ class ProjectPaths:
     @staticmethod
     def data_session_based_filtering_ratings_old_path():
         return ProjectPaths.data_path() / "session_based_filtering_ratings_old.parquet"
-    
+
     @staticmethod
     def data_sequence_train_ratings_path():
         return ProjectPaths.data_path() / "sequence_train_ratings.parquet"
-    
+
     @staticmethod
     def finetuning_path():
         return ProjectPaths._base_path() / "code" / "finetuning"
@@ -127,11 +127,12 @@ class ProjectPaths:
             ProjectPaths.finetuning_data_model_datasets_path()
             / "eval_papers_tokenized_test_users.pt"
         )
-    
+
     @staticmethod
     def finetuning_data_model_datasets_negative_samples_tokenized_train_path():
         return (
-            ProjectPaths.finetuning_data_model_datasets_path() / "negative_samples_tokenized_train.pt"
+            ProjectPaths.finetuning_data_model_datasets_path()
+            / "negative_samples_tokenized_train.pt"
         )
 
     @staticmethod
@@ -163,31 +164,35 @@ class ProjectPaths:
     @staticmethod
     def logreg_outputs_path():
         return ProjectPaths.logreg_path() / "outputs"
-    
+
     @staticmethod
     def sequence_path():
         return ProjectPaths._base_path() / "code" / "sequence"
-    
+
     @staticmethod
     def sequence_data_path():
         return ProjectPaths.sequence_path() / "data"
-    
+
     @staticmethod
     def sequence_data_sliding_window_eval_path():
         return ProjectPaths.sequence_data_path() / "sliding_window_eval"
-    
+
     @staticmethod
     def sequence_data_model_path():
         return ProjectPaths.sequence_data_path() / FINETUNING_MODEL
-    
+
     @staticmethod
     def sequence_data_model_state_dicts_path():
         return ProjectPaths.sequence_data_model_path() / "state_dicts"
-    
+
     @staticmethod
     def sequence_non_finetuned_embeddings_path():
-        return ProjectPaths.logreg_embeddings_path() / "after_pca" / "gte_large_256_categories_l2_unit_100"
-    
+        return (
+            ProjectPaths.logreg_embeddings_path()
+            / "after_pca"
+            / "gte_large_256_categories_l2_unit_100"
+        )
+
     @staticmethod
     def sequence_finetuned_embeddings_path():
         return ProjectPaths.finetuning_data_checkpoints_path() / "no_seq_eval" / "all_embeddings"
@@ -195,12 +200,11 @@ class ProjectPaths:
     @staticmethod
     def sequence_data_model_datasets_path():
         return ProjectPaths.sequence_data_model_path() / "datasets"
-    
 
     @staticmethod
     def sequence_data_model_datasets_standard_train_path():
         return ProjectPaths.sequence_data_model_datasets_path() / "standard_train.pkl"
-    
+
     @staticmethod
     def sequence_data_model_datasets_standard_train_no_neg_path():
         return ProjectPaths.sequence_data_model_datasets_path() / "standard_train_no_neg.pkl"
@@ -208,7 +212,7 @@ class ProjectPaths:
     @staticmethod
     def sequence_data_mind_path():
         return ProjectPaths.sequence_data_path() / "mind"
-    
+
     @staticmethod
     def sequence_data_checkpoints_path():
         return ProjectPaths.sequence_data_path() / "checkpoints"
@@ -216,3 +220,11 @@ class ProjectPaths:
     @staticmethod
     def sequence_data_experiments_path():
         return ProjectPaths.sequence_data_path() / "experiments"
+
+    @staticmethod
+    def sequence_data_model_state_dicts_papers_encoder_path():
+        return ProjectPaths.sequence_data_model_state_dicts_path() / "papers_encoder"
+
+    @staticmethod
+    def sequence_data_model_state_dicts_papers_encoder_finetuned_path():
+        return ProjectPaths.finetuning_data_checkpoints_path() / "no_seq_eval" / "state_dicts"
