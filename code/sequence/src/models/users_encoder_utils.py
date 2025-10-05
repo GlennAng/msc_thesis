@@ -1,4 +1,5 @@
 import logging
+import math
 
 import torch
 from torch_geometric.utils import to_dense_batch
@@ -46,7 +47,22 @@ def get_hist_neg(batch_neg: dict) -> tuple:
 
 
 def get_exponential_temporal_decay(
-    days_diffs_hist: torch.Tensor, batch_hist: torch.Tensor, decay_factor: float
+    days_diffs_vector_hist: torch.Tensor, decay_factor: float
 ) -> torch.Tensor:
-    days_diffs_vector_hist, _ = to_dense_batch(days_diffs_hist, batch_hist)
     return torch.exp(-decay_factor * days_diffs_vector_hist)
+
+
+def get_sinusoidal_temporal_encoding(
+    days_diffs_vector_hist: torch.Tensor, embed_dim: int
+) -> torch.Tensor:
+    position = days_diffs_vector_hist.unsqueeze(-1)
+    div_term = torch.exp(
+        torch.arange(0, embed_dim, 2, device=days_diffs_vector_hist.device)
+        * -(math.log(10000.0) / embed_dim)
+    )
+    encoding = torch.zeros(
+        *days_diffs_vector_hist.shape, embed_dim, device=days_diffs_vector_hist.device
+    )
+    encoding[..., 0::2] = torch.sin(position * div_term)
+    encoding[..., 1::2] = torch.cos(position * div_term)
+    return encoding

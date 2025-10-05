@@ -61,7 +61,6 @@ class AdditiveAttention(nn.Module):
 
         attention = torch.tanh(self.linear(input_vector))
         attention_scores_without_decay = torch.matmul(attention, self.query)
-
         if decay_bias is not None:
             attention_scores_with_decay = attention_scores_without_decay + torch.log(
                 decay_bias + 1e-10

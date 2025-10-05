@@ -73,7 +73,7 @@ def parse_arguments() -> dict:
 
     parser.add_argument("--n_batches_total", type=int, default=300000)
     parser.add_argument("--val_score_name", type=str, default="ndcg_all")
-    parser.add_argument("--n_batches_per_val", type=int, default=2500)
+    parser.add_argument("--n_batches_per_val", type=int, default=1000)
     parser.add_argument("--early_stopping_patience", type=int, default=None)
     parser.add_argument("--n_candidates_per_batch", type=int, default=16)
     parser.add_argument("--n_negrated_per_candidate", type=int, default=4)
@@ -86,7 +86,8 @@ def parse_arguments() -> dict:
     parser.add_argument("--model_feedforward_factor", type=int, default=4)
     parser.add_argument("--model_dropout", type=float, default=0.1)
 
-    parser.add_argument("--temp_exponential_decay_factor", type=float, default=0.0)
+    parser.add_argument("--temp_use_exponential_decay", action="store_true", default=False)
+    parser.add_argument("--temp_use_sinusoidal_encoding", action="store_true", default=False)
 
     parser.add_argument(
         "--histories_hard_constraint_min_n_train_posrated",
@@ -135,8 +136,8 @@ def parse_arguments() -> dict:
 
 def collect_temporal_args(args_dict: dict) -> dict:
     temporal_args = {}
-    if args_dict["temp_exponential_decay_factor"] > 0.0:
-        temporal_args["exponential_decay_factor"] = args_dict["temp_exponential_decay_factor"]
+    temporal_args["use_exponential_decay"] = args_dict["temp_use_exponential_decay"]
+    temporal_args["use_sinusoidal_encoding"] = args_dict["temp_use_sinusoidal_encoding"]
     return temporal_args
 
 

@@ -228,7 +228,6 @@ class Global_Visualizer:
         hi_pos_val_time_users = self.users_info.nlargest(n, "time_range_days_pos_val")[
             "user_id"
         ].values
-        print(hi_pos_val_time_users)
         hi_pos_val_time_legend = (
             f"TimePV: The {n} Users with the largest Time Range for Positive Validation."
         )

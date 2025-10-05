@@ -536,6 +536,7 @@ def process_batch(
                 train_negatives_cosine_loss=train_negatives_cosine_loss,
             )
         loss.backward()
+
         optimizer.step()
         if scheduler is not None:
             scheduler.step()

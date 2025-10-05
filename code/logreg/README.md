@@ -83,6 +83,8 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 | LogReg Exponential Decay after fine-tuning | 82.53 | 83.52 | 83.91
 | MeanPos | 76.74 | 79.51 | 76.88
 | MeanPos after fine-tuning | 79.50 | 80.75 | 79.38
+| Neural after fine-tuning | 78.80 | 81.48 | 80.00
+| Neural after fine-tuning | 81.27 | 82.74 | 81.67
 
 
 
