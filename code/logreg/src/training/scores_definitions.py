@@ -573,13 +573,13 @@ SCORES_DICT = {
         "calculator": calculate_softmax_top_1_samples,
         "temperature": "05",
     },
-    "INFO_NCE_05": {
-        "abbreviation": "INCE\n0.5",
+    "INFO_NCE_01": {
+        "abbreviation": "INCE\n0.1",
         "type": Score_Type.RANKING,
         "increase_better": False,
         "page": 2,
         "calculator": calculate_info_nce,
-        "temperature": "05",
+        "temperature": "01",
     },
     "SOFTMAX_POS_1": {
         "abbreviation": "SmP\n1.0",

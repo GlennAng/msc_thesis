@@ -61,28 +61,32 @@ def parse_arguments() -> dict:
     parser.add_argument("--testing", action="store_true", default=False)
     parser.add_argument("--seed", type=int, default=42)
 
-    parser.add_argument("--recommender_lr", type=float, default=3e-6)
+    parser.add_argument("--recommender_lr", type=float, default=1e-4)
     parser.add_argument(
         "--recommender_lr_scheduler",
         type=str,
         default="constant",
         choices=["constant", "linear_decay"],
     )
-    parser.add_argument("--recommender_weight_decay", type=float, default=0.0)
+    parser.add_argument("--recommender_weight_decay", type=float, default=1e-2)
     parser.add_argument("--n_warmup_steps", type=int, default=500)
-
-    parser.add_argument("--nrms_num_heads", type=int, default=4)
-    parser.add_argument("--nrms_query_dim", type=int, default=256)
 
     parser.add_argument("--n_batches_total", type=int, default=300000)
     parser.add_argument("--val_score_name", type=str, default="ndcg_all")
-    parser.add_argument("--n_batches_per_val", type=int, default=5000)
+    parser.add_argument("--n_batches_per_val", type=int, default=2500)
     parser.add_argument("--early_stopping_patience", type=int, default=None)
     parser.add_argument("--n_candidates_per_batch", type=int, default=16)
     parser.add_argument("--n_negrated_per_candidate", type=int, default=4)
     parser.add_argument("--n_train_negative_samples", type=int, default=20)
     parser.add_argument("--info_nce_temperature", type=float, default=0.1)
-    parser.add_argument("--include_time_information", action="store_true", default=False)
+
+    parser.add_argument("--model_num_layers", type=int, default=4)
+    parser.add_argument("--model_num_heads", type=int, default=4)
+    parser.add_argument("--model_query_dim", type=int, default=200)
+    parser.add_argument("--model_feedforward_factor", type=int, default=4)
+    parser.add_argument("--model_dropout", type=float, default=0.1)
+
+    parser.add_argument("--temp_exponential_decay_factor", type=float, default=0.0)
 
     parser.add_argument(
         "--histories_hard_constraint_min_n_train_posrated",
@@ -129,6 +133,13 @@ def parse_arguments() -> dict:
     return args
 
 
+def collect_temporal_args(args_dict: dict) -> dict:
+    temporal_args = {}
+    if args_dict["temp_exponential_decay_factor"] > 0.0:
+        temporal_args["exponential_decay_factor"] = args_dict["temp_exponential_decay_factor"]
+    return temporal_args
+
+
 def load_recommender_main(args_dict: dict, device: torch.device) -> Recommender:
     recommender_args = {
         "users_encoder_type": args_dict["users_encoder_type"],
@@ -136,9 +147,9 @@ def load_recommender_main(args_dict: dict, device: torch.device) -> Recommender:
         "random_seed": args_dict["seed"],
         "device": device,
         "include_negatives": not args_dict["histories_remove_negrated_from_history"],
-        "include_time_information": args_dict["include_time_information"],
     }
     recommender_args.update(get_users_encoder_type_specific_args(args_dict))
+    recommender_args["temporal_args"] = collect_temporal_args(args_dict)
     recommender = load_recommender_from_scratch(**recommender_args).train()
     print(recommender.get_memory_footprint())
     return recommender
@@ -338,7 +349,9 @@ def run_training_main(
         train_cat_loss = None
         optimizer.zero_grad()
         batch = {**next(train_sessions_iter), **next(train_negative_samples_iter)}
-        dot_products, mask_negrated = process_batch(batch=batch, recommender=recommender)
+        dot_products, mask_negrated = process_batch(
+            batch=batch, recommender=recommender, logger=logger
+        )
         train_info_nce_loss = compute_info_nce_loss(
             dot_products, mask_negrated, args_dict["info_nce_temperature"]
         )
@@ -346,6 +359,7 @@ def run_training_main(
 
         total_loss = train_info_nce_loss
         total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(recommender.parameters(), max_norm=1.0)
         optimizer.step()
         if scheduler:
             scheduler.step()
@@ -391,6 +405,7 @@ if __name__ == "__main__":
     train_sessions_dataloader, train_negative_samples_dataloader = load_train_dataloaders_main(
         recommender=recommender, args_dict=args_dict
     )
+    print(len(train_sessions_dataloader.dataset))
 
     if not args_dict["testing"]:
         os.makedirs(args_dict["outputs_folder"], exist_ok=True)
@@ -408,6 +423,7 @@ if __name__ == "__main__":
         )
     else:
         best_val_score, early_stopping_counter, _ = process_validation(
-        recommender=recommender, args_dict=args_dict, val_data=val_data,
-    )
-
+            recommender=recommender,
+            args_dict=args_dict,
+            val_data=val_data,
+        )

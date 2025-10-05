@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from abc import ABC, abstractmethod
 from enum import Enum, auto
@@ -35,9 +36,9 @@ def save_users_embeddings_as_pickle(
 
 
 class UsersEncoderType(Enum):
-    GRU = auto()
     MEAN_POS_POOLING = auto()
     NRMS = auto()
+    TRANSFORMER = auto()
 
 
 def get_users_encoder_type_from_arg(users_encoder_type_arg: str) -> UsersEncoderType:
@@ -55,14 +56,16 @@ def get_users_encoder_type_specific_args(args_dict: dict) -> dict:
         return {}
     elif users_encoder_type == UsersEncoderType.NRMS:
         return {
-            "num_heads": args_dict["nrms_num_heads"],
-            "query_dim": args_dict["nrms_query_dim"],
+            "num_heads": args_dict["model_num_heads"],
+            "query_dim": args_dict["model_query_dim"],
         }
-    elif users_encoder_type == UsersEncoderType.GRU:
+    elif users_encoder_type == UsersEncoderType.TRANSFORMER:
         return {
-            "hidden_dim": args_dict.get("gru_hidden_dim", 356),
-            "num_layers": args_dict.get("gru_num_layers", 1),
-            "dropout": args_dict.get("gru_dropout", 0.2),
+            "num_layers": args_dict["model_num_layers"],
+            "num_heads": args_dict["model_num_heads"],
+            "query_dim": args_dict["model_query_dim"],
+            "feedforward_factor": args_dict["model_feedforward_factor"],
+            "dropout": args_dict["model_dropout"],
         }
 
 
@@ -76,7 +79,7 @@ class UsersEncoder(nn.Module, ABC):
         pass
 
     @abstractmethod
-    def _encode_user(self, batch: dict) -> torch.Tensor:
+    def _encode_user(self, batch: dict, logger: logging.Logger = None) -> torch.Tensor:
         pass
 
     @abstractmethod
@@ -92,9 +95,9 @@ class UsersEncoder(nn.Module, ABC):
         assert all(param.device == device for param in self.parameters())
         return device
 
-    def forward(self, batch: dict) -> torch.Tensor:
+    def forward(self, batch: dict, logger: logging.Logger = None) -> torch.Tensor:
         self._verify_batch(batch)
-        return self._encode_user(batch)
+        return self._encode_user(batch, logger)
 
     def _verify_batch(self, batch: dict) -> None:
         if len(self.required_batch_keys) == 0:

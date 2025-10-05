@@ -622,6 +622,7 @@ def get_ranking_ranks(
 
 def get_ranking_softmax(all_logits: np.ndarray) -> dict:
     return {
+        "01": softmax(all_logits / 0.1),
         "05": softmax(all_logits / 0.5),
         "1": softmax(all_logits),
         "2": softmax(all_logits / 2.0),

@@ -15,7 +15,7 @@ from .finetuning_preprocessing import (
 
 FINETUNING_CLASSIFICATION_METRICS = ["bcel", "recall", "specificity", "balacc"]
 FINETUNING_RANKING_METRICS = ["ndcg", "mrr", "hr@1", "infonce"]
-FINETUNING_INFO_NCE_TEMPERATURE = 1.0
+FINETUNING_INFO_NCE_TEMPERATURE = 0.1
 
 
 def get_user_scores(dataset: FinetuningDataset, user_idx: int, users_scores: torch.Tensor) -> tuple:
@@ -102,6 +102,7 @@ def compute_user_ranking_metrics(
 
     for i, pos_score in enumerate(user_scores_pos):
         pos_score_unsqueezed = pos_score.unsqueeze(0)
+        pos_score_with_temp = pos_score_unsqueezed / FINETUNING_INFO_NCE_TEMPERATURE
         pos_rank_explicit_negatives = (
             torch.sum(user_scores_explicit_negatives[i] >= pos_score).item() + 1
         )
@@ -119,24 +120,29 @@ def compute_user_ranking_metrics(
         user_ranking_metrics_explicit_negatives[i] = compute_user_ranking_metrics_single(
             pos_rank_explicit_negatives
         )
-        user_ranking_metrics_explicit_negatives[i, -1] = -torch.log_softmax(
-            torch.cat((pos_score_unsqueezed, info_nce_tensor_explicit_negatives[i])) + 1e-10,
-            dim=0,
-        )[0].item()
+        user_ranking_metrics_explicit_negatives[i, -1] = -torch.log(
+            torch.softmax(
+                torch.cat((pos_score_with_temp, info_nce_tensor_explicit_negatives[i])),
+                dim=0,
+            )[0]
+            + 1e-10
+        ).item()
         user_ranking_metrics_negative_samples[i] = compute_user_ranking_metrics_single(
             pos_rank_negative_samples
         )
-        user_ranking_metrics_negative_samples[i, -1] = -torch.log_softmax(
-            torch.cat((pos_score_unsqueezed, info_nce_tensor_negative_samples_i)) + 1e-10,
-            dim=0,
-        )[0].item()
+        user_ranking_metrics_negative_samples[i, -1] = -torch.log(
+            torch.softmax(
+                torch.cat((pos_score_with_temp, info_nce_tensor_negative_samples_i)), dim=0
+            )[0]
+            + 1e-10
+        ).item()
         user_ranking_metrics_all[i] = compute_user_ranking_metrics_single(pos_rank_all)
         info_nce_tensor_all = torch.cat(
             (info_nce_tensor_explicit_negatives[i], info_nce_tensor_negative_samples_i)
         )
-        user_ranking_metrics_all[i, -1] = -torch.log_softmax(
-            torch.cat((pos_score_unsqueezed, info_nce_tensor_all)) + 1e-10, dim=0
-        )[0].item()
+        user_ranking_metrics_all[i, -1] = -torch.log(
+            torch.softmax(torch.cat((pos_score_with_temp, info_nce_tensor_all)), dim=0)[0] + 1e-10
+        ).item()
     user_ranking_metrics_explicit_negatives = torch.mean(
         user_ranking_metrics_explicit_negatives, dim=0
     )
@@ -209,6 +215,10 @@ def print_validation(scores_dict: dict) -> str:
     if all(f"val_{metric}_all_cs" in scores_dict for metric in FINETUNING_RANKING_METRICS):
         validation_str += "\nRanking (All) CS:   " + print_metrics(
             scores_dict, [f"val_{metric}_all_cs" for metric in FINETUNING_RANKING_METRICS]
+        )
+    if all(f"val_{metric}_all_high_time" in scores_dict for metric in FINETUNING_RANKING_METRICS):
+        validation_str += "\nRanking (All) High Time:   " + print_metrics(
+            scores_dict, [f"val_{metric}_all_high_time" for metric in FINETUNING_RANKING_METRICS]
         )
     if all(f"val_{metric}_all" in scores_dict for metric in FINETUNING_RANKING_METRICS):
         validation_str += "\nRanking (All):   " + print_metrics(

@@ -1,4 +1,5 @@
 import json
+import logging
 import pickle
 import random
 from contextlib import contextmanager
@@ -10,9 +11,9 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch_geometric.utils import to_dense_batch
 
-from .gru_users_encoder import GRUUsersEncoder
 from .mean_pooling_users_encoder import MeanPoolingUsersEncoder
 from .nrms_users_encoder import NRMSUsersEncoder
+from .transformer_users_encoder import TransformerUsersEncoder
 from .users_encoder import (
     UsersEncoder,
     UsersEncoderType,
@@ -32,8 +33,8 @@ class Recommender(nn.Module):
         self.papers_embeddings = papers_embeddings
         self.papers_ids_to_idxs = papers_ids_to_idxs
 
-    def forward(self, batch: dict) -> tuple:
-        users_embeddings = self.users_encoder(batch)
+    def forward(self, batch: dict, logger: logging.Logger = None) -> tuple:
+        users_embeddings = self.users_encoder(batch, logger)
         negative_samples_dot_products = torch.matmul(
             users_embeddings, batch["x_negative_samples"].T
         )
@@ -94,8 +95,8 @@ def get_users_encoder_class(users_encoder_type: UsersEncoderType) -> UsersEncode
         return MeanPoolingUsersEncoder
     elif users_encoder_type == UsersEncoderType.NRMS:
         return NRMSUsersEncoder
-    elif users_encoder_type == UsersEncoderType.GRU:
-        return GRUUsersEncoder
+    elif users_encoder_type == UsersEncoderType.TRANSFORMER:
+        return TransformerUsersEncoder
     else:
         raise ValueError(f"Unknown users_encoder_type: {users_encoder_type}")
 

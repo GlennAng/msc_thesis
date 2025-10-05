@@ -78,10 +78,12 @@ Here is an overview of their results (256-dimensional with 100-dimensional categ
 ## Neural Network Evaluation (150 Test Users)
 | Model Name | Total | First 25% Time | Last 25% Time |
 | LogReg | 79.40 | 80.76 | 79.83
+| LogReg after fine-tuning | 82.33 | 83.62 | 83.21
 | LogReg Exponential Decay | 79.74 | 80.94 | 80.81
-| Neural | 78.56 | 79.84 | 78.82
-| Neural Neg | 78.98 | 80.88 | 79.39
+| LogReg Exponential Decay after fine-tuning | 82.53 | 83.52 | 83.91
 | MeanPos | 76.74 | 79.51 | 76.88
+| MeanPos after fine-tuning | 79.50 | 80.75 | 79.38
+
 
 
 

@@ -1,3 +1,4 @@
+import logging
 import torch
 
 from ..models.recommender import Recommender
@@ -38,12 +39,12 @@ def get_linear_schedule_with_warmup(
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch=-1)
 
 
-def process_batch(batch: dict, recommender: Recommender) -> tuple:
+def process_batch(batch: dict, recommender: Recommender, logger: logging.Logger) -> tuple:
     assert recommender.training
     for key in batch:
         if isinstance(batch[key], torch.Tensor):
             batch[key] = batch[key].to(recommender.get_device())
-    return recommender(batch)
+    return recommender(batch, logger)
 
 
 def compute_info_nce_loss(

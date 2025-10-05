@@ -15,6 +15,36 @@ from ..data.eval_data import load_eval_dataloader
 from ..models.recommender import Recommender
 
 
+def return_seq_val_high_time_users_ids() -> list:
+    return [
+        9,
+        36,
+        140,
+        168,
+        2316,
+        247,
+        2011,
+        186,
+        78,
+        3573,
+        1394,
+        6155,
+        3789,
+        6395,
+        6602,
+        89,
+        5352,
+        4794,
+        6598,
+        4697,
+        1479,
+        144,
+        3666,
+        7294,
+        7585,
+    ]
+
+
 def get_users_ids_sessions_ids_flattened(users_sessions_ids_to_idxs: dict) -> tuple:
     users_ids, sessions_ids = [], []
     for user_id in users_sessions_ids_to_idxs:
@@ -161,6 +191,8 @@ def extract_ranking_metrics_from_scores(
         val_ranking_metrics_negative_samples[i] = val_user_ranking_metrics[1]
         val_ranking_metrics_all[i] = val_user_ranking_metrics[2]
 
+    high_time_users_ids = return_seq_val_high_time_users_ids()#
+    high_time_users_idxs = []
     non_cs_users_ids = load_sequence_users_ids(selection="val", select_non_cs_users_only=True)
     all_users_ids = load_sequence_users_ids(selection="val", select_non_cs_users_only=False)
     non_cs_users_idxs, cs_users_idxs = [], []
@@ -169,10 +201,14 @@ def extract_ranking_metrics_from_scores(
             non_cs_users_idxs.append(i)
         else:
             cs_users_idxs.append(i)
+        if user_id in high_time_users_ids:
+            high_time_users_idxs.append(i)
+    high_time_users_idxs = torch.tensor(high_time_users_idxs, dtype=torch.long)
     non_cs_users_idxs = torch.tensor(non_cs_users_idxs, dtype=torch.long)
     cs_users_idxs = torch.tensor(cs_users_idxs, dtype=torch.long)
     val_ranking_metrics_all_non_cs = torch.mean(val_ranking_metrics_all[non_cs_users_idxs], dim=0)
     val_ranking_metrics_all_cs = torch.mean(val_ranking_metrics_all[cs_users_idxs], dim=0)
+    val_ranking_metrics_all_high_time = torch.mean(val_ranking_metrics_all[high_time_users_idxs], dim=0)
 
     val_ranking_metrics_explicit_negatives = torch.mean(
         val_ranking_metrics_explicit_negatives, dim=0
@@ -190,6 +226,7 @@ def extract_ranking_metrics_from_scores(
         scores_dict[f"val_{metric}_all"] = val_ranking_metrics_all[i].item()
         scores_dict[f"val_{metric}_all_no_cs"] = val_ranking_metrics_all_non_cs[i].item()
         scores_dict[f"val_{metric}_all_cs"] = val_ranking_metrics_all_cs[i].item()
+        scores_dict[f"val_{metric}_all_high_time"] = val_ranking_metrics_all_high_time[i].item()
     return scores_dict
 
 

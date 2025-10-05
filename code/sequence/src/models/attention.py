@@ -1,6 +1,34 @@
+import logging
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from ....finetuning.src.finetuning_main import log_string
+
+
+def print_attention(
+    attention_weights_without_decay: torch.Tensor,
+    attention_weights_with_decay: torch.Tensor = None,
+    logger: logging.Logger = None,
+) -> None:
+    if logger is not None:
+        weights_no_decay = attention_weights_without_decay[0]
+        max_idx = weights_no_decay.argmax().item()
+        max_weight = weights_no_decay.max().item()
+        entropy = -(weights_no_decay * torch.log(weights_no_decay + 1e-10)).sum().item()
+        s = (
+            f"Attention Weights Without Decay: Max {max_weight:.6f}, Index {max_idx}, Entropy {entropy:.4f}"
+        )
+        if attention_weights_with_decay is not None:
+            weights_with_decay = attention_weights_with_decay[0]
+            max_idx_decay = weights_with_decay.argmax().item()
+            max_weight_decay = weights_with_decay.max().item()
+            entropy_decay = (
+                -(weights_with_decay * torch.log(weights_with_decay + 1e-10)).sum().item()
+            )
+            s += f"\nAttention Weights With Decay: Max {max_weight_decay:.6f}, Index {max_idx_decay}, Entropy {entropy_decay:.4f}"
+        log_string(logger, s)
 
 
 class AdditiveAttention(nn.Module):
@@ -17,28 +45,43 @@ class AdditiveAttention(nn.Module):
                 f"Expected keyword argument `query_dim` to be an `int` but got {query_dim}"
             )
 
-        # initialize
         self.linear = nn.Linear(in_features=input_dim, out_features=query_dim)
         self.query = nn.Parameter(torch.empty(query_dim).uniform_(-0.1, 0.1))
 
+    def forward(
+        self,
+        input_vector: torch.Tensor,
+        mask_hist: torch.Tensor,
+        decay_bias: torch.Tensor = None,
+        logger: logging.Logger = None,
+    ) -> torch.Tensor:
+        if not hasattr(self, "counter"):
+            self.counter = 0
+        self.counter += 1
 
-    def forward(self, input_vector: torch.Tensor, mask_hist: torch.Tensor) -> torch.Tensor:
-        """
-        Divergent forward pass for testing. Intentionally negates the output.
-        
-        Args:
-            input_vector:
-                User tensor of shape `(batch_size, hidden_dim, output_dim)`.
-            mask_hist:
-                Mask tensor of shape `(batch_size, hidden_dim)`, where `True` indicates valid.
-        Returns:
-            User tensor of shape `(batch_size, output_dim)`.
-        """
         attention = torch.tanh(self.linear(input_vector))
-        attention_scores = torch.matmul(attention, self.query)
-        attention_scores.masked_fill_(~mask_hist, -1e9)
+        attention_scores_without_decay = torch.matmul(attention, self.query)
+
+        if decay_bias is not None:
+            attention_scores_with_decay = attention_scores_without_decay + torch.log(
+                decay_bias + 1e-10
+            )
+            attention_scores = attention_scores_with_decay
+        else:
+            attention_scores = attention_scores_without_decay
+        attention_scores = attention_scores.masked_fill(~mask_hist, -1e9)
         attention_weights = F.softmax(attention_scores, dim=1)
         weighted_input = torch.bmm(attention_weights.unsqueeze(dim=1), input_vector).squeeze(dim=1)
+
+        if logger is not None and self.counter % 2500 == 0:
+            if decay_bias is not None:
+                attention_scores_without_decay = attention_scores_without_decay.masked_fill(
+                    ~mask_hist, -1e9
+                )
+                attention_weights_without_decay = F.softmax(attention_scores_without_decay, dim=1)
+                print_attention(attention_weights_without_decay, attention_weights, logger)
+            else:
+                print_attention(attention_weights, None, logger)
         return weighted_input
 
 
