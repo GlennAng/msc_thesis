@@ -2,12 +2,14 @@ from enum import Enum, auto
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.neural_network import MLPClassifier
 from sklearn.svm import SVC
 
 
 class Algorithm(Enum):
     LOGREG = auto()
     SVM = auto()
+    MLP = auto()
 
 
 def get_algorithm_from_arg(algorithm_arg: str) -> Algorithm:
@@ -26,6 +28,7 @@ def get_model(
     random_state: int,
     logreg_solver: str = None,
     svm_kernel: str = None,
+    mlp_hidden_layer_sizes: tuple = (100,),
 ) -> object:
     if algorithm == Algorithm.LOGREG:
         return LogisticRegression(
@@ -39,6 +42,16 @@ def get_model(
             kernel=svm_kernel,
             probability=True,
         )
+    elif algorithm == Algorithm.MLP:
+        return MLPClassifier(
+            max_iter=max_iter,
+            hidden_layer_sizes=mlp_hidden_layer_sizes,
+            random_state=random_state,
+            alpha=clf_C,
+            early_stopping=True,
+            solver="lbfgs",
+            shuffle=False,
+        )
 
 
 class Evaluation(Enum):
@@ -46,6 +59,7 @@ class Evaluation(Enum):
     TRAIN_TEST_SPLIT = auto()
     SESSION_BASED = auto()
     SLIDING_WINDOW = auto()
+    CLUSTERING = auto()
 
 
 def get_evaluation_from_arg(evaluation_arg: str) -> Evaluation:

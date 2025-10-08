@@ -182,6 +182,12 @@ def load_user_val_data_dict(
     return val_data_dict
 
 
+def get_y(model: object, X: np.ndarray) -> np.ndarray:
+    if hasattr(model, "decision_function"):
+        return model.decision_function(X)
+    return model.predict(X)
+
+
 def get_user_outputs_dict(
     model: object,
     val_data_dict: dict,
@@ -194,27 +200,30 @@ def get_user_outputs_dict(
         X_train_rated = val_data_dict["X_train_rated"]
         user_outputs_dict["y_train_rated_pred"] = model.predict(X_train_rated)
         user_outputs_dict["y_train_rated_proba"] = model.predict_proba(X_train_rated)[:, 1]
-        user_outputs_dict["y_train_rated_logits"] = model.decision_function(X_train_rated)
+        user_outputs_dict["y_train_rated_logits"] = get_y(model, X_train_rated)
     if "X_val" in val_data_dict:
         X_val = val_data_dict["X_val"]
         user_outputs_dict["y_val_pred"] = model.predict(X_val)
         user_outputs_dict["y_val_proba"] = model.predict_proba(X_val)[:, 1]
-        user_outputs_dict["y_val_logits"] = model.decision_function(X_val)
+        user_outputs_dict["y_val_logits"] = get_y(model, X_val)
     if "X_train_negrated_ranking" in val_data_dict:
         idxs = train_negrated_ranking_idxs
         train_neg_rank = val_data_dict["X_train_negrated_ranking"]
-        y_train_neg_rank_logits = model.decision_function(train_neg_rank)
+        y_train_neg_rank_logits = get_y(model, train_neg_rank)
         user_outputs_dict["y_train_negrated_ranking_logits"] = y_train_neg_rank_logits[idxs]
     if "X_val_negrated_ranking" in val_data_dict:
         idxs = val_negrated_ranking_idxs
         val_neg_rank = val_data_dict["X_val_negrated_ranking"]
-        y_val_neg_rank_logits = model.decision_function(val_neg_rank)
+        y_val_neg_rank_logits = get_y(model, val_neg_rank)
         user_outputs_dict["y_val_negrated_ranking_logits"] = y_val_neg_rank_logits[idxs]
     if negative_samples_embeddings is not None:
         embed = negative_samples_embeddings
         user_outputs_dict["y_negative_samples_pred"] = model.predict(embed)
         user_outputs_dict["y_negative_samples_proba"] = model.predict_proba(embed)[:, 1]
-        user_outputs_dict["y_negative_samples_logits"] = model.decision_function(embed)
+        user_outputs_dict["y_negative_samples_logits"] = get_y(model, embed)
+    for k, v in user_outputs_dict.items():
+        if type(v) is np.ndarray and v.dtype == np.float32:
+            user_outputs_dict[k] = v.astype(np.float64)
     return user_outputs_dict
 
 

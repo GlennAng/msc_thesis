@@ -3,7 +3,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from scipy.special import expit
 from tqdm import tqdm
 
 from ....logreg.src.embeddings.embedding import Embedding
@@ -13,24 +12,27 @@ from ....logreg.src.training.training_data import (
     get_user_categories_ratios,
     get_user_val_negative_samples,
     get_val_negative_samples_ids,
-    load_negrated_ranking_idxs_for_user,
 )
 from ....logreg.src.training.users_ratings import N_NEGRATED_RANKING
 from ....src.load_files import load_papers, load_users_significant_categories
 from ..data.users_embeddings_data import get_users_val_sessions_ids
-from .compute_users_embeddings import (
-    get_user_train_set,
-    init_users_ratings,
-    parse_args,
-)
+from .compute_users_embeddings import init_users_ratings, parse_args
 from .compute_users_embeddings_utils import EmbedFunction, get_embed_function_from_arg
-
-N_EVAL_NEGATIVE_SAMPLES = 100
-DT = np.float64
+from .compute_users_scores_clustering import (
+    DT,
+    N_EVAL_NEGATIVE_SAMPLES,
+    compute_users_scores_clustering,
+    fill_user_scores,
+    get_clustering_approach,
+    get_negrated_ranking_idxs,
+    get_user_train_embeddings_and_ratings,
+)
 
 
 def scoring_function_max_pos_pooling(
-    train_set_embeddings: np.ndarray, train_set_ratings: np.ndarray, embeddings_to_score: np.ndarray
+    train_set_embeddings: np.ndarray,
+    train_set_ratings: np.ndarray,
+    embeddings_to_score: np.ndarray,
 ) -> np.ndarray:
     train_set_embeddings = train_set_embeddings[train_set_ratings > 0]
     if train_set_embeddings.shape[0] == 0:
@@ -42,7 +44,9 @@ def scoring_function_max_pos_pooling(
 
 
 def scoring_function_mean_pos_pooling(
-    train_set_embeddings: np.ndarray, train_set_ratings: np.ndarray, embeddings_to_score: np.ndarray
+    train_set_embeddings: np.ndarray,
+    train_set_ratings: np.ndarray,
+    embeddings_to_score: np.ndarray,
 ) -> np.ndarray:
     train_set_embeddings = train_set_embeddings[train_set_ratings > 0]
     if train_set_embeddings.shape[0] == 0:
@@ -51,37 +55,6 @@ def scoring_function_mean_pos_pooling(
     scores = embeddings_to_score @ mean_train_embedding
     assert scores.shape[0] == embeddings_to_score.shape[0]
     return scores.astype(DT)
-
-
-def get_negrated_ranking_idxs(
-    train_ratings: pd.DataFrame,
-    train_negrated_ranking: pd.DataFrame,
-    val_ratings: pd.DataFrame,
-    val_negrated_ranking: pd.DataFrame,
-    random_state: int,
-) -> tuple:
-    train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
-        ratings=train_ratings,
-        negrated_ranking=train_negrated_ranking,
-        timesort=True,
-        causal_mask=False,
-        random_state=random_state,
-        same_negrated_for_all_pos=False,
-    )
-    if "old_session_id" in val_ratings.columns:
-        val_ratings = val_ratings.copy()
-        val_ratings["session_id"] = val_ratings["old_session_id"]
-        val_negrated_ranking = val_negrated_ranking.copy()
-        val_negrated_ranking["session_id"] = val_negrated_ranking["old_session_id"]
-    val_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
-        ratings=val_ratings,
-        negrated_ranking=val_negrated_ranking,
-        timesort=True,
-        causal_mask=True,
-        random_state=random_state,
-        same_negrated_for_all_pos=False,
-    )
-    return train_negrated_ranking_idxs, val_negrated_ranking_idxs
 
 
 def get_val_negative_samples_embeddings(
@@ -129,31 +102,6 @@ def get_train_rated_logits_dict(
         "y_train_negrated_ranking_logits": y_train_negrated_ranking_logits,
         "y_negative_samples_logits_after_train": y_negative_samples_logits_after_train,
     }
-
-
-def get_user_train_embeddings_and_ratings(
-    user_ratings: pd.DataFrame,
-    session_id: int,
-    embedding: Embedding,
-    hard_constraint_min_n_train_posrated: int,
-    hard_constraint_max_n_train_rated: int = None,
-    soft_constraint_max_n_train_sessions: int = None,
-    soft_constraint_max_n_train_days: int = None,
-    remove_negrated_from_history: bool = False,
-) -> tuple:
-    user_train_set = get_user_train_set(
-        user_ratings=user_ratings,
-        session_id=session_id,
-        hard_constraint_min_n_train_posrated=hard_constraint_min_n_train_posrated,
-        hard_constraint_max_n_train_rated=hard_constraint_max_n_train_rated,
-        soft_constraint_max_n_train_sessions=soft_constraint_max_n_train_sessions,
-        soft_constraint_max_n_train_days=soft_constraint_max_n_train_days,
-        remove_negrated_from_history=remove_negrated_from_history,
-    )
-    user_train_set_papers_ids = user_train_set["paper_id"].tolist()
-    user_train_set_embeddings = embedding.matrix[embedding.get_idxs(user_train_set_papers_ids)]
-    user_train_set_ratings = user_train_set["rating"].values
-    return user_train_set_embeddings, user_train_set_ratings
 
 
 def get_y_val_logits_session(
@@ -230,28 +178,6 @@ def get_y_negative_samples_logits_session(
     return y_negative_samples_logits
 
 
-def fill_user_scores(user_scores: dict) -> dict:
-    def proba(logits):
-        return expit(logits).astype(DT)
-
-    def pred(logits):
-        return (logits > 0).astype(np.int64)
-
-    user_scores["y_train_rated_proba"] = proba(user_scores["y_train_rated_logits"])
-    user_scores["y_train_rated_pred"] = pred(user_scores["y_train_rated_logits"])
-    user_scores["y_val_proba"] = proba(user_scores["y_val_logits"])
-    user_scores["y_val_pred"] = pred(user_scores["y_val_logits"])
-    user_scores["y_negative_samples_proba"] = proba(user_scores["y_negative_samples_logits"])
-    user_scores["y_negative_samples_pred"] = pred(user_scores["y_negative_samples_logits"])
-    user_scores["y_negative_samples_proba_after_train"] = proba(
-        user_scores["y_negative_samples_logits_after_train"]
-    )
-    user_scores["y_negative_samples_pred_after_train"] = pred(
-        user_scores["y_negative_samples_logits_after_train"]
-    )
-    return user_scores
-
-
 def compute_users_scores_general(
     users_ratings: pd.DataFrame,
     users_val_sessions_ids: dict,
@@ -320,7 +246,7 @@ def compute_users_scores_general(
         val_counter_all, val_counter_pos = 0, 0
 
         for session_id in user_sessions_ids:
-            user_train_set_embeddings, user_train_set_ratings = (
+            user_train_set_embeddings, user_train_set_ratings, _ = (
                 get_user_train_embeddings_and_ratings(
                     user_ratings=user_ratings,
                     session_id=session_id,
@@ -380,11 +306,12 @@ def compute_users_scores_general(
     return users_scores
 
 
-def compute_users_scores(eval_settings: dict, random_state: int = None) -> dict:
+def compute_users_scores(
+    eval_settings: dict, embed_function: EmbedFunction, random_state: int = None
+) -> dict:
     users_ratings = init_users_ratings(eval_settings)
     users_val_sessions_ids = get_users_val_sessions_ids(users_ratings)
     embedding = Embedding(eval_settings["papers_embedding_path"])
-    embed_function = get_embed_function_from_arg(eval_settings["embed_function"])
 
     papers = load_papers(relevant_columns=["paper_id", "in_cache", "in_ratings", "l1", "l2"])
     users_ratings = users_ratings.merge(papers[["paper_id", "l1", "l2"]], on="paper_id", how="left")
@@ -433,7 +360,13 @@ def save_users_scores(users_scores: dict, users_scores_folder: Path) -> None:
 
 if __name__ == "__main__":
     eval_settings, random_state = parse_args()
-    users_scores = compute_users_scores(eval_settings, random_state)
+    embed_function = get_embed_function_from_arg(eval_settings["embed_function"])
+    if embed_function == EmbedFunction.CLUSTERING_SCORES:
+        clustering_approach = get_clustering_approach(eval_settings["clustering_approach"])
+        eval_settings["clustering_approach"] = clustering_approach
+        users_scores = compute_users_scores_clustering(eval_settings, random_state)
+    else:
+        users_scores = compute_users_scores(eval_settings, embed_function, random_state)
     eval_data_folder = Path(eval_settings["eval_data_folder"]).resolve()
     users_embeddings_folder = eval_data_folder / "users_embeddings" / f"s_{random_state}"
     save_users_scores(users_scores, users_embeddings_folder)

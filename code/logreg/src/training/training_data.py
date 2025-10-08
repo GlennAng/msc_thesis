@@ -223,6 +223,8 @@ def get_categories_samples_ids(
 def get_user_categories_ratios(
     categories_ratios: dict = None, categories_to_exclude: list = []
 ) -> dict:
+    if type(categories_to_exclude) is pd.DataFrame:
+        categories_to_exclude = categories_to_exclude["category"].tolist()
     if categories_ratios is None:
         categories_ratios = get_categories_ratios_for_validation()
     user_categories_ratios = {

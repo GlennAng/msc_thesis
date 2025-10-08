@@ -61,6 +61,8 @@ def logreg_transform_embed_function_params(
     cache_papers_categories_ids: list,
     cache_papers_ids: list,
     eval_settings: dict,
+    compute_val_negative_samples_embeddings: bool = False,
+    n_negative_samples: int = 100,
 ) -> dict:
     user_significant_categories = users_significant_categories[
         users_significant_categories["user_id"] == user_id
@@ -70,11 +72,15 @@ def logreg_transform_embed_function_params(
     )
     user_val_negative_samples_ids = get_user_val_negative_samples(
         val_negative_samples_ids=val_negative_samples_ids,
-        n_negative_samples=100,
+        n_negative_samples=n_negative_samples,
         random_state=random_state,
         user_categories_ratios=user_categories_ratios,
         embedding=None,
     )["val_negative_samples_ids"]
+    if compute_val_negative_samples_embeddings:
+        val_negative_samples_embeddings = embedding.matrix[
+            embedding.get_idxs(user_val_negative_samples_ids)
+        ]
     papers_ids_to_exclude_from_cache = (
         user_ratings["paper_id"].tolist() + user_val_negative_samples_ids
     )
@@ -89,7 +95,10 @@ def logreg_transform_embed_function_params(
         embedding=embedding,
     )
     X_cache = embedding.matrix[user_cache_papers["cache_embedding_idxs"]]
-    return {"X_cache": X_cache, "random_state": random_state, "eval_settings": eval_settings}
+    user_data = {"X_cache": X_cache, "random_state": random_state, "eval_settings": eval_settings}
+    if compute_val_negative_samples_embeddings:
+        user_data["val_negative_samples_embeddings"] = val_negative_samples_embeddings
+    return user_data
 
 
 def get_hyperparameters_combination(eval_settings: dict) -> tuple:
@@ -183,4 +192,5 @@ def compute_logreg_user_embedding(
         logreg_solver=eval_settings["logreg_solver"],
     )
     model.fit(X_train, y_train, sample_weight=sample_weights)
-    return np.hstack([model.coef_[0], model.intercept_[0]])
+    embedding = np.hstack([model.coef_[0], model.intercept_[0]])
+    return embedding

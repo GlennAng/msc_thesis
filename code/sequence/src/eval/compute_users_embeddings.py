@@ -60,6 +60,7 @@ def get_user_train_set_starting_session_id(
     return max(starting_session_id_sessions, starting_session_id_days)
 
 
+
 def compute_session_min_time(user_ratings: pd.DataFrame, session_id: int) -> pd.Timestamp:
     session_times = user_ratings[user_ratings["session_id"] == session_id]["time"]
     if session_times.empty:

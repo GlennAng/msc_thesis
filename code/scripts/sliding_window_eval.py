@@ -60,6 +60,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--logreg_temporal_decay_normalization", type=str, default="jointly")
     parser.add_argument("--logreg_temporal_decay_param", type=float, default=0.01)
 
+    parser.add_argument("--clustering_approach", type=str, default="none")
+    parser.add_argument("--clustering_k_means_n_clusters", type=int, default=2)
+    parser.add_argument("--clustering_selection_max_n_clusters", type=int, default=10)
+    parser.add_argument("--clustering_selection_min_cluster_size", type=int, default=5)
     args_dict = vars(parser.parse_args())
     return args_dict
 
@@ -96,6 +100,7 @@ def process_random_states(args_dict: dict) -> None:
         if ef in [EmbedFunction.MEAN_POS_POOLING, EmbedFunction.NEURAL_PRECOMPUTED]:
             args_dict["embed_random_states"] = [VAL_RANDOM_STATE]
         elif ef in [
+            EmbedFunction.CLUSTERING_SCORES,
             EmbedFunction.LOGISTIC_REGRESSION,
             EmbedFunction.MAX_POS_POOLING_SCORES,
             EmbedFunction.MEAN_POS_POOLING_SCORES,
@@ -145,6 +150,7 @@ def save_eval_settings(args_dict: dict) -> None:
 
 def compute_users_embeddings_or_scores(args_dict: dict) -> None:
     if args_dict["embed_function"] in [
+        EmbedFunction.CLUSTERING_SCORES,
         EmbedFunction.MAX_POS_POOLING_SCORES,
         EmbedFunction.MEAN_POS_POOLING_SCORES,
     ]:
@@ -200,6 +206,7 @@ def run_logreg_configs(args_dict: dict) -> None:
         example_config["ranking_random_state"] = random_state
         path = get_users_coefs_path(args_dict, random_state)
         if args_dict["embed_function"] in [
+            EmbedFunction.CLUSTERING_SCORES,
             EmbedFunction.MAX_POS_POOLING_SCORES,
             EmbedFunction.MEAN_POS_POOLING_SCORES,
         ]:
