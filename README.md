@@ -112,6 +112,3 @@ This will perform 5 experiments (5 different random seeds) and summarize the res
 `code/logreg/outputs/example_config_averaged/global_visu_bal.pdf`.
 
 More details on changing the configurations for these experiments are given in `code/logreg`.
-
-# IV. Embedding Model Fine-tuning:
-The following describes how to fine-tune your text embedding model in PyTorch.

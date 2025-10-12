@@ -63,7 +63,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clustering_approach", type=str, default="none")
     parser.add_argument("--clustering_k_means_n_clusters", type=int, default=2)
     parser.add_argument("--clustering_selection_max_n_clusters", type=int, default=10)
-    parser.add_argument("--clustering_selection_min_cluster_size", type=int, default=5)
+    parser.add_argument("--clustering_selection_min_cluster_size", type=int, default=20)
     args_dict = vars(parser.parse_args())
     return args_dict
 
