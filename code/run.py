@@ -1,16 +1,20 @@
 import subprocess
 import sys
 
-params = ["specter2", "gte_base", "gte_large", "qwen3_0p6B", "qwen3_4B", "qwen3_8B"]
+params = [("linear", 1.0), ("clip", 1.0), ("softmax", 0.1), ("softmax", 1.0), ("softmax", 2.0), ("softmax", 0.01), ("none", 1.0)]
 
 for param in params:
     subprocess.run(
                 [
                     sys.executable,
                     "-m",
-                    "code.scripts.average_seeds",
-                    "--config_path",
-                    f"code/logreg/experiments/cross_val/{param}.json"
+                    "code.scripts.sliding_window_eval",
+                    "--embed_function",
+                    "logistic_regression",
+                    "--logreg_similarity_scaling",
+                    param[0],
+                    "--logreg_similarity_scaling_param",
+                    str(param[1]),
                 ],
                 check=True,
             )

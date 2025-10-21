@@ -541,6 +541,8 @@ def store_user_info_initial(user_ratings: pd.DataFrame, cache_n: int) -> dict:
     user_info["n_negrated"] = len(user_ratings[user_ratings["rating"] == 0])
     assert user_info["n_posrated"] + user_info["n_negrated"] == len(user_ratings)
     user_info["n_sessions"] = user_ratings["session_id"].nunique()
+    pos_ratings = user_ratings[user_ratings["rating"] == 1]
+    user_info["n_sessions_pos"] = pos_ratings["session_id"].nunique()
     max_time, min_time = user_ratings["time"].max(), user_ratings["time"].min()
     user_info["time_range_days"] = (max_time - min_time).days
     return user_info

@@ -32,8 +32,8 @@ def print_user_info(user_id: int, users_infos: pd.DataFrame, sig_categories: pd.
     user_s = "  "
     user_s += f"{user_sig_cat['category']}"
     user_s += f"  N_POS_TRAIN: {int(user_info['n_posrated_train'])}"
-    user_s += f"  N_POS_VAL_SESSIONS: {int(user_info['n_pos_val_sessions'])}"
-    user_s += f"  N_POS_VAL_DAYS: {int(user_info['pos_val_time_range_days'])}"
+    user_s += f"  N_POS_VAL_SESSIONS: {int(user_info['n_sessions_pos_val'])}"
+    user_s += f"  N_POS_VAL_DAYS: {int(user_info['time_range_days_pos_val'])}"
     return user_s
 
 

@@ -7,6 +7,7 @@ from .project_paths import ProjectPaths
 
 FINETUNING_MODEL = "gte_large_256"
 FINETUNING_MODEL_HF = "Alibaba-NLP/gte-large-en-v1.5"
+NEUTRAL_RATING = 2
 TEST_RANDOM_STATES = [1, 25, 75, 100, 150]
 VAL_RANDOM_STATE = 42
 
@@ -25,8 +26,12 @@ def load_users_ratings(
     path: Path = ProjectPaths.data_users_ratings_path(),
     relevant_users_ids: list = None,
     relevant_columns: list = None,
+    include_neutral_ratings: bool = False,
 ) -> pd.DataFrame:
     users_ratings = pd.read_parquet(path, engine="pyarrow")
+    if not include_neutral_ratings:
+        users_ratings = users_ratings[users_ratings["rating"] != NEUTRAL_RATING]
+        users_ratings = users_ratings.reset_index(drop=True)
     assert users_ratings["user_id"].is_monotonic_increasing
     if relevant_users_ids is not None:
         users_ratings = users_ratings[users_ratings["user_id"].isin(relevant_users_ids)]

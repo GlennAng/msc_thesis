@@ -220,6 +220,17 @@ def get_users_info_table(users_info: pd.DataFrame) -> list:
         "Percentage of positively rated among all rated": users_info["n_posrated"]
         / (users_info["n_posrated"] + users_info["n_negrated"]),
         "Percentage of train among all rated": users_info["train_rated_ratio"],
+        "Number of Sessions": users_info["n_sessions"],
+        "Number of Sessions with positively rated Papers": users_info["n_sessions_pos"],
+        "Number of Days": users_info["time_range_days"],
+        "Number of positively rated in Train": users_info["n_posrated_train"],
+        "Number of negatively rated in Train": users_info["n_negrated_train"],
+        "Number of positively rated in Val": users_info["n_posrated_val"],
+        "Number of negatively rated in Val": users_info["n_negrated_val"],
+        "Number of Sessions in Train": users_info["n_sessions_train"],
+        "Number of Sessions in Val": users_info["n_sessions_val"],
+        "Number of Days in Train": users_info["time_range_days_train"],
+        "Number of Days in Val": users_info["time_range_days_val"],
     }
     for row_name, row in rows.items():
         if row.isnull().all():
@@ -308,16 +319,16 @@ def print_third_page(
     )
     print_table(
         users_info_table,
-        [-0.125, 0.765, 1.2, 0.325],
+        [-0.125, 0.45, 1.2, 0.6],
         ["", "Minimum", "Maximum", "Median", "Mean", "Standard Dev."],
         [0.6] + (5 * [0.175]),
     )
-    N_MAX_USERS = 950
+    N_MAX_USERS = 500
     prune_users = n_users > N_MAX_USERS
     users_ids = users_ids[:N_MAX_USERS] if prune_users else users_ids
     ax.text(
         0.5,
-        0.745,
+        0.345,
         f"{users_ids[:N_MAX_USERS]} {'...' if prune_users else ''}",
         fontsize=9,
         ha="center",

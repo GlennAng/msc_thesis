@@ -56,14 +56,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--logreg_clf_C", type=float, default=0.1)
     parser.add_argument("--logreg_max_iter", type=int, default=10000)
     parser.add_argument("--logreg_solver", type=str, default="lbfgs")
+
     parser.add_argument("--logreg_temporal_decay", type=str, default="none")
     parser.add_argument("--logreg_temporal_decay_normalization", type=str, default="jointly")
     parser.add_argument("--logreg_temporal_decay_param", type=float, default=0.01)
+
+    parser.add_argument("--logreg_similarity_scaling", type=str, default="none")
+    parser.add_argument("--logreg_similarity_scaling_agg", type=str, default="mean")
+    parser.add_argument("--logreg_similarity_scaling_param", type=float, default=1.0)
 
     parser.add_argument("--clustering_approach", type=str, default="none")
     parser.add_argument("--clustering_k_means_n_clusters", type=int, default=2)
     parser.add_argument("--clustering_selection_max_n_clusters", type=int, default=10)
     parser.add_argument("--clustering_selection_min_cluster_size", type=int, default=20)
+
+    parser.add_argument("--save_users_predictions", action="store_true", default=False)
     args_dict = vars(parser.parse_args())
     return args_dict
 
@@ -200,7 +207,11 @@ def run_logreg_configs(args_dict: dict) -> None:
     example_config = create_example_config_sliding_window_eval(args_dict)
     configs_path = args_dict["eval_data_folder"] / "configs"
     os.makedirs(configs_path, exist_ok=True)
-    for random_state in args_dict["eval_random_states"]:
+    for i, random_state in enumerate(args_dict["eval_random_states"]):
+        if args_dict["save_users_predictions"] and i == 0:
+            example_config["save_users_predictions"] = True
+        else:
+            example_config["save_users_predictions"] = False
         example_config["model_random_state"] = random_state
         example_config["cache_random_state"] = random_state
         example_config["ranking_random_state"] = random_state

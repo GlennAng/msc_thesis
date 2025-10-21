@@ -52,11 +52,10 @@ def check_single_split(
         user_ratings["session_id"] >= split_session_id,
     )
     train_ratings, val_ratings = user_ratings[train_mask], user_ratings[val_mask]
-    n_posrated_train, n_posrated_val = train_ratings["rating"].sum(), val_ratings["rating"].sum()
-    n_negrated_train, n_negrated_val = (
-        len(train_ratings) - n_posrated_train,
-        len(val_ratings) - n_posrated_val,
-    )
+    n_posrated_train = len(train_ratings[train_ratings["rating"] == 1])
+    n_posrated_val = len(val_ratings[val_ratings["rating"] == 1])
+    n_negrated_train = len(train_ratings[train_ratings["rating"] == 0])
+    n_negrated_val = len(val_ratings[val_ratings["rating"] == 0])
     valid_split_train = (
         n_posrated_train >= min_n_posrated_train and n_negrated_train >= min_n_negrated_train
     )

@@ -300,6 +300,7 @@ def compute_users_scores_general(
             "y_val_logits": y_val_logits,
             "y_val_negrated_ranking_logits": y_val_negrated_ranking_logits,
             "y_negative_samples_logits": y_negative_samples_logits,
+            "y_val_logits_pos": y_val_logits[val_data_dict["y_val"] == 1],
         }
         user_scores = fill_user_scores(user_scores)
         users_scores[user_id] = user_scores

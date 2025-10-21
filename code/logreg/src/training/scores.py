@@ -102,6 +102,7 @@ def load_user_train_data_dict(
     y_cache: np.ndarray,
     random_state: int,
     embedding: Embedding,
+    first_session_negs_as_cache: bool = False,
 ) -> dict:
     LABEL_NEGRATED, LABEL_POSRATED, LABEL_CACHE = 0, 1, 2
     rng = np.random.default_rng(random_state)

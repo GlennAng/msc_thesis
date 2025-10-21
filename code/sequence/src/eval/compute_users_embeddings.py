@@ -168,10 +168,12 @@ def compute_users_embeddings_general(
                session_min_time - user_train_set["time"]
             ).dt.days.to_numpy()
             assert np.all(user_train_set_time_diffs >= 0)
+            user_train_set_sessions_ids = user_train_set["session_id"]
             user_embeddings[i] = embed_function(
                 user_train_set_embeddings=user_train_set_embeddings,
                 user_train_set_ratings=user_train_set_ratings,
                 user_train_set_time_diffs=user_train_set_time_diffs,
+                user_train_set_sessions_ids=user_train_set_sessions_ids,
                 **user_embed_function_params,
             )
         users_embeddings[user_id] = {

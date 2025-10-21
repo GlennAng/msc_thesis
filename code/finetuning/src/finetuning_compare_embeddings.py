@@ -10,11 +10,11 @@ from ...src.load_files import load_papers
 from ...src.project_paths import ProjectPaths
 
 
-def compute_sims(embeddings_a: np.ndarray, embeddings_b: np.ndarray) -> float:
+def compute_sims(embeddings_a: np.ndarray, embeddings_b: np.ndarray, agg: bool = True) -> float:
     if embeddings_a.shape[0] == 0 or embeddings_b.shape[0] == 0:
         return 0.0
     sims = cosine_similarity(embeddings_a, embeddings_b)
-    return np.mean(sims)
+    return np.mean(sims) if agg else sims
 
 
 def compute_sims_same_set(embeddings: np.ndarray) -> float:
@@ -32,7 +32,6 @@ def get_categories_word_embeddings(embeddings: Embedding) -> dict:
         category_embeddings = embeddings.matrix[category_papers_idxs, -100:].mean(axis=0)
         categories_word_embeddings[category] = category_embeddings
     return categories_word_embeddings
-
 
 
 def get_lengths_of_word_embeddings(categories_word_embeddings: dict) -> dict:

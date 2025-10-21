@@ -142,7 +142,7 @@ def train_models_clustering_none(
         random_state=random_state,
         eval_settings=eval_settings,
     )
-    return logreg, None, None, None, None
+    return logreg, [], None, []
 
 
 def train_models_clustering_k_means_fixed_k(
@@ -314,7 +314,7 @@ def get_train_rated_logits_dict(
     eval_settings: dict,
 ) -> dict:
     eval_settings = eval_settings.copy()
-    eval_settings["temporal_decay"] = "none"
+    eval_settings["logreg_temporal_decay"] = "none"
     global_logreg, clusters_logregs, clustering_model, clusters_with_sufficient_size = (
         train_models_clustering(
             train_set_embeddings=val_data_dict["X_train_rated"],
@@ -580,6 +580,7 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
             "y_val_logits": y_val_logits,
             "y_val_negrated_ranking_logits": y_val_negrated_ranking_logits,
             "y_negative_samples_logits": y_negative_samples_logits,
+            "y_val_logits_pos": y_val_logits[val_data_dict["y_val"] == 1],
         }
         user_scores = fill_user_scores(user_scores)
         users_scores[user_id] = user_scores

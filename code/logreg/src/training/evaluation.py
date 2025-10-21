@@ -40,6 +40,7 @@ from .training_data import (
 from .users_ratings import UsersRatingsSelection
 from .weights_handler import Weights_Handler
 
+from tqdm import tqdm
 
 class Evaluator:
     def __init__(
@@ -142,7 +143,7 @@ class Evaluator:
         users_embeddings: dict = None,
         users_scores: dict = None,
     ) -> None:
-        for user_id in users_ids:
+        for user_id in tqdm(users_ids):
             user_significant_categories = users_significant_categories[
                 users_significant_categories["user_id"] == user_id
             ]["category"].tolist()
@@ -159,6 +160,7 @@ class Evaluator:
                 user_ratings=user_ratings,
                 user_embeddings=user_embeddings,
                 user_scores=user_scores,
+                print_user=False,
             )
 
     def evaluate_users_in_parallel(
@@ -189,6 +191,7 @@ class Evaluator:
                 user_ratings=user_ratings,
                 user_embeddings=user_embeddings,
                 user_scores=user_scores,
+                print_user=True,
             )
             for user_id, user_significant_categories, user_ratings, user_embeddings, user_scores in users_list
         )
@@ -200,6 +203,7 @@ class Evaluator:
         user_ratings: pd.DataFrame,
         user_embeddings: dict = None,
         user_scores: dict = None,
+        print_user: bool = False,
     ) -> None:
         user_results_dict, user_predictions_dict = {}, {}
 
@@ -285,7 +289,8 @@ class Evaluator:
             save_user_info(self.config["outputs_dir"], user_id, user_info)
             save_user_results(self.config["outputs_dir"], user_id, user_results_dict)
             save_user_predictions(self.config["outputs_dir"], user_id, user_predictions_dict)
-            print(f"User {user_id} done.")
+            if print_user:
+                print(f"User {user_id} done.")
         except Exception as e:
             print(f"Error evaluating user {user_id}: {e}")
             traceback.print_exc()
@@ -501,6 +506,7 @@ class Evaluator:
         )
         user_results_dict[0] = user_results
         user_predictions_dict[0].update(user_predictions)
+
 
     def load_user_model(self, user_coefs: np.ndarray) -> object:
         assert len(self.hyperparameters_combinations) == 1

@@ -9,6 +9,7 @@ import pandas as pd
 import sqlalchemy
 from sqlalchemy import bindparam, create_engine
 
+from ..src.load_files import NEUTRAL_RATING
 from ..src.project_paths import ProjectPaths
 
 pd.set_option("display.max_rows", 1000)
@@ -236,12 +237,12 @@ def create_n_negrated_still_to_come_column(users_ratings: pd.DataFrame) -> pd.Se
     users_ratings = users_ratings.sort_values(by=["user_id", "time"]).copy()
     neg_indicator = (users_ratings["rating"] == 0).astype(int)
     users_ratings = users_ratings.assign(neg_indicator=neg_indicator)
-    
+
     def calculate_causal_counts(group):
         session_counts = group.groupby("session_id")["neg_indicator"].sum()
         causal_counts = session_counts[::-1].cumsum()[::-1]
         return group["session_id"].map(causal_counts).fillna(0)
-    
+
     return users_ratings.groupby("user_id", group_keys=False).apply(calculate_causal_counts)
 
 
@@ -249,13 +250,67 @@ def create_n_posrated_came_before_column(users_ratings: pd.DataFrame) -> pd.Seri
     users_ratings = users_ratings.sort_values(by=["user_id", "time"]).copy()
     pos_indicator = (users_ratings["rating"] == 1).astype(int)
     users_ratings = users_ratings.assign(pos_indicator=pos_indicator)
-    
+
     def calculate_causal_counts(group):
         session_counts = group.groupby("session_id")["pos_indicator"].sum()
         causal_counts = session_counts.shift(1).fillna(0).cumsum().astype(int)
         return group["session_id"].map(causal_counts).fillna(0)
-    
+
     return users_ratings.groupby("user_id", group_keys=False).apply(calculate_causal_counts)
+
+
+def get_neutral_ratings() -> pd.DataFrame:
+    neutral_ratings_query = """
+        SELECT user_id, paper_id, rating, time FROM users_ratings 
+        WHERE rating = 0 AND time IS NOT NULL
+        """
+    neutral_ratings = sql_execute(neutral_ratings_query)
+    neutral_ratings = pd.DataFrame(
+        neutral_ratings, columns=["user_id", "paper_id", "rating", "time"]
+    )
+    neutral_ratings["rating"] = NEUTRAL_RATING
+    neutral_ratings["time"] = pd.to_datetime(neutral_ratings["time"]).dt.floor("ms")
+    return neutral_ratings
+
+
+def filter_users_ratings(users_ratings: pd.DataFrame, papers: pd.DataFrame) -> pd.DataFrame:
+    users_ratings = users_ratings.merge(papers[["paper_id", "l1", "l2"]], on="paper_id", how="left")
+    users_ratings_filtered = users_ratings[
+        users_ratings["l1"].notna() & users_ratings["l2"].notna()
+    ]
+    users_ratings = users_ratings_filtered.drop(columns=["l1", "l2"])
+    return users_ratings
+
+
+def assign_neutral_ratings_to_sessions(
+    users_ratings: pd.DataFrame,
+    neutral_ratings: pd.DataFrame,
+    session_threshold_min: int = 420,
+) -> pd.DataFrame:
+    if not isinstance(session_threshold_min, pd.Timedelta):
+        session_threshold = pd.Timedelta(minutes=session_threshold_min)
+
+    neutral_ratings_assigned = []
+    users_ids = users_ratings["user_id"].unique()
+    for user_id in users_ids:
+        user_neutral_ratings = neutral_ratings[neutral_ratings["user_id"] == user_id].copy()
+        user_sessions = users_ratings[users_ratings["user_id"] == user_id].copy()
+        if len(user_sessions) == 0:
+            continue
+        for _, neutral_row in user_neutral_ratings.iterrows():
+            time_diffs = (user_sessions["time"] - neutral_row["time"]).abs()
+            min_diff_idx = time_diffs.idxmin()
+            min_diff = time_diffs[min_diff_idx]
+            if min_diff <= session_threshold:
+                neutral_row["session_id"] = user_sessions.loc[min_diff_idx, "session_id"]
+                neutral_ratings_assigned.append(neutral_row)
+
+    if len(neutral_ratings_assigned) > 0:
+        neutral_ratings_assigned_df = pd.DataFrame(neutral_ratings_assigned)
+        neutral_ratings_assigned_df = neutral_ratings_assigned_df.dropna(subset=["session_id"])
+        users_ratings = pd.concat([users_ratings, neutral_ratings_assigned_df], ignore_index=True)
+        users_ratings = users_ratings.sort_values(by=["user_id", "time"]).reset_index(drop=True)
+    return users_ratings
 
 
 def save_users_ratings(
@@ -269,22 +324,22 @@ def save_users_ratings(
     users_ratings = pd.DataFrame(users_ratings, columns=["user_id", "paper_id", "rating", "time"])
     users_ratings["rating"] = users_ratings["rating"].replace(-1, 0)
     users_ratings["time"] = pd.to_datetime(users_ratings["time"]).dt.floor("ms")
+    neutral_ratings = get_neutral_ratings()
     if papers is not None:
-        users_ratings_with_papers = users_ratings.merge(
-            papers[["paper_id", "l1", "l2"]], on="paper_id", how="left"
-        )
-        users_ratings_filtered = users_ratings_with_papers[
-            users_ratings_with_papers["l1"].notna() & users_ratings_with_papers["l2"].notna()
-        ]
-        users_ratings = users_ratings_filtered.drop(columns=["l1", "l2"])
+        users_ratings = filter_users_ratings(users_ratings, papers)
+        neutral_ratings = filter_users_ratings(neutral_ratings, papers)
     if users_mapping is not None:
         users_ratings["user_id"] = users_ratings["user_id"].map(users_mapping).astype("int64")
         unique_users_ids = users_ratings["user_id"].unique()
         assert set(unique_users_ids) == set(range(len(users_mapping)))
-    assert not users_ratings.isnull().any().any()
+        neutral_ratings["user_id"] = neutral_ratings["user_id"].map(users_mapping).astype("int64")
+    assert not users_ratings.isnull().any().any() and not neutral_ratings.isnull().any().any()
     users_ratings = users_ratings.sort_values(by=["user_id", "time"]).reset_index(drop=True)
     users_ratings["session_id"] = create_session_column(users_ratings)
-    users_ratings["n_negrated_still_to_come"] = create_n_negrated_still_to_come_column(users_ratings)
+    users_ratings = assign_neutral_ratings_to_sessions(users_ratings, neutral_ratings)
+    users_ratings["n_negrated_still_to_come"] = create_n_negrated_still_to_come_column(
+        users_ratings
+    )
     users_ratings["n_posrated_came_before"] = create_n_posrated_came_before_column(users_ratings)
     path.parent.mkdir(parents=True, exist_ok=True)
     users_ratings.to_parquet(path, index=False, compression="gzip")
@@ -294,7 +349,7 @@ def save_users_ratings(
 def get_users_distributions(users_ratings: pd.DataFrame, papers: pd.DataFrame) -> pd.DataFrame:
     l1_categories = sorted([cat for cat in papers["l1"].unique() if pd.notna(cat)])
     users_ratings = users_ratings.copy()
-    users_ratings = users_ratings[users_ratings["rating"] > 0]
+    users_ratings = users_ratings[users_ratings["rating"] == 1]
     users_ratings_merged = users_ratings.merge(
         papers[["paper_id", "l1"]],
         on="paper_id",
@@ -354,9 +409,7 @@ if __name__ == "__main__":
     papers_categories_old = pd.read_parquet(papers_categories_old_file, engine="pyarrow")
     papers = save_papers(ProjectPaths.data_papers_path(), papers_categories_old)
 
-    users_ratings = save_users_ratings(
-        ProjectPaths.data_users_ratings_path(), papers=papers
-    )
+    users_ratings = save_users_ratings(ProjectPaths.data_users_ratings_path(), papers=papers)
 
     users_distributions = get_users_distributions(users_ratings, papers)
     users_significant_categories = save_significant_categories_for_all_users(
