@@ -27,71 +27,106 @@ def get_visu_types() -> dict:
             "agg_func": "median",
             "title": "Median Number of All Papers (including Unrated)",
             "y_label": "Number of Papers",
+            "y_upper_bound": None,
+            "y_lower_bound": 0,
         },
         "n_votes_rated": {
-            "agg_func": "median",
+            "agg_func": "mean",
             "title": "Median Number of Rated Papers",
             "y_label": "Number of Papers",
+            "y_upper_bound": None,
+            "y_lower_bound": 0,
         },
         "n_votes_pos": {
             "agg_func": "median",
             "title": "Median Number of Upvoted Papers",
             "y_label": "Number of Papers",
+            "y_upper_bound": None,
+            "y_lower_bound": 0,
         },
         "n_votes_neg": {
             "agg_func": "median",
             "title": "Median Number of Downvoted Papers",
             "y_label": "Number of Papers",
+            "y_upper_bound": None,
+            "y_lower_bound": 0,
         },
         "pos_portion_all": {
             "agg_func": "mean",
             "title": "Mean Portion of Upvoted Papers (among All Papers)",
             "y_label": "Portion of Upvoted Papers",
+            "y_upper_bound": None,
+            "y_lower_bound": 0.0,
         },
         "pos_portion_rated": {
             "agg_func": "mean",
             "title": "Mean Portion of Upvoted Papers (among Rated Papers)",
             "y_label": "Portion of Upvoted Papers",
+            "y_upper_bound": None,
+            "y_lower_bound": 0.0,
         },
         "cosine_with_self_all": {
             "agg_func": "mean",
             "title": "Mean Cosine Similarities of All Papers (including Unrated)",
             "y_label": "Cosine Similarity",
+            "y_upper_bound": None,
+            "y_lower_bound": 0.0,
         },
         "cosine_with_self_rated": {
             "agg_func": "mean",
             "title": "Mean Cosine Similarities of Rated Papers",
             "y_label": "Cosine Similarity",
+            "y_upper_bound": None,
+            "y_lower_bound": 0.0,
         },
         "cosine_with_self_pos": {
             "agg_func": "mean",
             "title": "Mean Cosine Similarities of Upvoted Papers",
             "y_label": "Cosine Similarity",
+            "y_upper_bound": None,
+            "y_lower_bound": 0.0,
         },
         "cosine_with_self_neg": {
             "agg_func": "mean",
             "title": "Mean Cosine Similarities of Downvoted Papers",
             "y_label": "Cosine Similarity",
+            "y_upper_bound": None,
+            "y_lower_bound": 0.0,
         },
         "cosine_pos_neg": {
             "agg_func": "mean",
             "title": "Mean Cosine Similarities between Upvoted and Downvoted Papers",
             "y_label": "Cosine Similarity",
+            "y_upper_bound": None,
+            "y_lower_bound": 0.0,
         },
         "cosine_start_all": {
             "agg_func": "mean",
             "title": "Mean Cosine Similarities with Initial Onboarding (All Papers)",
             "y_label": "Cosine Similarity",
+            "y_upper_bound": None,
+            "y_lower_bound": 0.0,
         },
         "cosine_start_rated": {
             "agg_func": "mean",
             "title": "Mean Cosine Similarities with Initial Onboarding (Rated Papers)",
             "y_label": "Cosine Similarity",
+            "y_upper_bound": None,
+            "y_lower_bound": 0.0,
         },
         "cosine_start_pos": {
             "agg_func": "mean",
             "title": "Mean Cosine Similarities with Initial Onboarding (Upvoted Papers)",
             "y_label": "Cosine Similarity",
+            "y_upper_bound": None,
+            "y_lower_bound": 0.0,
+        },
+        "ndcg": {
+            "agg_func": "mean",
+            "title": "Mean nDCG Score",
+            "y_label": "nDCG",
+            "y_upper_bound": 1.0,
+            "y_lower_bound": 0.6,
         },
     }
     return visu_types
@@ -108,7 +143,7 @@ def get_visu_type_entry(visu_type: str) -> dict:
 
 def get_default_window_size(temporal_type: str) -> int:
     if temporal_type == "sessions":
-        return 2
+        return 5
     elif temporal_type == "days":
         return 30
 
@@ -135,8 +170,8 @@ def parse_args() -> dict:
     )
     parser.add_argument("--users_n_min_sessions", type=int, default=None)
     parser.add_argument("--users_n_min_days", type=int, default=None)
-    parser.add_argument("--y_lower_bound", type=float, default=0)
-    parser.add_argument("--y_upper_bound", type=float, default=None)
+    parser.add_argument("--scores_path", type=str, default=None)
+    parser.add_argument("--scores_path_before", type=str, default=None)
 
     args = vars(parser.parse_args())
     args["users_selection"] = get_users_ratings_selection_from_arg(args["users_selection"])
@@ -145,6 +180,16 @@ def parse_args() -> dict:
         args["window_size"] = get_default_window_size(args["temporal_type"])
     if args["last_iter_included"] is None:
         args["last_iter_included"] = get_last_iter_included(args["temporal_type"])
+    if args["scores_path"] is not None:
+        scores_path = Path(args["scores_path"])
+        if scores_path.stem != "users_embeddings":
+            scores_path = scores_path / "users_embeddings"
+        args["scores_path"] = scores_path
+    if args["scores_path_before"] is not None:
+        scores_path_before = Path(args["scores_path_before"])
+        if scores_path_before.stem != "users_embeddings":
+            scores_path_before = scores_path_before / "users_embeddings"
+        args["scores_path_before"] = scores_path_before
     return args
 
 
@@ -319,11 +364,7 @@ def get_window_df_included_users(window_df: pd.DataFrame, visu_type: str) -> pd.
     elif visu_type == "cosine_with_self_neg":
         return window_df[window_df["n_neg"] > 1]
     elif visu_type == "cosine_pos_neg":
-        grouped = window_df.groupby(["user_id", "session_id"]).agg({"n_pos": "sum", "n_neg": "sum"})
-        valid_combinations = grouped[(grouped["n_pos"] > 0) & (grouped["n_neg"] > 0)].index
-        window_df = window_df[
-            window_df.set_index(["user_id", "session_id"]).index.isin(valid_combinations)
-        ]
+        window_df = window_df[(window_df["n_pos"] > 0) & (window_df["n_neg"] > 0)]
     elif visu_type == "cosine_start_all":
         window_df = window_df[window_df["split"] == "val"]
         window_df = window_df[window_df["n_all"] > 0]
@@ -331,6 +372,9 @@ def get_window_df_included_users(window_df: pd.DataFrame, visu_type: str) -> pd.
         window_df = window_df[window_df["split"] == "val"]
         window_df = window_df[window_df["n_rated"] > 0]
     elif visu_type == "cosine_start_pos":
+        window_df = window_df[window_df["split"] == "val"]
+        window_df = window_df[window_df["n_pos"] > 0]
+    elif visu_type in ["ndcg", "ndcg_before"]:
         window_df = window_df[window_df["split"] == "val"]
         window_df = window_df[window_df["n_pos"] > 0]
     return window_df
@@ -455,6 +499,41 @@ def get_window_scores(
     return scores
 
 
+def get_mean_and_std(
+    sessions_df: pd.DataFrame, args: dict, embeddings_df: pd.DataFrame = None
+):
+    temp_column = "session_id" if args["temporal_type"] == "sessions" else "n_days_passed"
+    first_iter_included = max(args["first_iter_included"], 0)
+    last_iter_included = min(args["last_iter_included"], sessions_df[temp_column].max())
+    sessions_df = sessions_df[sessions_df[temp_column] >= first_iter_included]
+    sessions_df = sessions_df[sessions_df[temp_column] <= last_iter_included]
+    window_size = args["window_size"]
+
+    users_ids = sessions_df["user_id"].unique().tolist()
+    users_means = []
+    users_stds = []
+    for user_id in tqdm(users_ids):
+        user_scores = []
+        user_sessions = sessions_df[sessions_df["user_id"] == user_id]
+        for i in range(first_iter_included, last_iter_included + 1):
+            start_idx = max(first_iter_included, i - window_size)
+            end_idx = min(last_iter_included, i + window_size)
+            true_window_size = end_idx - start_idx + 1
+            window_df = user_sessions[user_sessions[temp_column] >= start_idx]
+            window_df = window_df[window_df[temp_column] <= end_idx]
+            window_df = get_window_df_included_users(window_df, args["visu_type"])
+            if len(window_df) == 0:
+                continue
+            window_scores = get_window_scores(
+                window_df, args["visu_type"], true_window_size, embeddings_df
+            )
+            assert len(window_scores) == 1
+            user_scores.append(window_scores.iloc[0])
+        assert len(user_scores) > 0
+        users_means.append(np.mean(user_scores))
+        users_stds.append(np.std(user_scores, ddof=0))
+    print(f"Mean: {np.mean(users_means)}, Std: {np.mean(users_stds)}")
+
 def extract_data_sessions(
     sessions_df: pd.DataFrame, args: dict, embeddings_df: pd.DataFrame = None
 ) -> dict:
@@ -465,6 +544,8 @@ def extract_data_sessions(
     sessions_df = sessions_df[sessions_df[temp_column] >= first_iter_included]
     sessions_df = sessions_df[sessions_df[temp_column] <= last_iter_included]
     window_size = args["window_size"]
+    users_ids = sessions_df["user_id"].unique().tolist()
+    users_scores = {user_id: [] for user_id in users_ids}
 
     percentages_users_included, scores, spreads_lower, spreads_upper = [], [], [], []
     for i in tqdm(range(first_iter_included, last_iter_included + 1)):
@@ -484,12 +565,16 @@ def extract_data_sessions(
         window_scores = get_window_scores(
             window_df, args["visu_type"], true_window_size, embeddings_df
         )
+        for user_id in window_df["user_id"].unique():
+            users_scores[user_id].append(window_scores.loc[user_id])
         score, spread_lower, spread_upper = aggregate_window_scores(
             window_scores, args["visu_type_entry"]["agg_func"]
         )
         scores.append(score)
         spreads_lower.append(spread_lower)
         spreads_upper.append(spread_upper)
+    users_means = [np.mean(u_scores) for u_scores in users_scores.values() if len(u_scores) > 0]
+    print(f"Mean: {np.mean(users_means)}, Std: {np.std(users_means)}")
     return {
         "percentages_users_included": np.array(percentages_users_included),
         "scores": np.array(scores),
@@ -498,31 +583,82 @@ def extract_data_sessions(
     }
 
 
-def plot_linear_regression(plt: object, x: np.ndarray, y: np.ndarray) -> None:
-    mask = ~np.isnan(y)
-    x_clean = x[mask]
-    y_clean = y[mask]
-    if len(x_clean) > 1:
-        slope, intercept, _, _, _ = stats.linregress(x_clean, y_clean)
-        regression_line = slope * x + intercept
-        plt.plot(
-            x,
-            regression_line,
-            "-",
-            color="orange",
-            linewidth=2.4,
-            alpha=0.9,
-            label="Linear Regression",
-        )
-
-
-def plot_line_fill(
-    plt: object,
-    x: np.ndarray,
-    plot_components: dict,
-    line_label: str,
-    fill_label: str,
+def plot_data_sessions(
+    sessions_df: pd.DataFrame, args: dict, embeddings_df: pd.DataFrame = None, path: str = None
 ) -> None:
+    if path is None:
+        path = "visu_temporal.png"
+    plot_components = extract_data_sessions(
+        sessions_df=sessions_df, args=args, embeddings_df=embeddings_df
+    )
+    plt.figure(figsize=(10, 5))
+    x = np.arange(
+        args["first_iter_included"],
+        args["first_iter_included"] + len(plot_components["scores"]),
+    )
+    if args["plot_regression"]:
+        y = plot_components["scores"]
+        mask = ~np.isnan(y)
+        x_clean = x[mask]
+        y_clean = y[mask]
+        if len(x_clean) > 1:
+            slope, intercept, r_value, p_value, std_err = stats.linregress(x_clean, y_clean)
+            regression_line = slope * x + intercept
+            plt.plot(x, regression_line, "-", color="orange", linewidth=1.75, alpha=0.7)
+    for i in range(len(x) - 1):
+        min_width = 0.5
+        max_width = 4.0
+        thickness = (
+            min_width + (max_width - min_width) * plot_components["percentages_users_included"][i]
+        )
+        plt.plot(
+            x[i : i + 2], plot_components["scores"][i : i + 2], color="blue", linewidth=thickness
+        )
+    plt.fill_between(
+        x,
+        plot_components["spreads_lower"],
+        plot_components["spreads_upper"],
+        color="blue",
+        alpha=0.2,
+    )
+    plt.xlim(left=0, right=x[-1])
+    if args["visu_type_entry"]["y_upper_bound"] is not None:
+        plt.ylim(
+            bottom=args["visu_type_entry"]["y_lower_bound"],
+            top=args["visu_type_entry"]["y_upper_bound"],
+        )
+    else:
+        plt.ylim(bottom=args["visu_type_entry"]["y_lower_bound"])
+    plt.xlabel(f"{args['temporal_type'].capitalize()}")
+    plt.ylabel(args["visu_type_entry"]["y_label"])
+    title = f"{args['visu_type_entry']['title']} over {args['temporal_type'].capitalize()}"
+    title += f" (Window Size {2* args['window_size'] + 1})."
+    plt.title(title)
+    plt.grid()
+    plt.savefig(path)
+    plt.close()
+
+
+def plot_data_sessions_compare_with_before(
+    sessions_df: pd.DataFrame, args: dict, embeddings_df: pd.DataFrame = None, path: str = None
+) -> None:
+    if path is None:
+        path = "visu_temporal_compare.png"
+    visu_type = args["visu_type"]
+    plot_components = extract_data_sessions(
+        sessions_df=sessions_df, args=args, embeddings_df=embeddings_df
+    )
+    args_before = args.copy()
+    if visu_type == "ndcg":
+        args_before["visu_type"] = "ndcg_before"
+    plot_components_before = extract_data_sessions(
+        sessions_df=sessions_df, args=args_before, embeddings_df=embeddings_df
+    )
+    plt.figure(figsize=(10, 5))
+    x = np.arange(
+        args["first_iter_included"],
+        args["first_iter_included"] + len(plot_components["scores"]),
+    )
     for i in range(len(x) - 1):
         min_width = 0.5
         max_width = 4.0
@@ -534,88 +670,100 @@ def plot_line_fill(
             plot_components["scores"][i : i + 2],
             color="blue",
             linewidth=thickness,
-            label=line_label if i == 0 else None,
+            label="After" if i == 0 else None,
+        )
+        plt.plot(
+            x[i : i + 2],
+            plot_components_before["scores"][i : i + 2],
+            color="green",
+            linewidth=thickness,
+            label="Before" if i == 0 else None,
         )
     plt.fill_between(
         x,
         plot_components["spreads_lower"],
         plot_components["spreads_upper"],
         color="blue",
-        alpha=0.15,
-        label=fill_label,
+        alpha=0.2,
     )
-
-
-def plot_lims_ticks(
-    plt: object,
-    ax: object,
-    plot_components: dict,
-    x: np.ndarray,
-) -> None:
-    plt.ylim(bottom=args["y_lower_bound"])
-    if args["y_upper_bound"] is not None:
-        plt.ylim(top=args["y_upper_bound"])
+    plt.fill_between(
+        x,
+        plot_components_before["spreads_lower"],
+        plot_components_before["spreads_upper"],
+        color="green",
+        alpha=0.2,
+    )
+    plt.xlim(left=0, right=x[-1])
+    if args["visu_type_entry"]["y_upper_bound"] is not None:
+        plt.ylim(
+            bottom=args["visu_type_entry"]["y_lower_bound"],
+            top=args["visu_type_entry"]["y_upper_bound"],
+        )
+    else:
+        plt.ylim(bottom=args["visu_type_entry"]["y_lower_bound"])
     plt.xlabel(f"{args['temporal_type'].capitalize()}")
     plt.ylabel(args["visu_type_entry"]["y_label"])
-
-    first_iter, last_iter = x[0], x[-1]
-    plt.xlim(left=0, right=last_iter)
-    tick_positions = np.linspace(0, last_iter, 6)
-    tick_positions[0] = first_iter
-    ax.set_xticks(tick_positions)
-    ax.set_xticklabels([f"{int(pos)}" for pos in tick_positions])
-    ax2 = ax.twiny()
-    ax2.set_xlim(ax.get_xlim())
-    users_percentages = plot_components["percentages_users_included"][
-        tick_positions.astype(int) - first_iter
-    ]
-    users_counts = (users_percentages * sessions_df["user_id"].nunique()).astype(int)
-    ax2.set_xticks(ax.get_xticks())
-    ax2.set_xticklabels([f"{count} Users" for count in users_counts], fontsize=8)
-
-
-def plot_data_sessions(
-    sessions_df: pd.DataFrame, args: dict, embeddings_df: pd.DataFrame = None, path: str = None
-) -> None:
-    if path is None:
-        path = "visu_temporal.pdf"
-    plot_components = extract_data_sessions(
-        sessions_df=sessions_df, args=args, embeddings_df=embeddings_df
-    )
-    _, ax = plt.subplots(figsize=(10, 5))
-    ax.set_facecolor("#f0f0f0")
-    ax.grid(alpha=0.65, linewidth=0.5)
-    x = np.arange(
-        args["first_iter_included"],
-        args["first_iter_included"] + len(plot_components["scores"]),
-    )
-    if args["plot_regression"]:
-        plot_linear_regression(plt=plt, x=x, y=plot_components["scores"])
-
-    if args["visu_type_entry"]["agg_func"] == "median":
-        line_label, fill_label = "Median", "Spread (25th-75th percentile)"
-    else:
-        line_label, fill_label = "Mean", "Spread (±1 Std Dev)"
-    plot_line_fill(
-        plt=plt,
-        x=x,
-        plot_components=plot_components,
-        line_label=line_label,
-        fill_label=fill_label,
-    )
-    plot_lims_ticks(
-        plt=plt,
-        ax=ax,
-        plot_components=plot_components,
-        x=x,
-    )
-    if plot_components["scores"][0] > plot_components["scores"][-1]:
-        legend_loc = "upper right"
-    else:
-        legend_loc = "lower right"
-    ax.legend(loc=legend_loc, fontsize=8.5)
+    title = f"{args['visu_type_entry']['title']} over {args['temporal_type'].capitalize()}"
+    title += f" (Window Size {2* args['window_size'] + 1})."
+    plt.title(title)
+    plt.legend()
+    plt.grid()
     plt.savefig(path)
     plt.close()
+
+
+def attach_ndcg_column(sessions_df: pd.DataFrame, scores_path: str, name: str = "ndcg") -> pd.DataFrame:
+    import os
+    import pickle
+
+    sessions_df[name] = None
+    sessions_df[name] = sessions_df[name].astype(object)
+    sessions_df["split"] = "train"
+
+    seeds = os.listdir(scores_path)
+    all_scores = []
+    for seed in seeds:
+        seed_path = Path(os.path.join(scores_path, seed))
+        with open(seed_path / "users_scores.pkl", "rb") as f:
+            all_scores.append(pickle.load(f))
+
+    sessions_df["n_rated_cum"] = sessions_df.groupby("user_id")["n_rated"].cumsum()
+    sessions_df["n_pos_cum"] = sessions_df.groupby("user_id")["n_pos"].cumsum()
+    users_ids = sessions_df["user_id"].unique()
+    assert set(users_ids) <= set(all_scores[0].keys())
+    
+    for user_id in tqdm(users_ids):
+        user_ndcgs = []
+        for i in range(len(all_scores)):
+            user_scores_seed = all_scores[i][user_id]
+            val_logits_pos = user_scores_seed["y_val_logits_pos"].reshape(-1, 1)
+            val_negrated_ranking_logits = user_scores_seed["y_val_negrated_ranking_logits"]
+            val_negative_samples_logits = user_scores_seed["y_negative_samples_logits"]
+            user_scores_seed = np.hstack(
+                [val_logits_pos, val_negrated_ranking_logits, val_negative_samples_logits]
+            )
+            pos_vals = user_scores_seed[:, 0].reshape(-1, 1)
+            pos_ranks = np.sum(user_scores_seed[:, 1:] >= pos_vals, axis=1) + 1
+            user_ndcgs_seed = 1 / np.log2(pos_ranks + 1)
+            user_ndcgs.append(user_ndcgs_seed)
+        user_ndcgs_mean = np.mean(user_ndcgs, axis=0)
+        n_train_rated = all_scores[0][user_id]["y_train_rated_logits"].shape[0]
+        mask = (sessions_df["user_id"] == user_id) & (sessions_df["n_rated_cum"] > n_train_rated)
+        user_sessions = sessions_df[mask].copy()
+        ndcgs_counter = 0
+        
+        for idx, row in user_sessions.iterrows():
+            if ndcgs_counter >= len(user_ndcgs_mean):
+                assert ndcgs_counter == len(user_ndcgs_mean)
+                break
+            n_pos = row["n_pos"]
+            if n_pos > 0:
+                ndcgs = user_ndcgs_mean[ndcgs_counter : ndcgs_counter + n_pos]
+                idx_pos = sessions_df.index.get_loc(idx)
+                sessions_df[name].values[idx_pos] = ndcgs
+                sessions_df.at[idx, "split"] = "val"
+                ndcgs_counter += n_pos    
+    return sessions_df
 
 
 if __name__ == "__main__":
@@ -641,4 +789,12 @@ if __name__ == "__main__":
             test_size=1.0,
         )
     sessions_df, users_embeddings_df = get_sessions_df(users_ratings, embedding)
-    plot_data_sessions(sessions_df, args, users_embeddings_df)
+    if args["visu_type"] == "ndcg":
+        sessions_df = attach_ndcg_column(sessions_df, args["scores_path"])
+        if args["scores_path_before"] is not None:
+            sessions_df = attach_ndcg_column(sessions_df, args["scores_path_before"], name="ndcg_before")
+            plot_data_sessions_compare_with_before(sessions_df, args, users_embeddings_df)
+        else:
+            plot_data_sessions(sessions_df, args, users_embeddings_df)
+    else:
+        plot_data_sessions(sessions_df, args, users_embeddings_df)

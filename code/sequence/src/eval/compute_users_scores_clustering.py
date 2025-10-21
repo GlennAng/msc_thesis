@@ -5,6 +5,7 @@ import pandas as pd
 from scipy import sparse
 from scipy.special import expit
 from sklearn.cluster import KMeans
+from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm
 
 from ....logreg.src.embeddings.embedding import Embedding
@@ -312,7 +313,7 @@ def get_train_rated_logits_dict(
     X_cache: np.ndarray,
     random_state: int,
     eval_settings: dict,
-) -> dict:
+) -> tuple:
     eval_settings = eval_settings.copy()
     eval_settings["logreg_temporal_decay"] = "none"
     global_logreg, clusters_logregs, clustering_model, clusters_with_sufficient_size = (
@@ -343,11 +344,12 @@ def get_train_rated_logits_dict(
         clusters_with_sufficient_size=clusters_with_sufficient_size,
         embeddings_to_score=val_negative_samples_embeddings,
     )
-    return {
+    train_rated_logits_dict = {
         "y_train_rated_logits": y_train_rated_logits,
         "y_train_negrated_ranking_logits": y_train_negrated_ranking_logits,
         "y_negative_samples_logits_after_train": y_negative_samples_logits_after_train,
     }
+    return train_rated_logits_dict, global_logreg
 
 
 def get_y_val_logits_session(
@@ -433,6 +435,49 @@ def get_y_negative_samples_logits_session(
     return y_negative_samples_logits
 
 
+def fill_users_scores_models_properties(logreg_models: dict, user_scores: dict) -> dict:
+    logreg_coefs_cat = [model.coef_[0, :] for model in logreg_models]
+    logreg_coefs_no_cat = [coef[:256] for coef in logreg_coefs_cat]
+    d = {}
+
+    for i, logreg_coefs_list in enumerate([logreg_coefs_cat, logreg_coefs_no_cat]):
+        for j, coef in enumerate(logreg_coefs_list):
+            s = "cat" if i == 0 else "no_cat"
+
+            d.setdefault(f"norm_{s}", []).append(np.linalg.norm(coef))
+            d.setdefault(f"mean_abs_coef_{s}", []).append(np.mean(np.abs(coef)))
+            d.setdefault(f"max_abs_coef_{s}", []).append(np.max(np.abs(coef)))
+            d.setdefault(f"std_coef_{s}", []).append(np.std(coef))
+
+            threshold = 1e-3
+            d.setdefault(f"sparsity_ratio_{s}", []).append(np.mean(np.abs(coef) < threshold))
+            d.setdefault(f"num_nonzero_{s}", []).append(np.count_nonzero(coef))
+
+            if j > 0:
+                prev_coef = logreg_coefs_list[j - 1]
+                d.setdefault(f"distance_to_prev_{s}", []).append(np.linalg.norm(coef - prev_coef))
+                sim_prev = cosine_similarity(coef.reshape(1, -1), prev_coef.reshape(1, -1))[0, 0]
+                d.setdefault(f"sim_to_prev_{s}", []).append(sim_prev)
+                first_coef = logreg_coefs_list[0]
+                d.setdefault(f"distance_to_first_{s}", []).append(np.linalg.norm(coef - first_coef))
+                sim_first = cosine_similarity(coef.reshape(1, -1), first_coef.reshape(1, -1))[0, 0]
+                d.setdefault(f"sim_to_first_{s}", []).append(sim_first)
+
+                k = 10
+                top_k_curr = set(np.argsort(np.abs(coef))[-k:])
+                top_k_prev = set(np.argsort(np.abs(prev_coef))[-k:])
+                top_k_first = set(np.argsort(np.abs(first_coef))[-k:])
+                d.setdefault(f"top{k}_overlap_prev_{s}", []).append(
+                    len(top_k_curr & top_k_prev) / k
+                )
+                d.setdefault(f"top{k}_overlap_first_{s}", []).append(
+                    len(top_k_curr & top_k_first) / k
+                )
+    for key, values in d.items():
+        user_scores[key] = np.array(values, dtype=DT)
+    return user_scores
+
+
 def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> dict:
     users_ratings = init_users_ratings(eval_settings)
     users_val_sessions_ids = get_users_val_sessions_ids(users_ratings)
@@ -483,7 +528,7 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
             random_state=random_state,
         )
         val_negative_samples_embeddings = user_params["val_negative_samples_embeddings"]
-        train_rated_logits_dict = get_train_rated_logits_dict(
+        train_rated_logits_dict, global_logreg = get_train_rated_logits_dict(
             val_data_dict=val_data_dict,
             val_negative_samples_embeddings=val_negative_samples_embeddings,
             train_negrated_ranking_idxs=train_negrated_ranking_idxs,
@@ -501,6 +546,7 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
         y_negative_samples_logits = np.zeros((n_val_pos, n_val_negative_samples), dtype=DT)
         val_counter_all, val_counter_pos = 0, 0
 
+        logreg_models = [global_logreg]
         for session_id in user_sessions_ids:
             user_train_set_embeddings, user_train_set_ratings, user_train_set_time_diffs = (
                 get_user_train_embeddings_and_ratings(
@@ -540,6 +586,7 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
                     eval_settings=eval_settings,
                 )
             )
+            logreg_models.append(global_logreg)
 
             y_val_logits = get_y_val_logits_session(
                 global_logreg=global_logreg,
@@ -583,5 +630,8 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
             "y_val_logits_pos": y_val_logits[val_data_dict["y_val"] == 1],
         }
         user_scores = fill_user_scores(user_scores)
+        user_scores = fill_users_scores_models_properties(
+            logreg_models=logreg_models, user_scores=user_scores
+        )
         users_scores[user_id] = user_scores
     return users_scores
