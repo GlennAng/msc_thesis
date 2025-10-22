@@ -281,7 +281,7 @@ def sessions_df_attach_split(sessions_df: pd.DataFrame, users_ratings: pd.DataFr
     return sessions_df, users_embeddings_df
 
 
-def get_sessions_df(users_ratings: pd.DataFrame, embedding: Embedding) -> tuple:
+def get_sessions_df(users_ratings: pd.DataFrame, embedding: Embedding = None) -> tuple:
     n_sessions = len(users_ratings[["user_id", "session_id"]].drop_duplicates())
     sessions_df = (
         users_ratings.groupby(["user_id", "session_id"])["rating"]
@@ -300,9 +300,12 @@ def get_sessions_df(users_ratings: pd.DataFrame, embedding: Embedding) -> tuple:
     assert sessions_df["n_rated"].sum() == (users_ratings["rating"] != NEUTRAL_RATING).sum()
     sessions_df["n_all"] = sessions_df["n_pos"] + sessions_df["n_neg"] + sessions_df["n_neutral"]
     assert sessions_df["n_all"].sum() == len(users_ratings)
-    for rating in [0, 1, NEUTRAL_RATING]:
-        sessions_df = sessions_df_attach_embeddings(sessions_df, users_ratings, embedding, rating)
-    sessions_df = sessions_df_attach_extended_embeddings(sessions_df)
+    if embedding is not None:
+        for rating in [0, 1, NEUTRAL_RATING]:
+            sessions_df = sessions_df_attach_embeddings(
+                sessions_df, users_ratings, embedding, rating
+            )
+        sessions_df = sessions_df_attach_extended_embeddings(sessions_df)
     sessions_df = sessions_df_attach_n_days_passed(sessions_df, users_ratings)
     sessions_df, users_embeddings_df = sessions_df_attach_split(sessions_df, users_ratings)
     print(f"Number of Sessions: {len(sessions_df)}")
@@ -310,7 +313,19 @@ def get_sessions_df(users_ratings: pd.DataFrame, embedding: Embedding) -> tuple:
 
 
 def get_window_df_included_users(window_df: pd.DataFrame, visu_type: str) -> pd.DataFrame:
-    if visu_type == "cosine_with_self_all":
+    if visu_type == "n_votes_all":
+        return window_df[window_df["n_all"] > 0]
+    elif visu_type == "n_votes_rated":
+        return window_df[window_df["n_rated"] > 0]
+    elif visu_type == "n_votes_pos":
+        return window_df[window_df["n_pos"] > 0]
+    elif visu_type == "n_votes_neg":
+        return window_df[window_df["n_neg"] > 0]
+    elif visu_type == "pos_portion_all":
+        return window_df[window_df["n_all"] > 0]
+    elif visu_type == "pos_portion_rated":
+        return window_df[window_df["n_rated"] > 0]
+    elif visu_type == "cosine_with_self_all":
         return window_df[window_df["n_all"] > 1]
     elif visu_type == "cosine_with_self_rated":
         return window_df[window_df["n_rated"] > 1]
@@ -333,6 +348,8 @@ def get_window_df_included_users(window_df: pd.DataFrame, visu_type: str) -> pd.
     elif visu_type == "cosine_start_pos":
         window_df = window_df[window_df["split"] == "val"]
         window_df = window_df[window_df["n_pos"] > 0]
+    else:
+        raise ValueError(f"Unknown visu_type: {visu_type}")
     return window_df
 
 
@@ -354,8 +371,9 @@ def aggregate_window_scores(scores: pd.Series, agg_func: str) -> tuple:
 def get_window_scores(
     window_df: pd.DataFrame,
     visu_type: str,
-    true_window_size: int = None,
-    embeddings_df: pd.DataFrame = None,
+    true_window_size: int,
+    embeddings_df: pd.DataFrame,
+    **kwargs: any,
 ) -> pd.Series:
     if visu_type == "n_votes_all":
         scores = window_df.groupby("user_id")["n_all"].sum()
@@ -448,16 +466,21 @@ def get_window_scores(
             ),
             include_groups=False,
         )
-    elif visu_type in ["ndcg", "ndcg_before"]:
-        scores = window_df.groupby("user_id")[visu_type].apply(
-            lambda x: np.mean(np.concatenate(x.tolist()))
-        )
     return scores
 
 
 def extract_data_sessions(
-    sessions_df: pd.DataFrame, args: dict, embeddings_df: pd.DataFrame = None
+    sessions_df: pd.DataFrame,
+    args: dict,
+    embeddings_df: pd.DataFrame = None,
+    included_users_func: callable = None,
+    scores_func: callable = None,
+    compare: bool = False,
 ) -> dict:
+    if included_users_func is None:
+        included_users_func = get_window_df_included_users
+    if scores_func is None:
+        scores_func = get_window_scores
     n_users = sessions_df["user_id"].nunique()
     temp_column = "session_id" if args["temporal_type"] == "sessions" else "n_days_passed"
     first_iter_included = max(args["first_iter_included"], 0)
@@ -473,7 +496,7 @@ def extract_data_sessions(
         true_window_size = end_idx - start_idx + 1
         window_df = sessions_df[sessions_df[temp_column] >= start_idx]
         window_df = window_df[window_df[temp_column] <= end_idx]
-        window_df = get_window_df_included_users(window_df, args["visu_type"])
+        window_df = included_users_func(window_df, args["visu_type"])
         if len(window_df) == 0:
             percentages_users_included.append(0.0)
             scores.append(np.nan)
@@ -481,9 +504,14 @@ def extract_data_sessions(
             spreads_upper.append(np.nan)
             continue
         percentages_users_included.append(window_df["user_id"].nunique() / n_users)
-        window_scores = get_window_scores(
-            window_df, args["visu_type"], true_window_size, embeddings_df
-        )
+        scores_func_args = {
+            "window_df": window_df,
+            "visu_type": args["visu_type"],
+            "true_window_size": true_window_size,
+            "embeddings_df": embeddings_df,
+            "compare": compare,
+        }
+        window_scores = scores_func(**scores_func_args)
         score, spread_lower, spread_upper = aggregate_window_scores(
             window_scores, args["visu_type_entry"]["agg_func"]
         )
@@ -551,6 +579,8 @@ def plot_lims_ticks(
     ax: object,
     plot_components: dict,
     x: np.ndarray,
+    sessions_df: pd.DataFrame,
+    args: dict,
 ) -> None:
     plt.ylim(bottom=args["y_lower_bound"])
     if args["y_upper_bound"] is not None:
@@ -575,12 +605,23 @@ def plot_lims_ticks(
 
 
 def plot_data_sessions(
-    sessions_df: pd.DataFrame, args: dict, embeddings_df: pd.DataFrame = None, path: str = None
+    sessions_df: pd.DataFrame,
+    args: dict,
+    embeddings_df: pd.DataFrame = None,
+    path: str = None,
+    included_users_func: callable = None,
+    scores_func: callable = None,
+    compare: bool = False,
 ) -> None:
     if path is None:
         path = "visu_temporal.pdf"
     plot_components = extract_data_sessions(
-        sessions_df=sessions_df, args=args, embeddings_df=embeddings_df
+        sessions_df=sessions_df,
+        args=args,
+        embeddings_df=embeddings_df,
+        included_users_func=included_users_func,
+        scores_func=scores_func,
+        compare=compare,
     )
     _, ax = plt.subplots(figsize=(10, 5))
     ax.set_facecolor("#f0f0f0")
@@ -608,6 +649,8 @@ def plot_data_sessions(
         ax=ax,
         plot_components=plot_components,
         x=x,
+        sessions_df=sessions_df,
+        args=args,
     )
     if plot_components["scores"][0] > plot_components["scores"][-1]:
         legend_loc = "upper right"

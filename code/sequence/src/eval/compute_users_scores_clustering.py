@@ -450,7 +450,7 @@ def fill_users_scores_models_properties(logreg_models: dict, user_scores: dict) 
             d.setdefault(f"std_coef_{s}", []).append(np.std(coef))
 
             threshold = 1e-3
-            d.setdefault(f"sparsity_ratio_{s}", []).append(np.mean(np.abs(coef) < threshold))
+            d.setdefault(f"ratio_nonzero_{s}", []).append(np.mean(np.abs(coef) >= threshold))
             d.setdefault(f"num_nonzero_{s}", []).append(np.count_nonzero(coef))
 
             if j > 0:
@@ -458,20 +458,20 @@ def fill_users_scores_models_properties(logreg_models: dict, user_scores: dict) 
                 d.setdefault(f"distance_to_prev_{s}", []).append(np.linalg.norm(coef - prev_coef))
                 sim_prev = cosine_similarity(coef.reshape(1, -1), prev_coef.reshape(1, -1))[0, 0]
                 d.setdefault(f"sim_to_prev_{s}", []).append(sim_prev)
-                first_coef = logreg_coefs_list[0]
-                d.setdefault(f"distance_to_first_{s}", []).append(np.linalg.norm(coef - first_coef))
-                sim_first = cosine_similarity(coef.reshape(1, -1), first_coef.reshape(1, -1))[0, 0]
-                d.setdefault(f"sim_to_first_{s}", []).append(sim_first)
+                init_coef = logreg_coefs_list[0]
+                d.setdefault(f"distance_to_init_{s}", []).append(np.linalg.norm(coef - init_coef))
+                sim_init = cosine_similarity(coef.reshape(1, -1), init_coef.reshape(1, -1))[0, 0]
+                d.setdefault(f"sim_to_init_{s}", []).append(sim_init)
 
                 k = 10
                 top_k_curr = set(np.argsort(np.abs(coef))[-k:])
                 top_k_prev = set(np.argsort(np.abs(prev_coef))[-k:])
-                top_k_first = set(np.argsort(np.abs(first_coef))[-k:])
+                top_k_init = set(np.argsort(np.abs(init_coef))[-k:])
                 d.setdefault(f"top{k}_overlap_prev_{s}", []).append(
                     len(top_k_curr & top_k_prev) / k
                 )
-                d.setdefault(f"top{k}_overlap_first_{s}", []).append(
-                    len(top_k_curr & top_k_first) / k
+                d.setdefault(f"top{k}_overlap_init_{s}", []).append(
+                    len(top_k_curr & top_k_init) / k
                 )
     for key, values in d.items():
         user_scores[key] = np.array(values, dtype=DT)
