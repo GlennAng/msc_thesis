@@ -3,6 +3,7 @@ import os
 import pickle
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -13,11 +14,14 @@ from ....logreg.src.training.users_ratings import (
 )
 from ....src.load_files import load_users_ratings
 from .visu_temporal import (
+    extract_data_sessions,
     filter_users_ratings,
     get_default_window_size,
     get_last_iter_included,
     get_sessions_df,
     plot_data_sessions,
+    plot_line_fill,
+    plot_lims_ticks,
 )
 
 RANKING_METRICS = ["ndcg", "mrr", "hr@1", "ince"]
@@ -81,11 +85,11 @@ def get_visu_types_models() -> dict:
             "agg_func": "mean",
             "y_label": "Cosine Similarity\nto Initial Coefficients",
         },
-        "top_10_overlap_prev": {
+        "top10_overlap_prev": {
             "agg_func": "mean",
             "y_label": "Top 10 Overlap\nwith Previous Coefficients",
         },
-        "top_10_overlap_init": {
+        "top10_overlap_init": {
             "agg_func": "mean",
             "y_label": "Top 10 Overlap\nwith Initial Coefficients",
         },
@@ -287,6 +291,65 @@ def get_window_scores(
     return scores
 
 
+def plot_data_sessions_compare(sessions_df: pd.DataFrame, args: dict, path: str = None) -> None:
+    if path is None:
+        path = "visu_temporal.pdf"
+    plot_components_1 = extract_data_sessions(
+        sessions_df=sessions_df,
+        args=args,
+        included_users_func=get_window_df_included_users,
+        scores_func=get_window_scores,
+        compare=False,
+    )
+    plot_components_2 = extract_data_sessions(
+        sessions_df=sessions_df,
+        args=args,
+        included_users_func=get_window_df_included_users,
+        scores_func=get_window_scores,
+        compare=True,
+    )
+    assert len(plot_components_1["scores"]) == len(plot_components_2["scores"])
+    _, ax = plt.subplots(figsize=(10, 5))
+    ax.set_facecolor("#f0f0f0")
+    ax.grid(alpha=0.7, linewidth=0.5)
+    x = np.arange(
+        args["first_iter_included"],
+        args["first_iter_included"] + len(plot_components_1["scores"]),
+    )
+    model_1_label = args.get("model_name", "Model 1")
+    model_2_label = args.get("model_name_compare", "Model 2")
+    plot_line_fill(
+        plt=plt,
+        plot_components=plot_components_1,
+        x=x,
+        line_label=model_1_label,
+        fill=False,
+    )
+    plot_line_fill(
+        plt=plt,
+        plot_components=plot_components_2,
+        x=x,
+        line_label=model_2_label,
+        color="orange",
+        fill=False,
+    )
+    plot_lims_ticks(
+        plt=plt,
+        ax=ax,
+        plot_components=plot_components_1,
+        x=x,
+        sessions_df=sessions_df,
+        args=args,
+    )
+    if plot_components_1["scores"][0] > plot_components_1["scores"][-1]:
+        legend_loc = "upper right"
+    else:
+        legend_loc = "lower right"
+    ax.legend(loc=legend_loc, fontsize=8.5)
+    plt.savefig(path)
+    plt.close()
+
+
 if __name__ == "__main__":
     args, users_scores, users_scores_compare = parse_args_models()
     users_ids = load_users_ratings_from_selection(
@@ -327,7 +390,7 @@ if __name__ == "__main__":
             )
 
     if args["compare_models"]:
-        pass
+        plot_data_sessions_compare(sessions_df=sessions_df, args=args)
     else:
         plot_data_sessions(
             sessions_df=sessions_df,

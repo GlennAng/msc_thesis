@@ -549,10 +549,12 @@ def plot_line_fill(
     x: np.ndarray,
     plot_components: dict,
     line_label: str,
-    fill_label: str,
+    fill_label: str = None,
+    color: str = "blue",
+    fill: bool = True,
 ) -> None:
     for i in range(len(x) - 1):
-        min_width = 0.5
+        min_width = 1.0
         max_width = 4.0
         thickness = (
             min_width + (max_width - min_width) * plot_components["percentages_users_included"][i]
@@ -560,18 +562,19 @@ def plot_line_fill(
         plt.plot(
             x[i : i + 2],
             plot_components["scores"][i : i + 2],
-            color="blue",
+            color=color,
             linewidth=thickness,
             label=line_label if i == 0 else None,
         )
-    plt.fill_between(
-        x,
-        plot_components["spreads_lower"],
-        plot_components["spreads_upper"],
-        color="blue",
-        alpha=0.15,
-        label=fill_label,
-    )
+    if fill:
+        plt.fill_between(
+            x,
+            plot_components["spreads_lower"],
+            plot_components["spreads_upper"],
+            color=color,
+            alpha=0.15,
+            label=fill_label,
+        )
 
 
 def plot_lims_ticks(
@@ -625,7 +628,7 @@ def plot_data_sessions(
     )
     _, ax = plt.subplots(figsize=(10, 5))
     ax.set_facecolor("#f0f0f0")
-    ax.grid(alpha=0.65, linewidth=0.5)
+    ax.grid(alpha=0.7, linewidth=0.5)
     x = np.arange(
         args["first_iter_included"],
         args["first_iter_included"] + len(plot_components["scores"]),
