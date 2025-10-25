@@ -20,11 +20,12 @@ from .visu_temporal import (
     get_last_iter_included,
     get_sessions_df,
     plot_data_sessions,
-    plot_line_fill,
     plot_lims_ticks,
+    plot_line_fill,
 )
 
 RANKING_METRICS = ["ndcg", "mrr", "hr@1", "ince"]
+UPPER_BOUND_METRICS = ["best_k", "difference_to_k_1"]
 
 
 def get_visu_types_models() -> dict:
@@ -92,6 +93,14 @@ def get_visu_types_models() -> dict:
         "top10_overlap_init": {
             "agg_func": "mean",
             "y_label": "Top 10 Overlap\nwith Initial Coefficients",
+        },
+        "best_k": {
+            "agg_func": "mean",
+            "y_label": "Number of Clusters",
+        },
+        "difference_to_k_1": {
+            "agg_func": "mean",
+            "y_label": "Difference between\n ideal k and 1",
         },
     }
     return visu_types
@@ -174,6 +183,8 @@ def get_window_df_included_users(window_df: pd.DataFrame, visu_type: str) -> pd.
     window_df = window_df[window_df["split"] == "val"]
     if visu_type in RANKING_METRICS:
         return window_df[window_df["n_pos"] > 0]
+    elif visu_type in UPPER_BOUND_METRICS:
+        return window_df[window_df["n_pos"] > 0]
     else:
         return window_df
 
@@ -241,6 +252,33 @@ def attach_ranking_metric_column(
                 sessions_df[ranking_metric].values[idx_pos] = metrics
                 sessions_df.at[idx, "split"] = "val"
                 metric_counter += n_pos
+    return sessions_df
+
+
+def attach_upper_bound_column(
+    sessions_df: pd.DataFrame, visu_type: str, users_scores: dict
+) -> pd.DataFrame:
+    sessions_df["split"] = "train"
+    sessions_df[visu_type] = np.nan
+    sessions_df["n_rated_cum"] = sessions_df.groupby("user_id")["n_rated"].cumsum()
+    users_ids = sessions_df["user_id"].unique().tolist()
+    random_states = list(users_scores.keys())
+    if visu_type == "best_k":
+        col_name = "val_best_k_list"
+    elif visu_type == "difference_to_k_1":
+        col_name = "val_difference_best_k_to_1_list"
+    else:
+        raise ValueError(f"Invalid visu_type for upper bound: {visu_type}")
+    for user_id in tqdm(users_ids):
+        n_train_rated = users_scores[random_states[0]][user_id]["y_train_rated_logits"].shape[0]
+        n_val_rated = users_scores[random_states[0]][user_id]["y_val_logits"].shape[0]
+        val_mask = (sessions_df["user_id"] == user_id) & (
+            sessions_df["n_rated_cum"].between(n_train_rated + 1, n_train_rated + n_val_rated)
+        )
+        sessions_df.loc[val_mask, "split"] = "val"
+        sessions_df.loc[val_mask, visu_type] = np.array(
+            users_scores[random_states[0]][user_id][col_name]
+        )
     return sessions_df
 
 
@@ -370,6 +408,12 @@ if __name__ == "__main__":
             sessions_df = attach_ranking_metric_column(
                 sessions_df, args["visu_type"], users_scores_compare, compare=True
             )
+    elif args["visu_type"] in UPPER_BOUND_METRICS:
+        sessions_df = attach_upper_bound_column(
+            sessions_df=sessions_df,
+            visu_type=args["visu_type"],
+            users_scores=users_scores,
+        )
     else:
         sessions_df = attach_model_column(
             sessions_df=sessions_df,
@@ -399,80 +443,3 @@ if __name__ == "__main__":
             scores_func=get_window_scores,
             compare=False,
         )
-
-
-"""
-
-def plot_data_sessions_compare_with_before(
-    sessions_df: pd.DataFrame, args: dict, embeddings_df: pd.DataFrame = None, path: str = None
-) -> None:
-    if path is None:
-        path = "visu_temporal_compare.png"
-    visu_type = args["visu_type"]
-    plot_components = extract_data_sessions(
-        sessions_df=sessions_df, args=args, embeddings_df=embeddings_df
-    )
-    args_before = args.copy()
-    if visu_type == "ndcg":
-        args_before["visu_type"] = "ndcg_before"
-    plot_components_before = extract_data_sessions(
-        sessions_df=sessions_df, args=args_before, embeddings_df=embeddings_df
-    )
-    plt.figure(figsize=(10, 5))
-    x = np.arange(
-        args["first_iter_included"],
-        args["first_iter_included"] + len(plot_components["scores"]),
-    )
-    for i in range(len(x) - 1):
-        min_width = 0.5
-        max_width = 4.0
-        thickness = (
-            min_width + (max_width - min_width) * plot_components["percentages_users_included"][i]
-        )
-        plt.plot(
-            x[i : i + 2],
-            plot_components["scores"][i : i + 2],
-            color="blue",
-            linewidth=thickness,
-            label="After" if i == 0 else None,
-        )
-        plt.plot(
-            x[i : i + 2],
-            plot_components_before["scores"][i : i + 2],
-            color="green",
-            linewidth=thickness,
-            label="Before" if i == 0 else None,
-        )
-    plt.fill_between(
-        x,
-        plot_components["spreads_lower"],
-        plot_components["spreads_upper"],
-        color="blue",
-        alpha=0.2,
-    )
-    plt.fill_between(
-        x,
-        plot_components_before["spreads_lower"],
-        plot_components_before["spreads_upper"],
-        color="green",
-        alpha=0.2,
-    )
-    plt.xlim(left=0, right=x[-1])
-    if args["visu_type_entry"]["y_upper_bound"] is not None:
-        plt.ylim(
-            bottom=args["visu_type_entry"]["y_lower_bound"],
-            top=args["visu_type_entry"]["y_upper_bound"],
-        )
-    else:
-        plt.ylim(bottom=args["visu_type_entry"]["y_lower_bound"])
-    plt.xlabel(f"{args['temporal_type'].capitalize()}")
-    plt.ylabel(args["visu_type_entry"]["y_label"])
-    title = f"{args['visu_type_entry']['title']} over {args['temporal_type'].capitalize()}"
-    title += f" (Window Size {2* args['window_size'] + 1})."
-    plt.title(title)
-    plt.legend()
-    plt.grid()
-    plt.savefig(path)
-    plt.close()
-
-"""
