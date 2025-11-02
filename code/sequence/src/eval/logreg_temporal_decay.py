@@ -21,6 +21,7 @@ def get_temporal_decay_from_arg(temporal_decay_arg: str) -> TemporalDecay:
 class TemporalDecayNormalization(Enum):
     JOINTLY = auto()
     SEPARATELY = auto()
+    POSITIVES = auto()
 
 
 def get_temporal_decay_normalization_from_arg(
@@ -80,6 +81,19 @@ def get_sample_weights_temporal_decay_normalization_separately(
     return pos_decays, neg_decays, cache_weight
 
 
+def get_sample_weights_temporal_decay_normalization_positives(
+    pos_decays: np.ndarray, neg_decays: np.ndarray, n_cache: int, weights_neg_scale: float, weights_cache_v: float
+) -> tuple:
+    pos_decays = pos_decays / np.sum(pos_decays) if pos_decays.shape[0] > 0 else pos_decays
+    train_negrated_n = neg_decays.shape[0]
+    neg_denominator = weights_cache_v * train_negrated_n + (1.0 - weights_cache_v) * n_cache
+    assert neg_denominator > 0
+    neg_weight = weights_neg_scale * weights_cache_v / neg_denominator
+    neg_decays = np.full(shape=neg_decays.shape, fill_value=neg_weight)
+    cache_weight = weights_neg_scale * (1.0 - weights_cache_v) / neg_denominator
+    return pos_decays, neg_decays, cache_weight
+
+
 def get_sample_weights_temporal_decay_by_normalization(
     temporal_decay_normalization: TemporalDecayNormalization,
     pos_decays: np.ndarray,
@@ -98,6 +112,14 @@ def get_sample_weights_temporal_decay_by_normalization(
         )
     elif temporal_decay_normalization == TemporalDecayNormalization.SEPARATELY:
         return get_sample_weights_temporal_decay_normalization_separately(
+            pos_decays=pos_decays,
+            neg_decays=neg_decays,
+            n_cache=n_cache,
+            weights_neg_scale=weights_neg_scale,
+            weights_cache_v=weights_cache_v,
+        )
+    elif temporal_decay_normalization == TemporalDecayNormalization.POSITIVES:
+        return get_sample_weights_temporal_decay_normalization_positives(
             pos_decays=pos_decays,
             neg_decays=neg_decays,
             n_cache=n_cache,

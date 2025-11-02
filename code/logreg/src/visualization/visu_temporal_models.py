@@ -26,6 +26,12 @@ from .visu_temporal import (
 
 RANKING_METRICS = ["ndcg", "mrr", "hr@1", "ince"]
 UPPER_BOUND_METRICS = ["best_k", "difference_to_k_1"]
+PERCENTAGE_GLOBAL_MODEL_METRICS = [
+    "percentage_global_model_pos",
+    "percentage_global_model_neg",
+    "percentage_global_model_rated",
+    "n_clusters_with_sufficient_size",
+]
 
 
 def get_visu_types_models() -> dict:
@@ -101,6 +107,22 @@ def get_visu_types_models() -> dict:
         "difference_to_k_1": {
             "agg_func": "mean",
             "y_label": "Difference between\n ideal k and 1",
+        },
+        "percentage_global_model_pos": {
+            "agg_func": "mean",
+            "y_label": "Percentage of Positive Samples\nassigned to Global Model",
+        },
+        "percentage_global_model_neg": {
+            "agg_func": "mean",
+            "y_label": "Percentage of Negative Samples\nassigned to Global Model",
+        },
+        "percentage_global_model_rated": {
+            "agg_func": "mean",
+            "y_label": "Percentage of Rated Samples\nassigned to Global Model",
+        },
+        "n_clusters_with_sufficient_size": {
+            "agg_func": "mean",
+            "y_label": "Number of Clusters with Sufficient Size",
         },
     }
     return visu_types
@@ -185,6 +207,15 @@ def get_window_df_included_users(window_df: pd.DataFrame, visu_type: str) -> pd.
         return window_df[window_df["n_pos"] > 0]
     elif visu_type in UPPER_BOUND_METRICS:
         return window_df[window_df["n_pos"] > 0]
+    elif visu_type in PERCENTAGE_GLOBAL_MODEL_METRICS:
+        if visu_type == "percentage_global_model_pos":
+            return window_df[window_df["n_pos"] > 0]
+        elif visu_type == "percentage_global_model_neg":
+            return window_df[(window_df["n_pos"] > 0) & (window_df["n_neg"] > 0)]
+        elif visu_type == "percentage_global_model_rated":
+            return window_df[window_df["n_pos"] > 0]
+        elif visu_type == "n_clusters_with_sufficient_size":
+            return window_df[window_df["n_pos"] > 0]
     else:
         return window_df
 
@@ -256,17 +287,19 @@ def attach_ranking_metric_column(
 
 
 def attach_upper_bound_column(
-    sessions_df: pd.DataFrame, visu_type: str, users_scores: dict
+    sessions_df: pd.DataFrame, visu_type: str, users_scores: dict, compare: bool = False
 ) -> pd.DataFrame:
-    sessions_df["split"] = "train"
-    sessions_df[visu_type] = np.nan
-    sessions_df["n_rated_cum"] = sessions_df.groupby("user_id")["n_rated"].cumsum()
+    if not compare:
+        sessions_df["split"] = "train"
+        sessions_df["n_rated_cum"] = sessions_df.groupby("user_id")["n_rated"].cumsum()
+    col_name = visu_type + ("_compare" if compare else "")
+    sessions_df[col_name] = np.nan
     users_ids = sessions_df["user_id"].unique().tolist()
     random_states = list(users_scores.keys())
     if visu_type == "best_k":
-        col_name = "val_best_k_list"
+        lookup_name = "val_best_k_list"
     elif visu_type == "difference_to_k_1":
-        col_name = "val_difference_best_k_to_1_list"
+        lookup_name = "val_difference_best_k_to_1_list"
     else:
         raise ValueError(f"Invalid visu_type for upper bound: {visu_type}")
     for user_id in tqdm(users_ids):
@@ -276,9 +309,46 @@ def attach_upper_bound_column(
             sessions_df["n_rated_cum"].between(n_train_rated + 1, n_train_rated + n_val_rated)
         )
         sessions_df.loc[val_mask, "split"] = "val"
-        sessions_df.loc[val_mask, visu_type] = np.array(
-            users_scores[random_states[0]][user_id][col_name]
+        sessions_df.loc[val_mask, col_name] = np.array(
+            users_scores[random_states[0]][user_id][lookup_name]
         )
+    return sessions_df
+
+
+def attach_percentage_global_model_column(
+    sessions_df: pd.DataFrame, visu_type: str, users_scores: dict, compare: bool = False
+) -> pd.DataFrame:
+    percentage_column = visu_type + ("_compare" if compare else "")
+    sessions_df[percentage_column] = np.nan
+    if not compare:
+        sessions_df["split"] = "train"
+        sessions_df["n_rated_cum"] = sessions_df.groupby("user_id")["n_rated"].cumsum()
+    users_ids = sessions_df["user_id"].unique().tolist()
+    random_states = list(users_scores.keys())
+
+    for user_id in tqdm(users_ids):
+        n_train_rated = users_scores[random_states[0]][user_id]["y_train_rated_logits"].shape[0]
+        n_val_rated = users_scores[random_states[0]][user_id]["y_val_logits"].shape[0]
+        val_mask = (sessions_df["user_id"] == user_id) & (
+            sessions_df["n_rated_cum"].between(n_train_rated + 1, n_train_rated + n_val_rated)
+        )
+        sessions_df.loc[val_mask, "split"] = "val"
+
+        if visu_type == "percentage_global_model_pos":
+            arr = users_scores[random_states[0]][user_id]["n_global_model_pos"]
+        elif visu_type == "percentage_global_model_neg":
+            arr = users_scores[random_states[0]][user_id]["n_global_model_neg"]
+        elif visu_type == "percentage_global_model_rated":
+            arr = (
+                users_scores[random_states[0]][user_id]["n_global_model_pos"]
+                + users_scores[random_states[0]][user_id]["n_global_model_neg"]
+            )
+        elif visu_type == "n_clusters_with_sufficient_size":
+            arr = users_scores[random_states[0]][user_id]["n_clusters_with_sufficient_size"]
+        else:
+            raise ValueError(f"Invalid visu_type for percentage global model: {visu_type}")
+        assert len(arr) == val_mask.sum()
+        sessions_df.loc[val_mask, percentage_column] = arr
     return sessions_df
 
 
@@ -324,6 +394,15 @@ def get_window_scores(
         scores = window_df.groupby("user_id")[column].apply(
             lambda x: np.mean(np.concatenate(x.tolist()))
         )
+    elif visu_type in PERCENTAGE_GLOBAL_MODEL_METRICS and visu_type != "n_clusters_with_sufficient_size":
+        if visu_type == "percentage_global_model_pos":
+            div_column = "n_pos"
+        elif visu_type == "percentage_global_model_neg":
+            div_column = "n_neg"
+        elif visu_type == "percentage_global_model_rated":
+            div_column = "n_rated"
+        grouped = window_df.groupby("user_id")
+        scores = grouped[column].sum() / grouped[div_column].sum()
     else:
         scores = window_df.groupby("user_id")[column].mean()
     return scores
@@ -393,6 +472,7 @@ if __name__ == "__main__":
     users_ids = load_users_ratings_from_selection(
         users_ratings_selection=args["users_selection"], ids_only=True
     )
+    users_ids = [9]
     users_ratings = load_users_ratings(relevant_users_ids=users_ids, include_neutral_ratings=True)
     users_ratings = filter_users_ratings(
         users_ratings,
@@ -413,7 +493,29 @@ if __name__ == "__main__":
             sessions_df=sessions_df,
             visu_type=args["visu_type"],
             users_scores=users_scores,
+            compare=False,
         )
+        if args["compare_models"]:
+            sessions_df = attach_upper_bound_column(
+                sessions_df=sessions_df,
+                visu_type=args["visu_type"],
+                users_scores=users_scores_compare,
+                compare=True,
+            )
+    elif args["visu_type"] in PERCENTAGE_GLOBAL_MODEL_METRICS:
+        sessions_df = attach_percentage_global_model_column(
+            sessions_df=sessions_df,
+            visu_type=args["visu_type"],
+            users_scores=users_scores,
+            compare=False,
+        )
+        if args["compare_models"]:
+            sessions_df = attach_percentage_global_model_column(
+                sessions_df=sessions_df,
+                visu_type=args["visu_type"],
+                users_scores=users_scores_compare,
+                compare=True,
+            )
     else:
         sessions_df = attach_model_column(
             sessions_df=sessions_df,

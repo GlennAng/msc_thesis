@@ -34,9 +34,11 @@ N_EVAL_NEGATIVE_SAMPLES = 100
 
 class ClusteringApproach(Enum):
     NONE = auto()
+    INCREMENTAL_K_MEANS = auto()
     K_MEANS_FIXED_K = auto()
     K_MEAN_SELECTION_SILHOUETTE = auto()
     UPPER_BOUND = auto()
+    VAL_SPLIT = auto()
 
 
 def get_clustering_approach(approach_str: str) -> ClusteringApproach:
@@ -49,6 +51,10 @@ def get_clustering_approach(approach_str: str) -> ClusteringApproach:
         return ClusteringApproach.K_MEAN_SELECTION_SILHOUETTE
     elif approach_str == "upper_bound":
         return ClusteringApproach.UPPER_BOUND
+    elif approach_str == "incremental_k_means":
+        return ClusteringApproach.INCREMENTAL_K_MEANS
+    elif approach_str == "val_split":
+        return ClusteringApproach.VAL_SPLIT
     else:
         raise ValueError(f"Unknown clustering approach: {approach_str}")
 
@@ -138,6 +144,7 @@ def train_models_clustering_none(
     random_state: int,
     eval_settings: dict,
 ) -> tuple:
+    assert train_set_embeddings.shape[0] >= eval_settings["clustering_selection_min_cluster_size"]
     logreg = train_logreg_single_cluster(
         train_set_embeddings=train_set_embeddings,
         train_set_ratings=train_set_ratings,
@@ -169,7 +176,7 @@ def train_models_clustering_k_means_fixed_k(
     pos_mask, neg_mask = train_set_ratings == 1, train_set_ratings == 0
     train_set_embeddings_pos = train_set_embeddings[pos_mask]
 
-    kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, algorithm="elkan")
+    kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, algorithm="elkan", n_init=10)
     clusters_labels = kmeans.fit_predict(train_set_embeddings_pos)
 
     clusters_logregs, clusters_with_sufficient_size = [], []
@@ -217,6 +224,7 @@ def train_models_clustering(
     X_cache: np.ndarray,
     random_state: int,
     eval_settings: dict,
+    session_id: int = None,
 ) -> tuple:
     clustering_approach = eval_settings.get("clustering_approach", ClusteringApproach.NONE)
     if clustering_approach == ClusteringApproach.NONE:
@@ -236,6 +244,28 @@ def train_models_clustering(
             X_cache=X_cache,
             random_state=random_state,
             n_clusters=eval_settings["clustering_k_means_n_clusters"],
+            eval_settings=eval_settings,
+        )
+    elif clustering_approach == ClusteringApproach.INCREMENTAL_K_MEANS:
+        n_clusters = 1
+        if session_id >= 40:
+            n_clusters = 2
+        if n_clusters == 1:
+            return train_models_clustering_none(
+                train_set_embeddings=train_set_embeddings,
+                train_set_ratings=train_set_ratings,
+                train_set_time_diffs=train_set_time_diffs,
+                X_cache=X_cache,
+                random_state=random_state,
+                eval_settings=eval_settings,
+            )
+        return train_models_clustering_k_means_fixed_k(
+            train_set_embeddings=train_set_embeddings,
+            train_set_ratings=train_set_ratings,
+            train_set_time_diffs=train_set_time_diffs,
+            X_cache=X_cache,
+            random_state=random_state,
+            n_clusters=n_clusters,
             eval_settings=eval_settings,
         )
     elif clustering_approach == ClusteringApproach.UPPER_BOUND:
@@ -268,9 +298,18 @@ def scoring_function_clustering(
     clustering_model: object,
     clusters_with_sufficient_size: list,
     embeddings_to_score: np.ndarray,
-) -> np.ndarray:
+    embeddings_ratings: np.ndarray = None,
+) -> tuple:
     if len(clusters_logregs) == 0:
-        return global_logreg.decision_function(embeddings_to_score)
+        n_global_model_pos, n_global_model_neg = None, None
+        if embeddings_ratings is not None:
+            n_global_model_pos = np.sum(embeddings_ratings == 1)
+            n_global_model_neg = np.sum(embeddings_ratings == 0)
+        return (
+            global_logreg.decision_function(embeddings_to_score),
+            n_global_model_pos,
+            n_global_model_neg,
+        )
 
     clusters_labels = clustering_model.predict(embeddings_to_score)
     logits = np.zeros(embeddings_to_score.shape[0], dtype=DT)
@@ -288,7 +327,13 @@ def scoring_function_clustering(
         unassigned_embeddings = embeddings_to_score[unassigned_idxs]
         unassigned_logits = global_logreg.decision_function(unassigned_embeddings)
         logits[unassigned_idxs] = unassigned_logits
-    return logits
+    n_global_model_pos = None
+    n_global_model_neg = None
+    if embeddings_ratings is not None:
+        unassigned_mask = ~assigned_mask
+        n_global_model_pos = np.sum(embeddings_ratings[unassigned_mask] == 1)
+        n_global_model_neg = np.sum(embeddings_ratings[unassigned_mask] == 0)
+    return logits, n_global_model_pos, n_global_model_neg
 
 
 def get_negrated_ranking_idxs(
@@ -379,7 +424,7 @@ def get_train_rated_logits_dict_components_single_k(
     clustering_model: object,
     clusters_with_sufficient_size: list,
 ) -> tuple:
-    y_train_rated_logits = scoring_function_clustering(
+    y_train_rated_logits, _, _ = scoring_function_clustering(
         global_logreg=global_logreg,
         clusters_logregs=clusters_logregs,
         clustering_model=clustering_model,
@@ -390,7 +435,7 @@ def get_train_rated_logits_dict_components_single_k(
     y_train_negrated_ranking_logits = y_train_rated_logits[train_negrated_ranking_idxs].reshape(
         (-1, N_NEGRATED_RANKING)
     )
-    y_negative_samples_logits_after_train = scoring_function_clustering(
+    y_negative_samples_logits_after_train, _, _ = scoring_function_clustering(
         global_logreg=global_logreg,
         clusters_logregs=clusters_logregs,
         clustering_model=clustering_model,
@@ -411,6 +456,7 @@ def get_train_rated_logits_dict(
     X_cache: np.ndarray,
     random_state: int,
     eval_settings: dict,
+    session_id: int = None,
 ) -> tuple:
     eval_settings = eval_settings.copy()
     eval_settings["logreg_temporal_decay"] = "none"
@@ -433,6 +479,7 @@ def get_train_rated_logits_dict(
             X_cache=X_cache,
             random_state=random_state,
             eval_settings=eval_settings,
+            session_id=session_id,
         )
     )
     y_train_rated_logits, y_train_negrated_ranking_logits, y_negative_samples_logits_after_train = (
@@ -463,16 +510,18 @@ def get_y_val_logits_session(
     val_counter_all: int,
     n_session_papers: int,
     y_val_logits: np.ndarray,
-) -> np.ndarray:
-    session_logits = scoring_function_clustering(
+    embeddings_ratings: np.ndarray = None,
+) -> tuple:
+    session_logits, n_global_model_pos, n_global_model_neg = scoring_function_clustering(
         global_logreg=global_logreg,
         clusters_logregs=clusters_logregs,
         clustering_model=clustering_model,
         clusters_with_sufficient_size=clusters_with_sufficient_size,
         embeddings_to_score=session_embeddings,
+        embeddings_ratings=embeddings_ratings,
     )
     y_val_logits[val_counter_all : val_counter_all + n_session_papers] = session_logits
-    return y_val_logits
+    return y_val_logits, n_global_model_pos, n_global_model_neg
 
 
 def get_y_val_negrated_ranking_logits_session(
@@ -496,13 +545,16 @@ def get_y_val_negrated_ranking_logits_session(
     val_negrated_embeddings_session = val_negrated_embeddings[
         val_negrated_ranking_idxs_session_flat
     ]
-    val_negrated_ranking_logits_session = scoring_function_clustering(
+    val_negrated_ranking_logits_session, _, _ = scoring_function_clustering(
         global_logreg=global_logreg,
         clusters_logregs=clusters_logregs,
         clustering_model=clustering_model,
         clusters_with_sufficient_size=clusters_with_sufficient_size,
         embeddings_to_score=val_negrated_embeddings_session,
-    ).reshape((-1, N_NEGRATED_RANKING))
+    )
+    val_negrated_ranking_logits_session = val_negrated_ranking_logits_session.reshape(
+        (-1, N_NEGRATED_RANKING)
+    )
     y_val_negrated_ranking_logits[val_counter_pos : val_counter_pos + n_session_papers_pos] = (
         val_negrated_ranking_logits_session
     )
@@ -521,7 +573,7 @@ def get_y_negative_samples_logits_session(
 ) -> np.ndarray:
     if n_session_papers_pos <= 0:
         return y_negative_samples_logits
-    y_negative_samples_logits_session = scoring_function_clustering(
+    y_negative_samples_logits_session, _, _ = scoring_function_clustering(
         global_logreg=global_logreg,
         clusters_logregs=clusters_logregs,
         clustering_model=clustering_model,
@@ -596,8 +648,9 @@ def get_y_logits_components_single_k(
     y_val_negrated_ranking_logits: np.ndarray,
     val_negative_samples_embeddings: np.ndarray,
     y_negative_samples_logits: np.ndarray,
+    embeddings_ratings: np.ndarray,
 ) -> tuple:
-    y_val_logits = get_y_val_logits_session(
+    y_val_logits, n_global_model_pos, n_global_model_neg = get_y_val_logits_session(
         global_logreg=global_logreg,
         clusters_logregs=clusters_logregs,
         clustering_model=clustering_model,
@@ -606,6 +659,7 @@ def get_y_logits_components_single_k(
         val_counter_all=val_counter_all,
         n_session_papers=n_session_papers,
         y_val_logits=y_val_logits,
+        embeddings_ratings=embeddings_ratings,
     )
     y_val_negrated_ranking_logits = get_y_val_negrated_ranking_logits_session(
         global_logreg=global_logreg,
@@ -632,6 +686,8 @@ def get_y_logits_components_single_k(
         y_val_logits,
         y_val_negrated_ranking_logits,
         y_negative_samples_logits,
+        n_global_model_pos,
+        n_global_model_neg,
     )
 
 
@@ -649,11 +705,22 @@ def init_y_logits_components(
         y_negative_samples_logits = {
             k: np.zeros((n_val_pos, n_val_negative_samples), dtype=DT) for k in r
         }
+        n_global_model_pos, n_global_model_neg = {k: [] for k in r}, {k: [] for k in r}
+        n_clusters_with_sufficient_size = {k: [] for k in r}
     else:
         y_val_logits = np.zeros(val_data_dict["y_val"].shape[0], dtype=DT)
         y_val_negrated_ranking_logits = np.zeros((n_val_pos, N_NEGRATED_RANKING), dtype=DT)
         y_negative_samples_logits = np.zeros((n_val_pos, n_val_negative_samples), dtype=DT)
-    return y_val_logits, y_val_negrated_ranking_logits, y_negative_samples_logits
+        n_global_model_pos, n_global_model_neg = [], []
+        n_clusters_with_sufficient_size = []
+    return (
+        y_val_logits,
+        y_val_negrated_ranking_logits,
+        y_negative_samples_logits,
+        n_global_model_pos,
+        n_global_model_neg,
+        n_clusters_with_sufficient_size,
+    )
 
 
 def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> dict:
@@ -713,24 +780,26 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
             X_cache=user_params["X_cache"],
             random_state=random_state,
             eval_settings=eval_settings,
+            session_id=0,
         )
 
         val_negrated_papers_ids = val_negrated_ranking["paper_id"].tolist()
         val_negrated_embeddings = embedding.matrix[embedding.get_idxs(val_negrated_papers_ids)]
         n_val_pos = (val_data_dict["y_val"] > 0).sum()
         n_val_negative_samples = val_negative_samples_embeddings.shape[0]
-        y_val_logits, y_val_negrated_ranking_logits, y_negative_samples_logits = (
-            init_y_logits_components(
-                eval_settings=eval_settings,
-                val_data_dict=val_data_dict,
-                n_val_pos=n_val_pos,
-                n_val_negative_samples=n_val_negative_samples,
-            )
+        (
+            y_val_logits,
+            y_val_negrated_ranking_logits,
+            y_negative_samples_logits,
+            n_global_model_pos,
+            n_global_model_neg,
+            n_clusters_with_sufficient_size,
+        ) = init_y_logits_components(
+            eval_settings=eval_settings,
+            val_data_dict=val_data_dict,
+            n_val_pos=n_val_pos,
+            n_val_negative_samples=n_val_negative_samples,
         )
-        if eval_settings["clustering_approach"] == ClusteringApproach.UPPER_BOUND:
-            n_clusters_with_sufficient_sizes_dict = {k: [] for k in y_val_logits.keys()}
-        else:
-            n_clusters_with_sufficient_sizes_dict = []
         val_counter_all, val_counter_pos = 0, 0
 
         logreg_models = [global_logreg]
@@ -792,13 +861,21 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
                         y_val_negrated_ranking_logits=y_val_negrated_ranking_logits[n_clusters],
                         val_negative_samples_embeddings=val_negative_samples_embeddings,
                         y_negative_samples_logits=y_negative_samples_logits[n_clusters],
-                    )
-                    n_clusters_with_sufficient_sizes_dict[n_clusters].append(
-                        len(clusters_with_sufficient_size)
+                        embeddings_ratings=val_data_dict["y_val"][
+                            val_counter_all : val_counter_all + n_session_papers
+                        ],
                     )
                     y_val_logits[n_clusters] = y_logits[0]
                     y_val_negrated_ranking_logits[n_clusters] = y_logits[1]
                     y_negative_samples_logits[n_clusters] = y_logits[2]
+                    n_global_model_pos[n_clusters].append(y_logits[3])
+                    n_global_model_neg[n_clusters].append(y_logits[4])
+                    n_clusters_with_sufficient_size_k = (
+                        1 if n_clusters == 1 else len(clusters_with_sufficient_size)
+                    )
+                    n_clusters_with_sufficient_size[n_clusters].append(
+                        n_clusters_with_sufficient_size_k
+                    )
             else:
                 global_logreg, clusters_logregs, clustering_model, clusters_with_sufficient_size = (
                     train_models_clustering(
@@ -808,9 +885,9 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
                         X_cache=user_params["X_cache"],
                         random_state=random_state,
                         eval_settings=eval_settings,
+                        session_id=session_id,
                     )
                 )
-                n_clusters_with_sufficient_sizes_dict.append(len(clusters_with_sufficient_size))
                 y_logits = get_y_logits_components_single_k(
                     global_logreg=global_logreg,
                     clusters_logregs=clusters_logregs,
@@ -827,10 +904,16 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
                     y_val_negrated_ranking_logits=y_val_negrated_ranking_logits,
                     val_negative_samples_embeddings=val_negative_samples_embeddings,
                     y_negative_samples_logits=y_negative_samples_logits,
+                    embeddings_ratings=val_data_dict["y_val"][
+                        val_counter_all : val_counter_all + n_session_papers
+                    ],
                 )
                 y_val_logits = y_logits[0]
                 y_val_negrated_ranking_logits = y_logits[1]
                 y_negative_samples_logits = y_logits[2]
+                n_global_model_pos.append(y_logits[3])
+                n_global_model_neg.append(y_logits[4])
+                n_clusters_with_sufficient_size.append(len(clusters_with_sufficient_size))
 
             logreg_models.append(global_logreg)
             val_counter_all += n_session_papers
@@ -844,7 +927,10 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
                 y_val_logits=y_val_logits,
                 y_val_negrated_ranking_logits=y_val_negrated_ranking_logits,
                 y_negative_samples_logits=y_negative_samples_logits,
-                n_clusters_with_sufficient_sizes_dict=n_clusters_with_sufficient_sizes_dict,
+                eval_settings=eval_settings,
+                n_global_model_pos=n_global_model_pos,
+                n_global_model_neg=n_global_model_neg,
+                n_clusters_with_sufficient_size=n_clusters_with_sufficient_size,
             )
         else:
             user_scores = {
@@ -852,7 +938,11 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
                 "y_val_logits": y_val_logits,
                 "y_val_negrated_ranking_logits": y_val_negrated_ranking_logits,
                 "y_negative_samples_logits": y_negative_samples_logits,
-                "n_clusters_with_sufficient_sizes": n_clusters_with_sufficient_sizes_dict,
+                "n_global_model_pos": np.array(n_global_model_pos, dtype=np.int64),
+                "n_global_model_neg": np.array(n_global_model_neg, dtype=np.int64),
+                "n_clusters_with_sufficient_size": np.array(
+                    n_clusters_with_sufficient_size, dtype=np.int64
+                ),
             }
         user_scores["y_val_logits_pos"] = user_scores["y_val_logits"][val_data_dict["y_val"] == 1]
         user_scores = fill_user_scores(user_scores)

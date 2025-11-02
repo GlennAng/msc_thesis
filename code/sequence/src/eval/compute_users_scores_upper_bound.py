@@ -112,11 +112,9 @@ def update_logits_no_pos_in_session(
     y_val_logits: dict,
     rated_counter: int,
     n_rated_in_session: int,
-    n_clusters_with_sufficient_sizes_dict: dict,
     y_val_logits_ub: np.ndarray,
     best_k_list: list,
     difference_best_k_to_1_list: list,
-    n_clusters_with_sufficient_sizes_ub: list,
 ) -> None:
     different_k = list(y_val_logits.keys())
     metrics_different_k = {}
@@ -128,7 +126,32 @@ def update_logits_no_pos_in_session(
     y_val_logits_ub[rated_counter : rated_counter + n_rated_in_session] = best_y_val_logits
     best_k_list.append(best_k)
     difference_best_k_to_1_list.append(0.0)
-    n_clusters_with_sufficient_sizes_ub.append(n_clusters_with_sufficient_sizes_dict[best_k])
+
+
+def find_highest_k_settings(
+    metrics_different_k: dict, eval_settings: dict, previous_best_k: int
+) -> int:
+    THRESHOLD = 1e-6
+    if previous_best_k is None:
+        return max(metrics_different_k, key=metrics_different_k.get)
+    max_increment = eval_settings.get("clustering_upper_bound_max_increment", None)
+    max_decrement = eval_settings.get("clustering_upper_bound_max_decrement", None)
+    valid_k = []
+    for k in metrics_different_k.keys():
+        if max_increment is not None:
+            if k > previous_best_k + max_increment:
+                continue
+        if max_decrement is not None:
+            if k < previous_best_k - max_decrement:
+                continue
+        valid_k.append(k)
+    if not valid_k:
+        return previous_best_k
+    all_values = np.array(list(metrics_different_k.values()))
+    max_value = np.max(all_values)
+    candidates = [k for k in valid_k if max_value - metrics_different_k[k] <= THRESHOLD]
+    assert candidates, "No candidates found within the constraints."
+    return min(candidates, key=lambda k: abs(k - previous_best_k))
 
 
 def update_logits_pos_in_session(
@@ -139,14 +162,14 @@ def update_logits_pos_in_session(
     pos_counter: int,
     n_rated_in_session: int,
     n_pos_in_session: int,
-    n_clusters_with_sufficient_sizes_dict: dict,
     y_val_logits_ub: np.ndarray,
     y_val_negrated_ranking_logits_ub: np.ndarray,
     y_negative_samples_logits_ub: np.ndarray,
     best_k_list: list,
     difference_best_k_to_1_list: list,
-    n_clusters_with_sufficient_sizes_ub: list,
     pos_mask: pd.Series,
+    previous_best_k: float,
+    eval_settings: dict,
 ) -> None:
     different_k = list(y_val_logits.keys())
     metrics_different_k = {}
@@ -169,7 +192,11 @@ def update_logits_pos_in_session(
         )
         metric_k = compute_metric_k(logits_k=merged_logits_k)
         metrics_different_k[k] = metric_k
-    best_k = find_highest_k(metrics_different_k=metrics_different_k)
+    best_k = find_highest_k_settings(
+        metrics_different_k=metrics_different_k,
+        eval_settings=eval_settings,
+        previous_best_k=previous_best_k,
+    )
     best_y_val_logits = y_val_logits[best_k][rated_counter : rated_counter + n_rated_in_session]
     best_y_val_negrated_ranking_logits = y_val_negrated_ranking_logits[best_k][
         pos_counter : pos_counter + n_pos_in_session
@@ -186,7 +213,6 @@ def update_logits_pos_in_session(
     )
     best_k_list.append(best_k)
     difference_best_k_to_1_list.append(metrics_different_k[best_k] - metrics_different_k[1])
-    n_clusters_with_sufficient_sizes_ub.append(n_clusters_with_sufficient_sizes_dict[best_k])
 
 
 def get_val_scores_dict(
@@ -196,18 +222,23 @@ def get_val_scores_dict(
     y_val_logits: dict,
     y_val_negrated_ranking_logits: dict,
     y_negative_samples_logits: dict,
-    n_clusters_with_sufficient_sizes_dict: dict,
+    eval_settings: dict,
+    n_global_model_pos: dict,
+    n_global_model_neg: dict,
+    n_clusters_with_sufficient_size: dict,
 ) -> dict:
     val_sessions_df = val_components_dict["val_sessions_df"]
     y_val_logits_ub = val_components_dict["y_val_logits_ub"]
     y_val_negrated_ranking_logits_ub = val_components_dict["y_val_negrated_ranking_logits_ub"]
     y_negative_samples_logits_ub = val_components_dict["y_negative_samples_logits_ub"]
+    previous_best_k = eval_settings.get("clustering_upper_bound_n_clusters_before_val", None)
     best_k_list = []
     difference_best_k_to_1_list = []
-    n_clusters_with_sufficient_sizes_ub = []
+    n_global_model_pos_list, n_global_model_neg_list = [], []
+    n_clusters_with_sufficient_size_list = []
 
     rated_counter, pos_counter = 0, 0
-    for session_id in user_sessions_ids:
+    for i, session_id in enumerate(user_sessions_ids):
         session_ratings = val_ratings[val_ratings["session_id"] == session_id]
         session_df = val_sessions_df[val_sessions_df["session_id"] == session_id]
         n_rated_in_session = session_df["n_rated"].values[0]
@@ -218,11 +249,9 @@ def get_val_scores_dict(
                 y_val_logits=y_val_logits,
                 rated_counter=rated_counter,
                 n_rated_in_session=n_rated_in_session,
-                n_clusters_with_sufficient_sizes_dict=n_clusters_with_sufficient_sizes_dict,
                 y_val_logits_ub=y_val_logits_ub,
                 best_k_list=best_k_list,
                 difference_best_k_to_1_list=difference_best_k_to_1_list,
-                n_clusters_with_sufficient_sizes_ub=n_clusters_with_sufficient_sizes_ub,
             )
         else:
             pos_mask = session_ratings["rating"] == 1
@@ -234,15 +263,21 @@ def get_val_scores_dict(
                 pos_counter=pos_counter,
                 n_rated_in_session=n_rated_in_session,
                 n_pos_in_session=n_pos_in_session,
-                n_clusters_with_sufficient_sizes_dict=n_clusters_with_sufficient_sizes_dict,
                 y_val_logits_ub=y_val_logits_ub,
                 y_val_negrated_ranking_logits_ub=y_val_negrated_ranking_logits_ub,
                 y_negative_samples_logits_ub=y_negative_samples_logits_ub,
                 best_k_list=best_k_list,
                 difference_best_k_to_1_list=difference_best_k_to_1_list,
-                n_clusters_with_sufficient_sizes_ub=n_clusters_with_sufficient_sizes_ub,
                 pos_mask=pos_mask,
+                previous_best_k=previous_best_k,
+                eval_settings=eval_settings,
             )
+        previous_best_k = best_k_list[-1]
+        n_global_model_pos_list.append(n_global_model_pos[previous_best_k][i])
+        n_global_model_neg_list.append(n_global_model_neg[previous_best_k][i])
+        n_clusters_with_sufficient_size_list.append(
+            n_clusters_with_sufficient_size[previous_best_k][i]
+        )
         rated_counter += n_rated_in_session
         pos_counter += n_pos_in_session
     assert rated_counter == val_ratings.shape[0]
@@ -254,7 +289,11 @@ def get_val_scores_dict(
         "y_negative_samples_logits": y_negative_samples_logits_ub,
         "val_best_k_list": best_k_list,
         "val_difference_best_k_to_1_list": difference_best_k_to_1_list,
-        "val_n_clusters_with_sufficient_sizes_ub": n_clusters_with_sufficient_sizes_ub,
+        "n_global_model_pos": np.array(n_global_model_pos_list, dtype=np.int64),
+        "n_global_model_neg": np.array(n_global_model_neg_list, dtype=np.int64),
+        "n_clusters_with_sufficient_size": np.array(
+            n_clusters_with_sufficient_size_list, dtype=np.int64
+        ),
     }
 
 
@@ -265,7 +304,10 @@ def get_user_scores_upper_bound(
     y_val_logits: dict,
     y_val_negrated_ranking_logits: dict,
     y_negative_samples_logits: dict,
-    n_clusters_with_sufficient_sizes_dict: dict,
+    eval_settings: dict,
+    n_global_model_pos: dict,
+    n_global_model_neg: dict,
+    n_clusters_with_sufficient_size: dict,
 ) -> dict:
     train_ratings = user_ratings[user_ratings["split"] == "train"]
     train_scores_dict = get_train_scores_dict(
@@ -286,6 +328,9 @@ def get_user_scores_upper_bound(
         y_val_logits=y_val_logits,
         y_val_negrated_ranking_logits=y_val_negrated_ranking_logits,
         y_negative_samples_logits=y_negative_samples_logits,
-        n_clusters_with_sufficient_sizes_dict=n_clusters_with_sufficient_sizes_dict,
+        eval_settings=eval_settings,
+        n_global_model_pos=n_global_model_pos,
+        n_global_model_neg=n_global_model_neg,
+        n_clusters_with_sufficient_size=n_clusters_with_sufficient_size,
     )
     return {**train_scores_dict, **val_scores_dict}
