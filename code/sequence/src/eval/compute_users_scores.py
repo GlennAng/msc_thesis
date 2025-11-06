@@ -23,7 +23,7 @@ from .compute_users_scores_clustering import (
     N_EVAL_NEGATIVE_SAMPLES,
     compute_users_scores_clustering,
     fill_user_scores,
-    get_clustering_approach,
+    get_clustering_approach_from_arg,
     get_negrated_ranking_idxs,
     get_user_train_embeddings_and_ratings,
 )
@@ -362,8 +362,8 @@ def save_users_scores(users_scores: dict, users_scores_folder: Path) -> None:
 if __name__ == "__main__":
     eval_settings, random_state = parse_args()
     embed_function = get_embed_function_from_arg(eval_settings["embed_function"])
-    if embed_function == EmbedFunction.CLUSTERING_SCORES:
-        clustering_approach = get_clustering_approach(eval_settings["clustering_approach"])
+    if embed_function == EmbedFunction.CLUSTERING:
+        clustering_approach = get_clustering_approach_from_arg(eval_settings["clustering_approach"])
         eval_settings["clustering_approach"] = clustering_approach
         users_scores = compute_users_scores_clustering(eval_settings, random_state)
     else:

@@ -13,12 +13,6 @@ from ....logreg.src.training.evaluation import (
 from ....logreg.src.training.training_data import get_user_categories_ratios
 from ....logreg.src.training.weights_handler import Weights_Handler
 from ....src.load_files import load_papers, load_users_significant_categories
-from .logreg_similarity_scaling import (
-    SimilarityScaling,
-    get_sample_weights_similarity_scaling,
-    get_similarity_scaling_aggregation_from_arg,
-    get_similarity_scaling_from_arg,
-)
 from .logreg_temporal_decay import (
     TemporalDecay,
     get_sample_weights_temporal_decay,
@@ -148,32 +142,12 @@ def get_sample_weights(
     user_train_set_time_diffs: np.ndarray,
     n_cache: int,
     eval_settings: dict,
-    user_train_set_embeddings: np.ndarray = None,
-    user_train_set_sessions_ids: np.ndarray = None,
 ) -> np.ndarray:
     hyperparameters_combination = get_hyperparameters_combination(eval_settings)
     temporal_decay = get_temporal_decay_from_arg(eval_settings["logreg_temporal_decay"])
     temporal_decay_normalization = get_temporal_decay_normalization_from_arg(
         eval_settings["logreg_temporal_decay_normalization"]
     )
-
-    similarity_scaling = get_similarity_scaling_from_arg(eval_settings["logreg_similarity_scaling"])
-    if similarity_scaling != SimilarityScaling.NONE:
-        assert temporal_decay == TemporalDecay.NONE
-        similarity_scaling_agg = get_similarity_scaling_aggregation_from_arg(
-            eval_settings["logreg_similarity_scaling_agg"]
-        )
-        assert user_train_set_embeddings.shape[0] == user_train_set_ratings.shape[0]
-        return get_sample_weights_similarity_scaling(
-            user_train_set_embeddings=user_train_set_embeddings,
-            user_train_set_ratings=user_train_set_ratings,
-            n_cache=n_cache,
-            hyperparameters=LOGREG_HYPERPARAMETERS,
-            hyperparameters_combination=hyperparameters_combination,
-            similarity_scaling=similarity_scaling,
-            agg_method=similarity_scaling_agg,
-            param=eval_settings["logreg_similarity_scaling_param"],
-        )
     
     if temporal_decay == TemporalDecay.NONE:
         sample_weights = get_sample_weights_temporal_decay_none(

@@ -394,7 +394,10 @@ def get_window_scores(
         scores = window_df.groupby("user_id")[column].apply(
             lambda x: np.mean(np.concatenate(x.tolist()))
         )
-    elif visu_type in PERCENTAGE_GLOBAL_MODEL_METRICS and visu_type != "n_clusters_with_sufficient_size":
+    elif (
+        visu_type in PERCENTAGE_GLOBAL_MODEL_METRICS
+        and visu_type != "n_clusters_with_sufficient_size"
+    ):
         if visu_type == "percentage_global_model_pos":
             div_column = "n_pos"
         elif visu_type == "percentage_global_model_neg":
@@ -433,8 +436,8 @@ def plot_data_sessions_compare(sessions_df: pd.DataFrame, args: dict, path: str 
         args["first_iter_included"],
         args["first_iter_included"] + len(plot_components_1["scores"]),
     )
-    model_1_label = args.get("model_name", "Model 1")
-    model_2_label = args.get("model_name_compare", "Model 2")
+    model_1_label = args.get("model_name", "K=1")
+    model_2_label = args.get("model_name_compare", "K=3")
     plot_line_fill(
         plt=plt,
         plot_components=plot_components_1,
@@ -472,7 +475,8 @@ if __name__ == "__main__":
     users_ids = load_users_ratings_from_selection(
         users_ratings_selection=args["users_selection"], ids_only=True
     )
-    users_ids = [9]
+    users_ratings = load_users_ratings(relevant_users_ids=users_ids, include_neutral_ratings=True)
+    users_ids = users_ratings[users_ratings["session_id"] >= 80]["user_id"].unique().tolist()
     users_ratings = load_users_ratings(relevant_users_ids=users_ids, include_neutral_ratings=True)
     users_ratings = filter_users_ratings(
         users_ratings,

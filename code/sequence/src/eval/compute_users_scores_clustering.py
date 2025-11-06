@@ -41,22 +41,22 @@ class ClusteringApproach(Enum):
     VAL_SPLIT = auto()
 
 
-def get_clustering_approach(approach_str: str) -> ClusteringApproach:
-    approach_str = approach_str.lower()
-    if approach_str == "none":
+def get_clustering_approach_from_arg(arg: str) -> ClusteringApproach:
+    arg = arg.lower()
+    if arg == "none":
         return ClusteringApproach.NONE
-    elif approach_str == "k_means_fixed_k":
-        return ClusteringApproach.K_MEANS_FIXED_K
-    elif approach_str == "k_means_selection_silhouette":
-        return ClusteringApproach.K_MEAN_SELECTION_SILHOUETTE
-    elif approach_str == "upper_bound":
-        return ClusteringApproach.UPPER_BOUND
-    elif approach_str == "incremental_k_means":
+    elif arg == "incremental_k_means":
         return ClusteringApproach.INCREMENTAL_K_MEANS
-    elif approach_str == "val_split":
+    elif arg == "k_means_fixed_k":
+        return ClusteringApproach.K_MEANS_FIXED_K
+    elif arg == "k_means_selection_silhouette":
+        return ClusteringApproach.K_MEAN_SELECTION_SILHOUETTE
+    elif arg == "upper_bound":
+        return ClusteringApproach.UPPER_BOUND
+    elif arg == "val_split":
         return ClusteringApproach.VAL_SPLIT
     else:
-        raise ValueError(f"Unknown clustering approach: {approach_str}")
+        raise ValueError(f"Unknown clustering approach: {arg}")
 
 
 def get_user_train_embeddings_and_ratings(
@@ -217,6 +217,23 @@ def train_models_clustering_k_means_fixed_k(
     return global_logreg, clusters_logregs, kmeans, clusters_with_sufficient_size
 
 
+def check_single_cluster(
+    clustering_approach: ClusteringApproach, eval_settings: dict, n_pos: int
+) -> bool:
+    if clustering_approach == ClusteringApproach.NONE:
+        return True
+    if clustering_approach == ClusteringApproach.K_MEANS_FIXED_K:
+        if eval_settings.get("clustering_k_means_n_clusters", 1) == 1:
+            return True
+    min_n_posrated = eval_settings.get("clustering_min_n_posrated", None)
+    if min_n_posrated is not None and n_pos < min_n_posrated:
+        return True
+    max_n_posrated = eval_settings.get("clustering_max_n_posrated", None)
+    if max_n_posrated is not None and n_pos > max_n_posrated:
+        return True
+    return False
+
+
 def train_models_clustering(
     train_set_embeddings: np.ndarray,
     train_set_ratings: np.ndarray,
@@ -227,6 +244,17 @@ def train_models_clustering(
     session_id: int = None,
 ) -> tuple:
     clustering_approach = eval_settings.get("clustering_approach", ClusteringApproach.NONE)
+    n_pos = np.sum(train_set_ratings == 1)
+    single_cluster = check_single_cluster(clustering_approach, eval_settings, n_pos)
+    if single_cluster:
+        return train_models_clustering_none(
+            train_set_embeddings=train_set_embeddings,
+            train_set_ratings=train_set_ratings,
+            train_set_time_diffs=train_set_time_diffs,
+            X_cache=X_cache,
+            random_state=random_state,
+            eval_settings=eval_settings,
+        )
     if clustering_approach == ClusteringApproach.NONE:
         return train_models_clustering_none(
             train_set_embeddings=train_set_embeddings,
@@ -244,28 +272,6 @@ def train_models_clustering(
             X_cache=X_cache,
             random_state=random_state,
             n_clusters=eval_settings["clustering_k_means_n_clusters"],
-            eval_settings=eval_settings,
-        )
-    elif clustering_approach == ClusteringApproach.INCREMENTAL_K_MEANS:
-        n_clusters = 1
-        if session_id >= 40:
-            n_clusters = 2
-        if n_clusters == 1:
-            return train_models_clustering_none(
-                train_set_embeddings=train_set_embeddings,
-                train_set_ratings=train_set_ratings,
-                train_set_time_diffs=train_set_time_diffs,
-                X_cache=X_cache,
-                random_state=random_state,
-                eval_settings=eval_settings,
-            )
-        return train_models_clustering_k_means_fixed_k(
-            train_set_embeddings=train_set_embeddings,
-            train_set_ratings=train_set_ratings,
-            train_set_time_diffs=train_set_time_diffs,
-            X_cache=X_cache,
-            random_state=random_state,
-            n_clusters=n_clusters,
             eval_settings=eval_settings,
         )
     elif clustering_approach == ClusteringApproach.UPPER_BOUND:
@@ -383,6 +389,7 @@ def get_train_rated_logits_dict_upper_bound(
         X_cache=X_cache,
         random_state=random_state,
         eval_settings=eval_settings,
+        session_id=0,
     )
     global_logreg = clusters_dict[1][0]
     train_rated_logits_dict = {
@@ -841,6 +848,7 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
                     X_cache=user_params["X_cache"],
                     random_state=random_state,
                     eval_settings=eval_settings,
+                    session_id=session_id,
                 )
                 global_logreg = clusters_dict[1][0]
                 for n_clusters, clusters in clusters_dict.items():

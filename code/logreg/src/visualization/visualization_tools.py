@@ -1102,17 +1102,31 @@ def get_papers_table_data(papers_texts: pd.DataFrame, outcome_df: pd.DataFrame) 
     merged_df["class_1_proba_formatted"] = merged_df["class_1_proba"].apply(format_number)
     table_data = []
     for i, (_, row) in enumerate(merged_df.iterrows(), 1):
-        table_data.append(
-            [
-                i,
-                int(row["paper_id"]),
-                row["class_1_proba_formatted"],
-                row["l1"],
-                row["l2"],
-                row["title_clean"],
-                row["abstract_clean"],
-            ]
-        )
+        if "cluster_label" in row:
+            table_data.append(
+                [
+                    i,
+                    int(row["paper_id"]),
+                    row["class_1_proba_formatted"],
+                    row["l1"],
+                    row["l2"],
+                    row["cluster_label"],
+                    row["title_clean"],
+                    row["abstract_clean"],
+                ]
+            )
+        else:
+            table_data.append(
+                [
+                    i,
+                    int(row["paper_id"]),
+                    row["class_1_proba_formatted"],
+                    row["l1"],
+                    row["l2"],
+                    row["title_clean"],
+                    row["abstract_clean"],
+                ]
+            )
     return table_data
 
 
@@ -1202,6 +1216,7 @@ def generate_wordclouds(
     n_neg_train_papers_full: int = None,
     largest_pos_tfidf_coef: float = None,
     largest_neg_tfidf_coef: float = None,
+    title_addition: str = "",
 ) -> None:
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=PLOT_CONSTANTS["FIG_SIZE"])
     suptitle = (
@@ -1209,6 +1224,7 @@ def generate_wordclouds(
         if use_tfidf_coefs
         else "Word Clouds based on Mean Embeddings of Training Set."
     )
+    suptitle = suptitle + title_addition
     fig.suptitle(suptitle, fontsize=16, fontweight="bold")
     color_palette = [
         "#453430",
@@ -1304,6 +1320,8 @@ def plot_papers(pdf: PdfPages, table_data: list, table_name: str, word_scores: d
     for i in range(len(table_data)):
         s = f"#{table_data[i][0]}:   ID: {table_data[i][1]},   Proba: {table_data[i][2]},   "
         s += f"Cat: {table_data[i][3]}, {table_data[i][4]}"
+        if len(table_data[i]) == 8:
+            s += f",   Cluster: {table_data[i][5]}"
         
         ax.text(
             0.5,
@@ -1722,6 +1740,8 @@ def plot_single_paper(
     ax.axis("off")
     s = f"#{table_data[0]}:   ID: {table_data[1]},   Class 1 Proba: {table_data[2]}"
     s += f",   L1: {table_data[3]},   L2: {table_data[4]}."
+    if len(table_data) == 8:
+        s += f",   Cluster: {table_data[5]}."
     ax.text(0.5, 1.12, page_title + f"\n{s}", fontsize=11, ha="center", va="center", weight="bold")
 
     title, abstract = table_data[-2], table_data[-1]
