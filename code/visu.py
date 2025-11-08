@@ -1,7 +1,7 @@
 from pathlib import Path
 import pandas as pd
 
-df = pd.read_csv(Path("code/sequence/data/sliding_window_eval/clustering_all_multi_session_2025_11_08_03_52_27/outputs/users_results.csv"))
+df = pd.read_csv(Path("code/sequence/data/sliding_window_eval_fixed/fixed_k_5/outputs/users_results.csv"))
 df = df[df["user_id"] == 9]
 bal_acc = df["val_balanced_accuracy"].tolist()[0]
 ndcg = df["val_ndcg_all"].tolist()[0]

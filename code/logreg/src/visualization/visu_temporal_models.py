@@ -142,7 +142,7 @@ def parse_args() -> dict:
     parser.add_argument("--visu_type", type=str, choices=list(get_visu_types_models().keys()))
     parser.add_argument("--users_selection", type=str, default="session_based_filtering")
     parser.add_argument(
-        "--temporal_type", type=str, default="sessions", choices=["sessions", "days"]
+        "--temporal_type", type=str, default="sessions", choices=["sessions", "days", "n_posrated"]
     )
     parser.add_argument("--window_size", type=int, default=None)
     parser.add_argument("--first_iter_included", type=int, default=0)
@@ -475,8 +475,8 @@ if __name__ == "__main__":
     users_ids = load_users_ratings_from_selection(
         users_ratings_selection=args["users_selection"], ids_only=True
     )
+    users_ids = [37, 186, 187, 345, 1100, 1193, 1227, 1785, 1976, 2353, 2576, 2625, 2694, 2747, 2754, 3292, 3469, 3789, 3792, 3793, 3864, 3899, 4081, 4306, 4554, 4562, 4563, 4578, 4669, 4775, 4794, 5237, 5685, 5709, 6062, 6083, 6137, 6210, 6244, 6275, 6467, 6487, 6677, 6795, 6851, 6880, 6956, 6961, 7274, 7404, 7585, 8157, 8305, 8355, 8378, 8430, 8887, 8950, 9127, 9217, 9665, 10083, 10503, 10793, 10814, 10840, 10881, 10883, 10895, 10936, 11019, 11140, 11404, 11419, 11530, 11577, 11584, 11752, 11799, 11804, 11876, 12229, 13172, 13363, 13552, 13807, 13970, 14018, 14207, 14239, 14309, 14349, 14415, 14430, 15388, 15783, 15887, 16053, 16169, 16983, 16999, 17474, 18039, 18332, 18353, 18975, 19249, 19519, 19965, 20128]
     users_ratings = load_users_ratings(relevant_users_ids=users_ids, include_neutral_ratings=True)
-    users_ids = users_ratings[users_ratings["session_id"] >= 80]["user_id"].unique().tolist()
     users_ratings = load_users_ratings(relevant_users_ids=users_ids, include_neutral_ratings=True)
     users_ratings = filter_users_ratings(
         users_ratings,

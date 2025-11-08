@@ -118,27 +118,36 @@ def get_weights(
     is_cluster: bool = False,
     n_cluster_in: int = None,
     cluster_alpha: float = None,
+    cluster_correction: bool = False,
 ) -> tuple:
-    neg_scale = hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_neg_scale"]]
-    cache_v = hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_cache_v"]]
     correction = n_posrated + n_negrated + n_cache
-
-    neg_denom = cache_v * n_negrated + (1.0 - cache_v) * n_cache
-    assert neg_denom > 0
-    w_n = correction * neg_scale * cache_v / neg_denom
-    w_c = correction * neg_scale * (1.0 - cache_v) / neg_denom
-
-    if not is_cluster:
-        w_p = correction * (1.0 - neg_scale) / n_posrated
-        w_a = None
-    else:
+    neg_scale = hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_neg_scale"]]
+    if is_cluster:
         assert n_cluster_in is not None and cluster_alpha is not None
         n_cluster_out = n_posrated - n_cluster_in
         assert n_cluster_out >= 0
-        pos_denom = cluster_alpha * n_cluster_in + (1.0 - cluster_alpha) * n_cluster_out
-        assert pos_denom > 0
-        w_p = correction * (1.0 - neg_scale) * cluster_alpha / pos_denom
-        w_a = correction * (1.0 - neg_scale) * (1.0 - cluster_alpha) / pos_denom
+        alpha_denom = cluster_alpha * n_cluster_in + (1.0 - cluster_alpha) * n_cluster_out
+        assert alpha_denom > 0
+        if cluster_correction:
+            capital_alpha = cluster_alpha / alpha_denom
+            ratio_before = neg_scale / ((1.0 - neg_scale) * n_cluster_in / n_posrated)
+            ratio_after = neg_scale / ((1.0 - neg_scale) * n_cluster_in * capital_alpha)
+            capital_beta = 0.6 * ratio_after + 0.4 * ratio_before
+            numer = capital_beta * n_cluster_in * capital_alpha
+            neg_scale_prime = numer / (1.0 + numer)
+        else:
+            neg_scale_prime = neg_scale
+        w_p = correction * (1.0 - neg_scale_prime) * cluster_alpha / alpha_denom
+        w_a = correction * (1.0 - neg_scale_prime) * (1.0 - cluster_alpha) / alpha_denom
+    else:
+        neg_scale_prime = neg_scale
+        w_p = correction * (1.0 - neg_scale_prime) / n_posrated
+        w_a = None
+    cache_v = hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_cache_v"]]
+    neg_denom = cache_v * n_negrated + (1.0 - cache_v) * n_cache
+    assert neg_denom > 0
+    w_n = correction * neg_scale_prime * cache_v / neg_denom
+    w_c = correction * neg_scale_prime * (1.0 - cache_v) / neg_denom
     return w_p, w_a, w_n, w_c
 
 
@@ -163,7 +172,6 @@ def get_sample_weights_temporal_decay_none(
         n_cluster_in=cluster_in_idxs.shape[0] if is_cluster else None,
         cluster_alpha=cluster_alpha,
     )
-
     sample_weights[y_train == 0] = w_n
     sample_weights[n_rated:] = w_c
     if not is_cluster:
@@ -172,6 +180,40 @@ def get_sample_weights_temporal_decay_none(
         sample_weights[cluster_in_idxs] = w_p
         sample_weights[cluster_out_idxs] = w_a
     return sample_weights
+
+
+def get_sample_weights_temporal_decay(
+    y_train: np.ndarray,
+    n_rated: int,
+    rated_time_diffs: np.ndarray,
+    hyperparameters_combination: tuple,
+    temporal_decay: TemporalDecay,
+    temporal_decay_normalization: TemporalDecayNormalization,
+    temporal_decay_param: float,
+    is_cluster: bool = False,
+    cluster_in_idxs: np.ndarray = None,
+    cluster_out_idxs: np.ndarray = None,
+) -> np.ndarray:
+    assert temporal_decay_normalization == TemporalDecayNormalization.POSITIVES
+    n_total = y_train.shape[0]
+    sample_weights = np.empty(n_total, dtype=np.float64)
+    y_rated = y_train[:n_rated]
+    w_p, w_a, w_n, w_c = get_weights(
+        hyperparameters_combination=hyperparameters_combination,
+        n_posrated=np.sum(y_rated == 1),
+        n_negrated=np.sum(y_rated == 0),
+        n_cache=n_total - n_rated,
+        is_cluster=is_cluster,
+        n_cluster_in=cluster_in_idxs.shape[0] if is_cluster else None,
+        cluster_alpha=None,
+    )
+    sample_weights[y_train == 0] = w_n
+    sample_weights[n_rated:] = w_c
+
+    pos_time_diffs = rated_time_diffs[y_rated == 1]
+    pos_decays = np.exp(-temporal_decay_param * pos_time_diffs)
+    pos_decays /= np.sum(pos_decays) if pos_decays.shape[0] > 0 else pos_decays
+    
 
 
 def get_sample_weights(

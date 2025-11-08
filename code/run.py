@@ -1,8 +1,8 @@
 import subprocess
 import sys
 
-params = [5]
-alpha = [0.6, 0.7, 0.75]
+params = [1, 2, 3, 4, 5, 7, 10]
+alpha = [0.8]
 max_n_posrated = [None]
 
 for param in params:
@@ -18,7 +18,6 @@ for param in params:
                             "--clustering_k_means_n_clusters",
                             str(param),
                             "--single_random_state",
-                            "--old_ratings",
                             "--save_users_predictions",
                             "--clustering_cluster_alpha",
                             str(a),

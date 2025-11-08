@@ -111,6 +111,8 @@ def get_default_window_size(temporal_type: str) -> int:
         return 2
     elif temporal_type == "days":
         return 30
+    elif temporal_type == "n_posrated":
+        return 10
 
 
 def get_last_iter_included(temporal_type: str) -> int:
@@ -118,6 +120,8 @@ def get_last_iter_included(temporal_type: str) -> int:
         return 100
     elif temporal_type == "days":
         return 500
+    elif temporal_type == "n_posrated":
+        return 200
 
 
 def parse_args() -> dict:
@@ -125,7 +129,7 @@ def parse_args() -> dict:
     parser.add_argument("--visu_type", type=str, choices=list(get_visu_types().keys()))
     parser.add_argument("--users_selection", type=str, default="session_based_no_filtering")
     parser.add_argument(
-        "--temporal_type", type=str, default="sessions", choices=["sessions", "days"]
+        "--temporal_type", type=str, default="sessions", choices=["sessions", "days", "n_posrated"]
     )
     parser.add_argument("--window_size", type=int, default=None)
     parser.add_argument("--first_iter_included", type=int, default=0)
@@ -292,6 +296,7 @@ def get_sessions_df(users_ratings: pd.DataFrame, embedding: Embedding = None) ->
         )
         .reset_index()
     )
+    sessions_df["n_pos_cum"] = sessions_df.groupby("user_id")["n_pos"].cumsum()
     assert len(sessions_df) == n_sessions
     assert sessions_df["n_neg"].sum() == (users_ratings["rating"] == 0).sum()
     assert sessions_df["n_pos"].sum() == (users_ratings["rating"] == 1).sum()
@@ -482,7 +487,12 @@ def extract_data_sessions(
     if scores_func is None:
         scores_func = get_window_scores
     n_users = sessions_df["user_id"].nunique()
-    temp_column = "session_id" if args["temporal_type"] == "sessions" else "n_days_passed"
+    if args["temporal_type"] == "n_posrated":
+        temp_column = "n_pos_cum"
+    elif args["temporal_type"] == "sessions":
+        temp_column = "session_id"
+    elif args["temporal_type"] == "days":
+        temp_column = "n_days_passed"
     first_iter_included = max(args["first_iter_included"], 0)
     last_iter_included = min(args["last_iter_included"], sessions_df[temp_column].max())
     sessions_df = sessions_df[sessions_df[temp_column] >= first_iter_included]

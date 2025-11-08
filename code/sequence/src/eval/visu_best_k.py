@@ -10,7 +10,7 @@ from ....logreg.src.training.users_ratings import load_users_ratings_from_select
 
 
 embedding = Embedding("code/logreg/embeddings/after_pca/gte_large_256")
-users_ratings = load_users_ratings_from_selection(UsersRatingsSelection.SESSION_BASED_FILTERING_OLD)
+users_ratings = load_users_ratings_from_selection(UsersRatingsSelection.SESSION_BASED_FILTERING)
 users_ratings = users_ratings[users_ratings["rating"] == 1]
 
 
@@ -122,3 +122,6 @@ if __name__ == "__main__":
     overall_ndcg_best_k = result_df.apply(lambda row: row[f'val_ndcg_all_{int(row["best_k"])}'], axis=1).mean()
     print(f"Overall NDCG for k=1: {overall_ndcg_k1:.4f}")
     print(f"Overall NDCG for best k: {overall_ndcg_best_k:.4f}")
+    # print users ids for whom k=3 is best
+    users_best_k3 = result_df[result_df["best_k"] == 3]["user_id"].tolist()
+    print(f"Number of users with best k=3: {users_best_k3}")
