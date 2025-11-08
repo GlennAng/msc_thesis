@@ -37,7 +37,7 @@ def config_assertions(config: Dict[str, Any]) -> None:
     ]
     assert config["k_folds"] == 5, "Config: k_folds must be 5."
     assert config["max_iter"] == 10000, "Config: max_iter must be 10000."
-    assert config["weights"] == "global:cache_v", "Config: weights must be 'global:cache_v'."
+    assert config["weights"] in ["global:cache_v", "global:cache_v_s_normalized"]
     if config["evaluation"] in ["cross_validation", "train_test_split"]:
         assert config["stratified"]
 

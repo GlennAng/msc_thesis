@@ -51,9 +51,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--logreg_n_cache", type=int, default=5000)
     parser.add_argument("--logreg_n_categories_cache", type=int, default=0)
     parser.add_argument("--logreg_n_val_negative_samples", type=int, default=100)
-    parser.add_argument("--logreg_weights_neg_scale", type=float, default=5.0)
+    parser.add_argument("--logreg_weights_neg_scale", type=float, default=0.8375)
     parser.add_argument("--logreg_weights_cache_v", type=float, default=0.9)
-    parser.add_argument("--logreg_clf_C", type=float, default=0.1)
+    parser.add_argument("--logreg_clf_C", type=float, default=0.4)
     parser.add_argument("--logreg_max_iter", type=int, default=10000)
     parser.add_argument("--logreg_solver", type=str, default="lbfgs")
 
@@ -70,6 +70,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clustering_upper_bound_max_increment", type=float, default=None)
     parser.add_argument("--clustering_upper_bound_max_decrement", type=float, default=None)
     parser.add_argument("--clustering_upper_bound_n_clusters_before_val", type=int, default=1)
+    parser.add_argument("--clustering_cluster_alpha", type=float, default=0.5)
 
     parser.add_argument("--save_users_predictions", action="store_true", default=False)
     args_dict = vars(parser.parse_args())

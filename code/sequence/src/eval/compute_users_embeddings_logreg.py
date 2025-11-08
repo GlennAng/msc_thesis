@@ -11,10 +11,10 @@ from ....logreg.src.training.evaluation import (
     get_val_negative_samples_ids,
 )
 from ....logreg.src.training.training_data import get_user_categories_ratios
-from ....logreg.src.training.weights_handler import Weights_Handler
 from ....src.load_files import load_papers, load_users_significant_categories
 from .logreg_temporal_decay import (
     TemporalDecay,
+    TemporalDecayNormalization,
     get_sample_weights_temporal_decay,
     get_temporal_decay_from_arg,
     get_temporal_decay_normalization_from_arg,
@@ -110,61 +110,96 @@ def get_hyperparameters_combination(eval_settings: dict) -> tuple:
     return tuple(combi)
 
 
-def get_sample_weights_temporal_decay_none(
-    user_train_set_ratings: np.ndarray,
-    n_cache: int,
+def get_weights(
     hyperparameters_combination: tuple,
+    n_posrated: int,
+    n_negrated: int,
+    n_cache: int,
+    is_cluster: bool = False,
+    n_cluster_in: int = None,
+    cluster_alpha: float = None,
+) -> tuple:
+    neg_scale = hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_neg_scale"]]
+    cache_v = hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_cache_v"]]
+    correction = n_posrated + n_negrated + n_cache
+
+    neg_denom = cache_v * n_negrated + (1.0 - cache_v) * n_cache
+    assert neg_denom > 0
+    w_n = correction * neg_scale * cache_v / neg_denom
+    w_c = correction * neg_scale * (1.0 - cache_v) / neg_denom
+
+    if not is_cluster:
+        w_p = correction * (1.0 - neg_scale) / n_posrated
+        w_a = None
+    else:
+        assert n_cluster_in is not None and cluster_alpha is not None
+        n_cluster_out = n_posrated - n_cluster_in
+        assert n_cluster_out >= 0
+        pos_denom = cluster_alpha * n_cluster_in + (1.0 - cluster_alpha) * n_cluster_out
+        assert pos_denom > 0
+        w_p = correction * (1.0 - neg_scale) * cluster_alpha / pos_denom
+        w_a = correction * (1.0 - neg_scale) * (1.0 - cluster_alpha) / pos_denom
+    return w_p, w_a, w_n, w_c
+
+
+def get_sample_weights_temporal_decay_none(
+    y_train: np.ndarray,
+    n_rated: int,
+    hyperparameters_combination: tuple,
+    is_cluster: bool = False,
+    cluster_in_idxs: np.ndarray = None,
+    cluster_out_idxs: np.ndarray = None,
+    cluster_alpha: float = None,
 ) -> np.ndarray:
-    n_total = user_train_set_ratings.shape[0] + n_cache
+    n_total = y_train.shape[0]
     sample_weights = np.empty(n_total, dtype=np.float64)
-    pos_idxs = np.where(user_train_set_ratings > 0)[0]
-    neg_idxs = np.where(user_train_set_ratings == 0)[0]
-    assert pos_idxs.shape[0] + neg_idxs.shape[0] == user_train_set_ratings.shape[0]
-    cache_idxs = np.arange(user_train_set_ratings.shape[0], n_total)
-    train_posrated_n = pos_idxs.shape[0]
-    train_negrated_n = neg_idxs.shape[0]
-    wh = Weights_Handler(config={"weights": "global:cache_v"})
-    w_p, w_n, _, _, w_c = wh.load_weights_for_user(
-        hyperparameters=LOGREG_HYPERPARAMETERS,
+    y_rated = y_train[:n_rated]
+    w_p, w_a, w_n, w_c = get_weights(
         hyperparameters_combination=hyperparameters_combination,
-        train_posrated_n=train_posrated_n,
-        train_negrated_n=train_negrated_n,
-        cache_n=n_cache,
+        n_posrated=np.sum(y_rated == 1),
+        n_negrated=np.sum(y_rated == 0),
+        n_cache=n_total - n_rated,
+        is_cluster=is_cluster,
+        n_cluster_in=cluster_in_idxs.shape[0] if is_cluster else None,
+        cluster_alpha=cluster_alpha,
     )
-    sample_weights[pos_idxs] = w_p
-    sample_weights[neg_idxs] = w_n
-    sample_weights[cache_idxs] = w_c
+
+    sample_weights[y_train == 0] = w_n
+    sample_weights[n_rated:] = w_c
+    if not is_cluster:
+        sample_weights[y_train == 1] = w_p
+    else:
+        sample_weights[cluster_in_idxs] = w_p
+        sample_weights[cluster_out_idxs] = w_a
     return sample_weights
 
 
 def get_sample_weights(
-    user_train_set_ratings: np.ndarray,
-    user_train_set_time_diffs: np.ndarray,
-    n_cache: int,
+    y_train: np.ndarray,
+    n_rated: int,
+    rated_time_diffs: np.ndarray,
     eval_settings: dict,
+    is_cluster: bool = False,
+    cluster_in_idxs: np.ndarray = None,
+    cluster_out_idxs: np.ndarray = None,
 ) -> np.ndarray:
     hyperparameters_combination = get_hyperparameters_combination(eval_settings)
     temporal_decay = get_temporal_decay_from_arg(eval_settings["logreg_temporal_decay"])
     temporal_decay_normalization = get_temporal_decay_normalization_from_arg(
         eval_settings["logreg_temporal_decay_normalization"]
     )
-    
     if temporal_decay == TemporalDecay.NONE:
-        sample_weights = get_sample_weights_temporal_decay_none(
-            user_train_set_ratings, n_cache, hyperparameters_combination
+        return get_sample_weights_temporal_decay_none(
+            y_train=y_train,
+            n_rated=n_rated,
+            hyperparameters_combination=hyperparameters_combination,
+            is_cluster=is_cluster,
+            cluster_in_idxs=cluster_in_idxs,
+            cluster_out_idxs=cluster_out_idxs,
+            cluster_alpha=eval_settings.get("clustering_cluster_alpha", None),
         )
     else:
-        sample_weights = get_sample_weights_temporal_decay(
-            user_train_set_ratings=user_train_set_ratings,
-            user_train_set_time_diffs=user_train_set_time_diffs,
-            n_cache=n_cache,
-            weights_neg_scale=eval_settings["logreg_weights_neg_scale"],
-            weights_cache_v=eval_settings["logreg_weights_cache_v"],
-            temporal_decay=temporal_decay,
-            temporal_decay_normalization=temporal_decay_normalization,
-            temporal_decay_param=eval_settings["logreg_temporal_decay_param"],
-        )
-    return sample_weights
+        assert temporal_decay_normalization == TemporalDecayNormalization.POSITIVES
 
 
 def compute_logreg_user_embedding(

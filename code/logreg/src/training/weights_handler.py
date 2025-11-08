@@ -43,6 +43,7 @@ def get_weights_group_from_arg(weights_group_arg: str) -> Weights_Group:
 class Weights_Scheme(Enum):
     UNWEIGHTED = auto()
     CACHE_V = auto()
+    CACHE_V_S_NORMALIZED = auto()
 
     NO_V = auto()
 
@@ -197,7 +198,7 @@ class Weights_Handler:
     def load_weights_hyperparameters_global(
         self, weights_scheme: Weights_Scheme, config: dict
     ) -> dict:
-        if weights_scheme == Weights_Scheme.CACHE_V:
+        if weights_scheme in {Weights_Scheme.CACHE_V, Weights_Scheme.CACHE_V_S_NORMALIZED}:
             hyperparameters_global = {
                 "weights_neg_scale": load_hyperparameter_range(config["weights_neg_scale"])
             }
@@ -278,6 +279,8 @@ class Weights_Handler:
                 is_positive=False,
             )
         if "weights_neg_scale" in hyperparameters:
+            if self.global_weights_scheme == Weights_Scheme.CACHE_V_S_NORMALIZED:
+                w_p *= (1.0 - hyperparameters_combination[hyperparameters["weights_neg_scale"]])
             w_n *= hyperparameters_combination[hyperparameters["weights_neg_scale"]]
             w_c *= hyperparameters_combination[hyperparameters["weights_neg_scale"]]
             w_z = (
@@ -298,7 +301,7 @@ class Weights_Handler:
         zerorated_n: int,
         cache_n: int,
     ) -> tuple:
-        if self.global_weights_scheme == Weights_Scheme.CACHE_V:
+        if self.global_weights_scheme in {Weights_Scheme.CACHE_V, Weights_Scheme.CACHE_V_S_NORMALIZED}:
             if train_posrated_n == 0:
                 raise ValueError(
                     "Global Weights Scheme 'CACHE_V' requires non-zero values for train_posrated_n"
