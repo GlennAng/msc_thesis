@@ -25,6 +25,7 @@ from .visu_temporal import (
 )
 
 RANKING_METRICS = ["ndcg", "mrr", "hr@1", "ince"]
+NON_RANKING_METRICS = ["recall", "specificity", "balanced_accuracy"]
 UPPER_BOUND_METRICS = ["best_k", "difference_to_k_1"]
 PERCENTAGE_GLOBAL_MODEL_METRICS = [
     "percentage_global_model_pos",
@@ -36,6 +37,18 @@ PERCENTAGE_GLOBAL_MODEL_METRICS = [
 
 def get_visu_types_models() -> dict:
     visu_types = {
+        "recall": {
+            "agg_func": "mean",
+            "y_label": "Recall",
+        },
+        "specificity": {
+            "agg_func": "mean",
+            "y_label": "Specificity",
+        },
+        "balanced_accuracy": {
+            "agg_func": "mean",
+            "y_label": "Balanced Accuracy",
+        },
         "ndcg": {
             "agg_func": "mean",
             "y_label": "nDCG",
@@ -216,6 +229,12 @@ def get_window_df_included_users(window_df: pd.DataFrame, visu_type: str) -> pd.
             return window_df[window_df["n_pos"] > 0]
         elif visu_type == "n_clusters_with_sufficient_size":
             return window_df[window_df["n_pos"] > 0]
+    elif visu_type == "recall":
+        return window_df[window_df["n_pos"] > 0]
+    elif visu_type == "specificity":
+        return window_df[window_df["n_neg"] > 0]
+    elif visu_type == "balanced_accuracy":
+        return window_df[window_df["n_rated"] > 0]
     else:
         return window_df
 
@@ -284,6 +303,54 @@ def attach_ranking_metric_column(
                 sessions_df.at[idx, "split"] = "val"
                 metric_counter += n_pos
     return sessions_df
+
+
+def attach_non_ranking_metric_column(
+    sessions_df: pd.DataFrame,
+    visu_type: str,
+    users_scores: dict,
+    compare: bool = False,
+) -> pd.DataFrame:
+    metric_column = visu_type + ("_compare" if compare else "")
+    sessions_df[metric_column] = None
+    sessions_df[metric_column] = sessions_df[metric_column].astype(object)
+    if not compare:
+        sessions_df["split"] = "train"
+        sessions_df["n_rated_cum"] = sessions_df.groupby("user_id")["n_rated"].cumsum()
+    users_ids = sessions_df["user_id"].unique().tolist()
+    random_states = list(users_scores.keys())
+    for user_id in tqdm(users_ids):
+        user_metrics = []
+        for random_state in random_states:
+            user_scores_seed = users_scores[random_state][user_id]
+            if visu_type == "recall":
+                val_logits = user_scores_seed["y_val_logits_pos"]
+                user_scores_seed = np.zeros(val_logits.shape)
+                user_scores_seed[val_logits >= 0.5] = 1
+            elif visu_type == "specificity":
+                val_logits = user_scores_seed["y_val_logits_neg"]
+                user_scores_seed = np.zeros(val_logits.shape)
+                user_scores_seed[val_logits < 0.5] = 1
+            user_metrics.append(user_scores_seed)
+        user_metrics_mean = np.mean(user_metrics, axis=0)
+        n_train_rated = users_scores[random_states[0]][user_id]["y_train_rated_logits"].shape[0]
+        mask = (sessions_df["user_id"] == user_id) & (sessions_df["n_rated_cum"] > n_train_rated)
+
+        metric_counter = 0
+        user_sessions = sessions_df[mask].copy()
+        for idx, row in user_sessions.iterrows():
+            if metric_counter >= len(user_metrics_mean):
+                assert metric_counter == len(user_metrics_mean)
+                break
+            n_samples = row["n_pos"] if visu_type == "recall" else row["n_neg"]
+            if n_samples > 0:
+                metrics = user_metrics_mean[metric_counter : metric_counter + n_samples]
+                idx_pos = sessions_df.index.get_loc(idx)
+                sessions_df[metric_column].values[idx_pos] = metrics
+                sessions_df.at[idx, "split"] = "val"
+                metric_counter += n_samples
+    return sessions_df
+
 
 
 def attach_upper_bound_column(
@@ -394,6 +461,10 @@ def get_window_scores(
         scores = window_df.groupby("user_id")[column].apply(
             lambda x: np.mean(np.concatenate(x.tolist()))
         )
+    elif visu_type in NON_RANKING_METRICS:
+        scores = window_df.groupby("user_id")[column].apply(
+            lambda x: np.mean(np.concatenate(x.tolist()))
+        )
     elif (
         visu_type in PERCENTAGE_GLOBAL_MODEL_METRICS
         and visu_type != "n_clusters_with_sufficient_size"
@@ -475,7 +546,6 @@ if __name__ == "__main__":
     users_ids = load_users_ratings_from_selection(
         users_ratings_selection=args["users_selection"], ids_only=True
     )
-    users_ids = [37, 186, 187, 345, 1100, 1193, 1227, 1785, 1976, 2353, 2576, 2625, 2694, 2747, 2754, 3292, 3469, 3789, 3792, 3793, 3864, 3899, 4081, 4306, 4554, 4562, 4563, 4578, 4669, 4775, 4794, 5237, 5685, 5709, 6062, 6083, 6137, 6210, 6244, 6275, 6467, 6487, 6677, 6795, 6851, 6880, 6956, 6961, 7274, 7404, 7585, 8157, 8305, 8355, 8378, 8430, 8887, 8950, 9127, 9217, 9665, 10083, 10503, 10793, 10814, 10840, 10881, 10883, 10895, 10936, 11019, 11140, 11404, 11419, 11530, 11577, 11584, 11752, 11799, 11804, 11876, 12229, 13172, 13363, 13552, 13807, 13970, 14018, 14207, 14239, 14309, 14349, 14415, 14430, 15388, 15783, 15887, 16053, 16169, 16983, 16999, 17474, 18039, 18332, 18353, 18975, 19249, 19519, 19965, 20128]
     users_ratings = load_users_ratings(relevant_users_ids=users_ids, include_neutral_ratings=True)
     users_ratings = load_users_ratings(relevant_users_ids=users_ids, include_neutral_ratings=True)
     users_ratings = filter_users_ratings(
@@ -492,6 +562,15 @@ if __name__ == "__main__":
             sessions_df = attach_ranking_metric_column(
                 sessions_df, args["visu_type"], users_scores_compare, compare=True
             )
+    elif args["visu_type"] in NON_RANKING_METRICS:
+        sessions_df = attach_non_ranking_metric_column(
+            sessions_df, args["visu_type"], users_scores, compare=False
+        )
+        if args["compare_models"]:
+            sessions_df = attach_non_ranking_metric_column(
+                sessions_df, args["visu_type"], users_scores_compare, compare=True
+            )
+
     elif args["visu_type"] in UPPER_BOUND_METRICS:
         sessions_df = attach_upper_bound_column(
             sessions_df=sessions_df,

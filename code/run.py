@@ -1,8 +1,8 @@
 import subprocess
 import sys
 
-params = [1, 2, 3, 4, 5, 7, 10]
-alpha = [0.8]
+params = [3]
+alpha = [0.8, 0.85, 0.9]
 max_n_posrated = [None]
 
 for param in params:
@@ -21,6 +21,7 @@ for param in params:
                             "--save_users_predictions",
                             "--clustering_cluster_alpha",
                             str(a),
+                            "--clustering_skip_correction",
                         ],
                         check=True,
                     )

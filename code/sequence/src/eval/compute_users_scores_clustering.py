@@ -954,6 +954,7 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
                 ),
             }
         user_scores["y_val_logits_pos"] = user_scores["y_val_logits"][val_data_dict["y_val"] == 1]
+        user_scores["y_val_logits_neg"] = user_scores["y_val_logits"][val_data_dict["y_val"] == 0]
         user_scores = fill_user_scores(user_scores)
         user_scores = fill_users_scores_models_properties(
             logreg_models=logreg_models, user_scores=user_scores

@@ -159,6 +159,7 @@ def get_sample_weights_temporal_decay_none(
     cluster_in_idxs: np.ndarray = None,
     cluster_out_idxs: np.ndarray = None,
     cluster_alpha: float = None,
+    clustering_correction: bool = False,
 ) -> np.ndarray:
     n_total = y_train.shape[0]
     sample_weights = np.empty(n_total, dtype=np.float64)
@@ -171,6 +172,7 @@ def get_sample_weights_temporal_decay_none(
         is_cluster=is_cluster,
         n_cluster_in=cluster_in_idxs.shape[0] if is_cluster else None,
         cluster_alpha=cluster_alpha,
+        cluster_correction=clustering_correction,
     )
     sample_weights[y_train == 0] = w_n
     sample_weights[n_rated:] = w_c
@@ -230,6 +232,7 @@ def get_sample_weights(
     temporal_decay_normalization = get_temporal_decay_normalization_from_arg(
         eval_settings["logreg_temporal_decay_normalization"]
     )
+    clustering_correction = eval_settings["clustering_skip_correction"] is False
     if temporal_decay == TemporalDecay.NONE:
         return get_sample_weights_temporal_decay_none(
             y_train=y_train,
@@ -239,6 +242,7 @@ def get_sample_weights(
             cluster_in_idxs=cluster_in_idxs,
             cluster_out_idxs=cluster_out_idxs,
             cluster_alpha=eval_settings.get("clustering_cluster_alpha", None),
+            clustering_correction=clustering_correction,
         )
     else:
         assert temporal_decay_normalization == TemporalDecayNormalization.POSITIVES

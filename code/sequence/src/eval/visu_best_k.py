@@ -69,14 +69,19 @@ if __name__ == "__main__":
             k = eval_settings["clustering_k_means_n_clusters"]
         else:
             raise ValueError(f"Unknown clustering approach: {clustering_approach}")
-        df = df[["user_id", "val_ndcg_all"]]
+        # Get all three metrics
+        df = df[["user_id", "val_ndcg_all", "val_recall", "val_specificity"]]
         df = df[df["user_id"].isin(users_ids)]
         dfs[k] = df
 
     keys = sorted(list(dfs.keys()))
     result_df = None
     for k in keys:
-        df = dfs[k].rename(columns={"val_ndcg_all": f"val_ndcg_all_{k}"})
+        df = dfs[k].rename(columns={
+            "val_ndcg_all": f"val_ndcg_all_{k}",
+            "val_recall": f"val_recall_all_{k}",
+            "val_specificity": f"val_specificity_all_{k}"
+        })
         if result_df is None:
             result_df = df
         else:
@@ -86,42 +91,74 @@ if __name__ == "__main__":
     users_info = users_info[["user_id"] + cols]
     result_df = result_df.merge(users_info, on="user_id", how="left")
     
-    # Find which k has the highest NDCG for each user
+    # Find which k has the highest NDCG for each user (keep grouping by NDCG)
     ndcg_cols = [f"val_ndcg_all_{k}" for k in sorted(dfs.keys())]
     result_df['best_k'] = result_df[ndcg_cols].idxmax(axis=1).str.extract(r'(\d+)$')[0].astype(int)
 
     result_df["users_sims"] = result_df["user_id"].map(users_sims)
 
 
-    # Aggregate the last 3 columns AND all NDCG scores by best_k
-    agg_cols = ['n_sessions_pos_val', 'n_posrated_val', 'time_range_days_pos_val', "users_sims"]
-    print("Summary by best k:")
-    summary = result_df.groupby('best_k').agg({
+    # Aggregate for all three metrics
+    agg_dict = {
         'user_id': 'count',
-        'val_ndcg_all_1': 'mean',
-        'val_ndcg_all_2': 'mean',
-        'val_ndcg_all_3': 'mean',
-        'val_ndcg_all_4': 'mean',
-        'val_ndcg_all_5': 'mean',
-        'val_ndcg_all_7': 'mean',
-        'val_ndcg_all_10': 'mean',
-
         'n_sessions_pos_val': 'mean',
         'n_posrated_val': 'mean',
         'time_range_days_pos_val': 'mean',
         'users_sims': 'mean'
-    }).rename(columns={'user_id': 'n_users'})
+    }
+    
+    # Add all k values for all three metrics
+    for k in sorted(dfs.keys()):
+        agg_dict[f'val_ndcg_all_{k}'] = 'mean'
+        agg_dict[f'val_recall_all_{k}'] = 'mean'
+        agg_dict[f'val_specificity_all_{k}'] = 'mean'
+    
+    print("\n" + "="*80)
+    print("SUMMARY BY BEST K (based on NDCG)")
+    print("="*80)
+    
+    summary = result_df.groupby('best_k').agg(agg_dict)
+    summary = summary.rename(columns={'user_id': 'n_users'})
+    
+    # Rename columns for clarity
+    col_renames = {'n_users': 'n_users'}
+    for k in sorted(dfs.keys()):
+        col_renames[f'val_ndcg_all_{k}'] = f'avg_ndcg_{k}'
+        col_renames[f'val_recall_all_{k}'] = f'avg_recall_{k}'
+        col_renames[f'val_specificity_all_{k}'] = f'avg_spec_{k}'
+    col_renames.update({
+        'n_sessions_pos_val': 'avg_sessions',
+        'n_posrated_val': 'avg_posrated',
+        'time_range_days_pos_val': 'avg_time_range_days',
+        'users_sims': 'avg_users_sims'
+    })
+    summary = summary.rename(columns=col_renames)
+    
+    print("\nNDCG Summary:")
+    print(summary[['n_users'] + [f'avg_ndcg_{k}' for k in sorted(dfs.keys())] + 
+                  ['avg_sessions', 'avg_posrated', 'avg_time_range_days', 'avg_users_sims']])
+    
+    print("\nRecall Summary:")
+    print(summary[['n_users'] + [f'avg_recall_{k}' for k in sorted(dfs.keys())] + 
+                  ['avg_sessions', 'avg_posrated', 'avg_time_range_days', 'avg_users_sims']])
+    
+    print("\nSpecificity Summary:")
+    print(summary[['n_users'] + [f'avg_spec_{k}' for k in sorted(dfs.keys())] + 
+                  ['avg_sessions', 'avg_posrated', 'avg_time_range_days', 'avg_users_sims']])
 
-    summary.columns = ['n_users', 'avg_ndcg_1', 'avg_ndcg_2', 'avg_ndcg_3', 'avg_ndcg_4', 'avg_ndcg_5', 'avg_ndcg_7', 'avg_ndcg_10',
-                    'avg_sessions', 'avg_posrated', 'avg_time_range_days', 'avg_users_sims']
-    print(summary)
-
-    # print ndcg for k=1 over all users
-    overall_ndcg_k1 = result_df['val_ndcg_all_1'].mean()
-    # print ndcg for best k over all users
+    # Overall metrics per k and per line
+    print("\n" + "="*80)
+    print("OVERALL METRICS (all users)")
+    print("="*80)
+    
+    for k in sorted(dfs.keys()):
+        mean_ndcg = result_df[f'val_ndcg_all_{k}'].mean()
+        mean_recall = result_df[f'val_recall_all_{k}'].mean()
+        mean_spec = result_df[f'val_specificity_all_{k}'].mean()
+        print(f"k={k:2d} | NDCG: {mean_ndcg:.4f} | Recall: {mean_recall:.4f} | Specificity: {mean_spec:.4f}")
+    
+    # Best k (based on NDCG grouping)
     overall_ndcg_best_k = result_df.apply(lambda row: row[f'val_ndcg_all_{int(row["best_k"])}'], axis=1).mean()
-    print(f"Overall NDCG for k=1: {overall_ndcg_k1:.4f}")
-    print(f"Overall NDCG for best k: {overall_ndcg_best_k:.4f}")
-    # print users ids for whom k=3 is best
-    users_best_k3 = result_df[result_df["best_k"] == 3]["user_id"].tolist()
-    print(f"Number of users with best k=3: {users_best_k3}")
+    overall_recall_best_k = result_df.apply(lambda row: row[f'val_recall_all_{int(row["best_k"])}'], axis=1).mean()
+    overall_spec_best_k = result_df.apply(lambda row: row[f'val_specificity_all_{int(row["best_k"])}'], axis=1).mean()
+    print(f"Best k (by NDCG) | NDCG: {overall_ndcg_best_k:.4f} | Recall: {overall_recall_best_k:.4f} | Specificity: {overall_spec_best_k:.4f}")
