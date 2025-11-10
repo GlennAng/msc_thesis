@@ -74,7 +74,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clustering_upper_bound_max_decrement", type=float, default=None)
     parser.add_argument("--clustering_upper_bound_n_clusters_before_val", type=int, default=1)
     parser.add_argument("--clustering_cluster_alpha", type=float, default=0.5)
-    parser.add_argument("--clustering_skip_correction", action="store_true", default=False)
 
     parser.add_argument("--save_users_predictions", action="store_true", default=False)
     args_dict = vars(parser.parse_args())

@@ -115,8 +115,10 @@ def train_logreg_single_cluster(
     random_state: int,
     eval_settings: dict,
     is_cluster: bool = False,
-    cluster_in_idxs: np.ndarray = None,
-    cluster_out_idxs: np.ndarray = None,
+    pos_cluster_in_idxs: np.ndarray = None,
+    pos_cluster_out_idxs: np.ndarray = None,
+    neg_cluster_in_idxs: np.ndarray = None,
+    neg_cluster_out_idxs: np.ndarray = None,
 ) -> object:
     sample_weights = get_sample_weights(
         y_train=y_train,
@@ -124,8 +126,10 @@ def train_logreg_single_cluster(
         rated_time_diffs=rated_time_diffs,
         eval_settings=eval_settings,
         is_cluster=is_cluster,
-        cluster_in_idxs=cluster_in_idxs,
-        cluster_out_idxs=cluster_out_idxs,
+        pos_cluster_in_idxs=pos_cluster_in_idxs,
+        pos_cluster_out_idxs=pos_cluster_out_idxs,
+        neg_cluster_in_idxs=neg_cluster_in_idxs,
+        neg_cluster_out_idxs=neg_cluster_out_idxs,
     )
     logreg = get_model(
         algorithm=Algorithm.LOGREG,
@@ -180,25 +184,32 @@ def train_models_clustering_k_means_fixed_k(
     assert n_clusters >= 2
     kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, algorithm="elkan", n_init=10)
     X_rated, y_rated = X_train[:n_rated], y_train[:n_rated]
-    pos_rated_mask = y_rated == 1
+    pos_rated_mask, neg_rated_mask = y_rated == 1, y_rated == 0
     pos_clusters_labels = kmeans.fit_predict(X_rated[pos_rated_mask])
+    neg_clusters_labels = kmeans.predict(X_rated[neg_rated_mask])
     pos_original_idxs = np.where(pos_rated_mask)[0]
+    neg_original_idxs = np.where(neg_rated_mask)[0]
     clusters_logregs, clusters_with_sufficient_size = [], []
     for cluster_label in range(n_clusters):
-        cluster_in_idxs = pos_original_idxs[np.where(pos_clusters_labels == cluster_label)[0]]
-        n_cluster_idxs = len(cluster_in_idxs)
-        if n_cluster_idxs < eval_settings["clustering_selection_min_cluster_size"]:
+        pos_cluster_in_idxs = pos_original_idxs[np.where(pos_clusters_labels == cluster_label)[0]]
+        pos_n_cluster_idxs = len(pos_cluster_in_idxs)
+        if pos_n_cluster_idxs < eval_settings["clustering_selection_min_cluster_size"]:
             continue
-        cluster_out_idxs = pos_original_idxs[np.where(pos_clusters_labels != cluster_label)[0]]
-        assert len(cluster_in_idxs) + len(cluster_out_idxs) == len(pos_original_idxs)
+        pos_cluster_out_idxs = pos_original_idxs[np.where(pos_clusters_labels != cluster_label)[0]]
+        assert len(pos_cluster_in_idxs) + len(pos_cluster_out_idxs) == len(pos_original_idxs)
+        neg_cluster_in_idxs = neg_original_idxs[np.where(neg_clusters_labels == cluster_label)[0]]
+        neg_cluster_out_idxs = neg_original_idxs[np.where(neg_clusters_labels != cluster_label)[0]]
+        assert len(neg_cluster_in_idxs) + len(neg_cluster_out_idxs) == len(neg_original_idxs)
         sample_weights = get_sample_weights(
             y_train=y_train,
             n_rated=n_rated,
             rated_time_diffs=rated_time_diffs,
             eval_settings=eval_settings,
             is_cluster=True,
-            cluster_in_idxs=cluster_in_idxs,
-            cluster_out_idxs=cluster_out_idxs,
+            pos_cluster_in_idxs=pos_cluster_in_idxs,
+            pos_cluster_out_idxs=pos_cluster_out_idxs,
+            neg_cluster_in_idxs=neg_cluster_in_idxs,
+            neg_cluster_out_idxs=neg_cluster_out_idxs,
         )
         logreg = get_model(
             algorithm=Algorithm.LOGREG,
