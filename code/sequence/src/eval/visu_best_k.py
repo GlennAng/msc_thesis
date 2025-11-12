@@ -17,7 +17,7 @@ users_ratings = users_ratings[users_ratings["rating"] == 1]
 
 # get df with number of papers per user
 users_papers_count = users_ratings.groupby("user_id")["paper_id"].count().reset_index()
-N_MIN_PAPERS = 0
+N_MIN_PAPERS = 80
 N_MAX_PAPERS = None
 users_ids = users_papers_count[users_papers_count["paper_id"] >= N_MIN_PAPERS]["user_id"].tolist()
 if N_MAX_PAPERS is not None:
@@ -27,8 +27,6 @@ print(f"Number of users: {len(users_ids)}")
 users_ratings_train = users_ratings[users_ratings["split"] == "train"]
 users_ratings_val = users_ratings[users_ratings["split"] == "val"]
 users_n_pos_train = users_ratings_train.groupby("user_id")["paper_id"].count().reset_index()
-users_ids = users_n_pos_train[users_n_pos_train["paper_id"] < 80000]["user_id"].tolist()
-print(f"Number of users with at least 40 positive training ratings: {len(users_ids)}")
 users_ratings = users_ratings[users_ratings["user_id"].isin(users_ids)]
 users_ratings_train = users_ratings_train[users_ratings_train["user_id"].isin(users_ids)]
 users_ratings_val = users_ratings_val[users_ratings_val["user_id"].isin(users_ids)]
@@ -162,3 +160,7 @@ if __name__ == "__main__":
     overall_recall_best_k = result_df.apply(lambda row: row[f'val_recall_all_{int(row["best_k"])}'], axis=1).mean()
     overall_spec_best_k = result_df.apply(lambda row: row[f'val_specificity_all_{int(row["best_k"])}'], axis=1).mean()
     print(f"Best k (by NDCG) | NDCG: {overall_ndcg_best_k:.4f} | Recall: {overall_recall_best_k:.4f} | Specificity: {overall_spec_best_k:.4f}")
+
+    # users for whom k=7 is best
+    users_ids_k7 = result_df[result_df["best_k"] == 7]["user_id"].tolist()
+    print(f"Users IDs with best k=7: {users_ids_k7}")

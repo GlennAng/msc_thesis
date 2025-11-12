@@ -126,59 +126,110 @@ def get_weights_cache(
 def get_weights_cluster_pos(
     correction: int,
     neg_scale: float,
+    pos_scheme: str,
     n_posrated: int,
     n_pos_cluster_in: int,
     cluster_alpha: float,
 ) -> tuple:
     n_pos_cluster_out = n_posrated - n_pos_cluster_in
     assert n_pos_cluster_out >= 0
-    pos_cluster_denom = cluster_alpha * n_pos_cluster_in + (1.0 - cluster_alpha) * n_pos_cluster_out
-    assert pos_cluster_denom > 0
-    w_pos_in_cluster = correction * (1.0 - neg_scale) * cluster_alpha / pos_cluster_denom
-    w_pos_out_cluster = correction * (1.0 - neg_scale) * (1.0 - cluster_alpha) / pos_cluster_denom
-    return w_pos_in_cluster, w_pos_out_cluster
+    if pos_scheme == "absolute":
+        original_ratio_cluster_all = n_pos_cluster_in / n_posrated
+        desired_ratio = n_pos_cluster_in / (n_pos_cluster_in + cluster_alpha)
+        desired_ratio = max(desired_ratio, original_ratio_cluster_all)
+        w_pos_in_cluster = correction * (1.0 - neg_scale) * desired_ratio / n_pos_cluster_in
+        w_pos_out_cluster = (
+            correction * (1.0 - neg_scale) * (1.0 - desired_ratio) / n_pos_cluster_out
+        )
+    elif pos_scheme == "relative":
+        denom = cluster_alpha * n_pos_cluster_in + (1.0 - cluster_alpha) * n_pos_cluster_out
+        assert denom > 0
+        w_pos_in_cluster = correction * (1.0 - neg_scale) * cluster_alpha / denom
+        w_pos_out_cluster = correction * (1.0 - neg_scale) * (1.0 - cluster_alpha) / denom
+        desired_ratio = cluster_alpha / denom
+    return w_pos_in_cluster, w_pos_out_cluster, desired_ratio
 
 
-def get_weights_cluster_neg_cluster_correction_none(
-    correction: int,
-    neg_scale: float,
-    cache_v: float,
-    cache_denom: float,
-) -> tuple:
-    w_neg_in_cluster = correction * neg_scale * cache_v / cache_denom
-    return w_neg_in_cluster, w_neg_in_cluster
-
-
-def get_weights_cluster_neg_cluster_correction_same_alpha(
-    correction: int,
-    neg_scale: float,
-    cache_v: float,
-    n_negrated: int,
-    n_neg_cluster_in: int,
-    cluster_alpha: float,
-    cache_denom: float,
-) -> tuple:
-    n_neg_cluster_out = n_negrated - n_neg_cluster_in
-    assert n_neg_cluster_out >= 0
-    neg_cluster_denom = cluster_alpha * n_neg_cluster_in + (1.0 - cluster_alpha) * n_neg_cluster_out
-    assert neg_cluster_denom > 0
-    correction_num = n_negrated * cache_v / cache_denom
-    correction_denom_1 = n_neg_cluster_in * cluster_alpha / neg_cluster_denom
-    correction_denom_2 = n_neg_cluster_out * (1.0 - cluster_alpha) / neg_cluster_denom
-    correction_factor = correction_num / (correction_denom_1 + correction_denom_2)
-    w_neg_in_cluster = correction * neg_scale * correction_factor * cluster_alpha / neg_cluster_denom
-    w_neg_out_cluster = correction * neg_scale * correction_factor * (1.0 - cluster_alpha) / neg_cluster_denom
-    return w_neg_in_cluster, w_neg_out_cluster
-
-
-def get_weights_cluster_correction(
-    cluster_correction: str,
+def get_weights_cluster_neg_none(
     correction: int,
     neg_scale: float,
     cache_v: float,
     n_posrated: int,
     n_negrated: int,
     n_cache: int,
+    pos_scheme: str,
+    n_pos_cluster_in: int,
+    cluster_alpha: float,
+) -> tuple:
+    w_cache, cache_denom = get_weights_cache(
+        correction=correction,
+        neg_scale=neg_scale,
+        cache_v=cache_v,
+        n_negrated=n_negrated,
+        n_cache=n_cache,
+    )
+    w_pos_in_cluster, w_pos_out_cluster, _ = get_weights_cluster_pos(
+        correction=correction,
+        neg_scale=neg_scale,
+        pos_scheme=pos_scheme,
+        n_posrated=n_posrated,
+        n_pos_cluster_in=n_pos_cluster_in,
+        cluster_alpha=cluster_alpha,
+    )
+    w_neg_in_cluster = correction * neg_scale * cache_v / cache_denom
+    return w_pos_in_cluster, w_neg_in_cluster, w_cache, w_pos_out_cluster, w_neg_in_cluster
+
+
+def get_weights_cluster_neg_middle(
+    correction: int,
+    neg_scale: float,
+    cache_v: float,
+    n_posrated: int,
+    n_negrated: int,
+    n_cache: int,
+    pos_scheme: str,
+    n_pos_cluster_in: int,
+    cluster_alpha: float,
+) -> tuple:
+    n_pos_cluster_out = n_posrated - n_pos_cluster_in
+    assert n_pos_cluster_out >= 0
+    if pos_scheme == "absolute":
+        raise NotImplementedError
+    elif pos_scheme == "relative":
+        after_const = 0.6
+        alpha_denom = cluster_alpha * n_pos_cluster_in + (1.0 - cluster_alpha) * n_pos_cluster_out
+        assert alpha_denom > 0
+        capital_alpha = cluster_alpha / alpha_denom
+        ratio_neg_pos_before = neg_scale / ((1.0 - neg_scale) * n_pos_cluster_in / n_posrated)
+        ratio_neg_pos_after = neg_scale / ((1.0 - neg_scale) * n_pos_cluster_in * capital_alpha)
+        capital_beta = (
+            after_const * ratio_neg_pos_after + (1.0 - after_const) * ratio_neg_pos_before
+        )
+        numer = capital_beta * n_pos_cluster_in * capital_alpha
+        neg_scale_prime = numer / (1.0 + numer)
+        w_pos_in_cluster = correction * (1.0 - neg_scale_prime) * cluster_alpha / alpha_denom
+        w_pos_out_cluster = (
+            correction * (1.0 - neg_scale_prime) * (1.0 - cluster_alpha) / alpha_denom
+        )
+    w_cache, cache_denom = get_weights_cache(
+        correction=correction,
+        neg_scale=neg_scale_prime,
+        cache_v=cache_v,
+        n_negrated=n_negrated,
+        n_cache=n_cache,
+    )
+    w_neg_in_cluster = correction * neg_scale_prime * cache_v / cache_denom
+    return w_pos_in_cluster, w_neg_in_cluster, w_cache, w_pos_out_cluster, w_neg_in_cluster
+
+
+def get_weights_cluster_neg_same_alpha(
+    correction: int,
+    neg_scale: float,
+    cache_v: float,
+    n_posrated: int,
+    n_negrated: int,
+    n_cache: int,
+    pos_scheme: str,
     n_pos_cluster_in: int,
     n_neg_cluster_in: int,
     cluster_alpha: float,
@@ -190,31 +241,182 @@ def get_weights_cluster_correction(
         n_negrated=n_negrated,
         n_cache=n_cache,
     )
-    w_pos_in_cluster, w_pos_out_cluster = get_weights_cluster_pos(
+    n_pos_cluster_out = n_posrated - n_pos_cluster_in
+    assert n_pos_cluster_out >= 0
+    n_neg_cluster_out = n_negrated - n_neg_cluster_in
+    assert n_neg_cluster_out >= 0
+    if pos_scheme == "absolute":
+        original_ratio_cluster_all = n_pos_cluster_in / n_posrated
+        desired_ratio = n_pos_cluster_in / (n_pos_cluster_in + cluster_alpha)
+        desired_ratio = max(desired_ratio, original_ratio_cluster_all)
+        w_pos_in_cluster = correction * (1.0 - neg_scale) * desired_ratio / n_pos_cluster_in
+        w_pos_out_cluster = (
+            correction * (1.0 - neg_scale) * (1.0 - desired_ratio) / n_pos_cluster_out
+        )
+        if n_neg_cluster_in == 0:
+            w_neg_in_cluster = 0.0
+            w_neg_out_cluster = correction * neg_scale * cache_v / cache_denom
+        elif n_neg_cluster_out == 0:
+            w_neg_out_cluster = 0.0
+            w_neg_in_cluster = correction * neg_scale * cache_v / cache_denom
+        else:
+            alpha = "same_as_pasdos"
+            original_ratio_neg = n_neg_cluster_in / n_negrated
+            if alpha == "same_as_pos":
+                desired_ratio_neg = max(original_ratio_neg, desired_ratio)
+            else:
+                desired_ratio_neg = n_neg_cluster_in / (n_neg_cluster_in + cluster_alpha)
+                desired_ratio_neg = max(desired_ratio_neg, original_ratio_neg)
+            neg_correction = n_negrated * cache_v / cache_denom
+            w_neg_in_cluster = (
+                correction * neg_scale * neg_correction * desired_ratio_neg / n_neg_cluster_in
+            )
+            w_neg_out_cluster = (
+                correction
+                * neg_scale
+                * neg_correction
+                * (1.0 - desired_ratio_neg)
+                / n_neg_cluster_out
+            )
+    elif pos_scheme == "relative":
+        pos_denom = cluster_alpha * n_pos_cluster_in + (1.0 - cluster_alpha) * n_pos_cluster_out
+        assert pos_denom > 0
+        w_pos_in_cluster = correction * (1.0 - neg_scale) * cluster_alpha / pos_denom
+        w_pos_out_cluster = correction * (1.0 - neg_scale) * (1.0 - cluster_alpha) / pos_denom
+        neg_denom = cluster_alpha * n_neg_cluster_in + (1.0 - cluster_alpha) * n_neg_cluster_out
+        assert neg_denom > 0
+        correction_num = n_negrated * cache_v / cache_denom
+        correction_denom_1 = n_neg_cluster_in * cluster_alpha / neg_denom
+        correction_denom_2 = n_neg_cluster_out * (1.0 - cluster_alpha) / neg_denom
+        correction_factor = correction_num / (correction_denom_1 + correction_denom_2)
+        w_neg_in_cluster = correction * neg_scale * correction_factor * cluster_alpha / neg_denom
+        w_neg_out_cluster = (
+            correction * neg_scale * correction_factor * (1.0 - cluster_alpha) / neg_denom
+        )
+    return w_pos_in_cluster, w_neg_in_cluster, w_cache, w_pos_out_cluster, w_neg_out_cluster
+
+
+def get_weights_cluster_neg_same_ratio(
+    correction: int,
+    neg_scale: float,
+    cache_v: float,
+    n_posrated: int,
+    n_negrated: int,
+    n_cache: int,
+    pos_scheme: str,
+    n_pos_cluster_in: int,
+    n_neg_cluster_in: int,
+    cluster_alpha: float,
+) -> tuple:
+    w_pos_in_cluster, w_pos_out_cluster, _ = get_weights_cluster_pos(
         correction=correction,
         neg_scale=neg_scale,
+        pos_scheme=pos_scheme,
         n_posrated=n_posrated,
         n_pos_cluster_in=n_pos_cluster_in,
         cluster_alpha=cluster_alpha,
     )
-    if cluster_correction == "none":
-        w_neg_in_cluster, w_neg_out_cluster = get_weights_cluster_neg_cluster_correction_none(
+    pos_sum_in = w_pos_in_cluster * n_pos_cluster_in
+    pos_sum_out = w_pos_out_cluster * (n_posrated - n_pos_cluster_in)
+    desired_ratio = pos_sum_in / (pos_sum_in + pos_sum_out)
+    w_cache, cache_denom = get_weights_cache(
+        correction=correction,
+        neg_scale=neg_scale,
+        cache_v=cache_v,
+        n_negrated=n_negrated,
+        n_cache=n_cache,
+    )
+    n_neg_cluster_out = n_negrated - n_neg_cluster_in
+    cache_term = (n_negrated * cache_v) / cache_denom
+    if n_neg_cluster_in == 0:
+        w_neg_in_cluster = 0.0
+        w_neg_out_cluster = correction * neg_scale * cache_v / cache_denom
+    elif n_neg_cluster_out == 0:
+        w_neg_out_cluster = 0.0
+        w_neg_in_cluster = correction * neg_scale * cache_v / cache_denom
+    else:
+        w_neg_in_cluster = correction * neg_scale * desired_ratio * cache_term / n_neg_cluster_in
+        w_neg_out_cluster = correction * neg_scale * (1.0 - desired_ratio) * cache_term / n_neg_cluster_out
+    return w_pos_in_cluster, w_neg_in_cluster, w_cache, w_pos_out_cluster, w_neg_out_cluster
+
+
+def get_weights_cluster_scheme(
+    correction: int,
+    neg_scale: float,
+    cache_v: float,
+    n_posrated: int,
+    n_negrated: int,
+    n_cache: int,
+    pos_scheme: str,
+    neg_scheme: str,
+    n_pos_cluster_in: int,
+    n_neg_cluster_in: int,
+    cluster_alpha: float,
+) -> tuple:
+    if neg_scheme == "none":
+        return get_weights_cluster_neg_none(
             correction=correction,
             neg_scale=neg_scale,
             cache_v=cache_v,
-            cache_denom=cache_denom,
-        )
-    elif cluster_correction == "same_alpha":
-        w_neg_in_cluster, w_neg_out_cluster = get_weights_cluster_neg_cluster_correction_same_alpha(
-            correction=correction,
-            neg_scale=neg_scale,
-            cache_v=cache_v,
+            n_posrated=n_posrated,
             n_negrated=n_negrated,
+            n_cache=n_cache,
+            pos_scheme=pos_scheme,
+            n_pos_cluster_in=n_pos_cluster_in,
+            cluster_alpha=cluster_alpha,
+        )
+    elif neg_scheme == "fixed_neg_scale":
+        return get_weights_cluster_neg_none(
+            correction=correction,
+            neg_scale=0.88,
+            cache_v=cache_v,
+            n_posrated=n_posrated,
+            n_negrated=n_negrated,
+            n_cache=n_cache,
+            pos_scheme=pos_scheme,
+            n_pos_cluster_in=n_pos_cluster_in,
+            cluster_alpha=cluster_alpha,
+        )
+    elif neg_scheme == "middle":
+        return get_weights_cluster_neg_middle(
+            correction=correction,
+            neg_scale=neg_scale,
+            cache_v=cache_v,
+            n_posrated=n_posrated,
+            n_negrated=n_negrated,
+            n_cache=n_cache,
+            pos_scheme=pos_scheme,
+            n_pos_cluster_in=n_pos_cluster_in,
+            cluster_alpha=cluster_alpha,
+        )
+    elif neg_scheme == "same_alpha":
+        return get_weights_cluster_neg_same_alpha(
+            correction=correction,
+            neg_scale=neg_scale,
+            cache_v=cache_v,
+            n_posrated=n_posrated,
+            n_negrated=n_negrated,
+            n_cache=n_cache,
+            pos_scheme=pos_scheme,
+            n_pos_cluster_in=n_pos_cluster_in,
             n_neg_cluster_in=n_neg_cluster_in,
             cluster_alpha=cluster_alpha,
-            cache_denom=cache_denom,
         )
-    return w_pos_in_cluster, w_neg_in_cluster, w_cache, w_pos_out_cluster, w_neg_out_cluster
+    elif neg_scheme == "same_ratio":
+        return get_weights_cluster_neg_same_ratio(
+            correction=correction,
+            neg_scale=neg_scale,
+            cache_v=cache_v,
+            n_posrated=n_posrated,
+            n_negrated=n_negrated,
+            n_cache=n_cache,
+            pos_scheme=pos_scheme,
+            n_pos_cluster_in=n_pos_cluster_in,
+            n_neg_cluster_in=n_neg_cluster_in,
+            cluster_alpha=cluster_alpha,
+        )
+    else:
+        raise ValueError(f"Unknown neg_scheme: {neg_scheme}")
 
 
 def get_weights(
@@ -223,6 +425,8 @@ def get_weights(
     n_negrated: int,
     n_cache: int,
     is_cluster: bool = False,
+    pos_scheme: str = None,
+    neg_scheme: str = None,
     n_pos_cluster_in: int = None,
     n_neg_cluster_in: int = None,
     cluster_alpha: float = None,
@@ -230,22 +434,21 @@ def get_weights(
     correction = n_posrated + n_negrated + n_cache
     neg_scale = hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_neg_scale"]]
     cache_v = hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_cache_v"]]
-    valid_cluster_corrections = ["none", "same_alpha", "same_ratio"]
-    cluster_correction = valid_cluster_corrections[1]
     if is_cluster:
         assert n_pos_cluster_in is not None and n_neg_cluster_in is not None
         n_pos_cluster_out = n_posrated - n_pos_cluster_in
         n_neg_cluster_out = n_negrated - n_neg_cluster_in
         assert n_pos_cluster_out >= 0 and n_neg_cluster_out >= 0
         assert cluster_alpha is not None
-        return get_weights_cluster_correction(
-            cluster_correction=cluster_correction,
+        return get_weights_cluster_scheme(
             correction=correction,
             neg_scale=neg_scale,
             cache_v=cache_v,
             n_posrated=n_posrated,
             n_negrated=n_negrated,
             n_cache=n_cache,
+            pos_scheme=pos_scheme,
+            neg_scheme=neg_scheme,
             n_pos_cluster_in=n_pos_cluster_in,
             n_neg_cluster_in=n_neg_cluster_in,
             cluster_alpha=cluster_alpha,
@@ -264,6 +467,8 @@ def get_sample_weights_temporal_decay_none(
     n_rated: int,
     hyperparameters_combination: tuple,
     is_cluster: bool = False,
+    pos_scheme: str = None,
+    neg_scheme: str = None,
     pos_cluster_in_idxs: np.ndarray = None,
     pos_cluster_out_idxs: np.ndarray = None,
     neg_cluster_in_idxs: np.ndarray = None,
@@ -279,11 +484,12 @@ def get_sample_weights_temporal_decay_none(
         n_negrated=np.sum(y_rated == 0),
         n_cache=n_total - n_rated,
         is_cluster=is_cluster,
+        pos_scheme=pos_scheme,
+        neg_scheme=neg_scheme,
         n_pos_cluster_in=pos_cluster_in_idxs.shape[0] if is_cluster else None,
         n_neg_cluster_in=neg_cluster_in_idxs.shape[0] if is_cluster else None,
         cluster_alpha=cluster_alpha,
     )
-
     if not is_cluster:
         sample_weights[y_train == 1] = w_pos_in_cluster
         sample_weights[y_train == 0] = w_neg_in_cluster
@@ -293,6 +499,7 @@ def get_sample_weights_temporal_decay_none(
         sample_weights[pos_cluster_out_idxs] = w_pos_out_cluster
         sample_weights[neg_cluster_out_idxs] = w_neg_out_cluster
     sample_weights[n_rated:] = w_cache
+    assert np.isclose(np.sum(sample_weights), n_total)
     return sample_weights
 
 
@@ -351,6 +558,8 @@ def get_sample_weights(
             n_rated=n_rated,
             hyperparameters_combination=hyperparameters_combination,
             is_cluster=is_cluster,
+            pos_scheme=eval_settings.get("clustering_pos_weighting_scheme", None),
+            neg_scheme=eval_settings.get("clustering_neg_weighting_scheme", None),
             pos_cluster_in_idxs=pos_cluster_in_idxs,
             pos_cluster_out_idxs=pos_cluster_out_idxs,
             neg_cluster_in_idxs=neg_cluster_in_idxs,

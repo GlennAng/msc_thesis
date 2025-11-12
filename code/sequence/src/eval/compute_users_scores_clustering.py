@@ -292,7 +292,6 @@ def train_models_clustering(
         )
     elif clustering_approach == ClusteringApproach.UPPER_BOUND:
         clusters_dict = {}
-        n_clusters_max = eval_settings["clustering_selection_max_n_clusters"]
         clusters_dict[1] = train_models_clustering_none(
             X_train=X_train,
             y_train=y_train,
@@ -301,15 +300,16 @@ def train_models_clustering(
             random_state=random_state,
             eval_settings=eval_settings,
         )
-        for n_clusters in range(2, n_clusters_max + 1):
+        for n_clusters in [2, 3, 4, 5, 7, 10]:
+            eval_settings_copy = eval_settings.copy()
+            eval_settings_copy["clustering_k_means_n_clusters"] = n_clusters
             clusters_dict[n_clusters] = train_models_clustering_k_means_fixed_k(
                 X_train=X_train,
                 y_train=y_train,
                 n_rated=n_rated,
                 rated_time_diffs=train_set_time_diffs,
                 random_state=random_state,
-                n_clusters=n_clusters,
-                eval_settings=eval_settings,
+                eval_settings=eval_settings_copy,
             )
         return clusters_dict
 
@@ -405,7 +405,6 @@ def get_train_rated_logits_dict_upper_bound(
         X_cache=X_cache,
         random_state=random_state,
         eval_settings=eval_settings,
-        session_id=0,
     )
     global_logreg = clusters_dict[1][0]
     train_rated_logits_dict = {
@@ -717,8 +716,7 @@ def init_y_logits_components(
 ) -> tuple:
     clustering_approach = eval_settings.get("clustering_approach", ClusteringApproach.NONE)
     if clustering_approach == ClusteringApproach.UPPER_BOUND:
-        max_n_clusters = eval_settings["clustering_selection_max_n_clusters"]
-        r = range(1, max_n_clusters + 1)
+        r = [1, 2, 3, 4, 5, 7, 10]
         y_val_logits = {k: np.zeros(val_data_dict["y_val"].shape[0], dtype=DT) for k in r}
         y_val_negrated_ranking_logits = {
             k: np.zeros((n_val_pos, N_NEGRATED_RANKING), dtype=DT) for k in r
@@ -861,7 +859,6 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
                     X_cache=user_params["X_cache"],
                     random_state=random_state,
                     eval_settings=eval_settings,
-                    session_id=session_id,
                 )
                 global_logreg = clusters_dict[1][0]
                 for n_clusters, clusters in clusters_dict.items():

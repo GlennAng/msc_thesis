@@ -22,6 +22,15 @@ from .create_example_configs import (
     create_example_config_sliding_window,
 )
 
+CLUSTERING_POS_WEIGHTING_SCHEMES = ["absolute", "relative"]
+CLUSTERING_NEG_WEIGHTING_SCHEMES = [
+    "none",
+    "fixed_neg_scale",
+    "middle",
+    "same_alpha",
+    "same_ratio",
+]
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compute users embeddings")
@@ -73,7 +82,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clustering_upper_bound_max_increment", type=float, default=None)
     parser.add_argument("--clustering_upper_bound_max_decrement", type=float, default=None)
     parser.add_argument("--clustering_upper_bound_n_clusters_before_val", type=int, default=1)
-    parser.add_argument("--clustering_cluster_alpha", type=float, default=0.5)
+    parser.add_argument("--clustering_pos_weighting_scheme", type=str, default="absolute")
+    parser.add_argument("--clustering_neg_weighting_scheme", type=str, default="none")
+    parser.add_argument("--clustering_cluster_alpha", type=float, default=20.0)
 
     parser.add_argument("--save_users_predictions", action="store_true", default=False)
     args_dict = vars(parser.parse_args())
@@ -147,6 +158,8 @@ def process_args_dict(args_dict: dict) -> None:
         single_val_session=args_dict["single_val_session"],
     )
     args_dict["eval_settings_path"] = args_dict["eval_data_folder"] / "eval_settings.json"
+    assert args_dict["clustering_pos_weighting_scheme"] in CLUSTERING_POS_WEIGHTING_SCHEMES
+    assert args_dict["clustering_neg_weighting_scheme"] in CLUSTERING_NEG_WEIGHTING_SCHEMES
 
 
 def save_eval_settings(args_dict: dict) -> None:

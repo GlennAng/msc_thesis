@@ -2,8 +2,8 @@ import subprocess
 import sys
 
 params = [3]
-alpha = [0.6, 0.65, 0.7, 0.75, 0.8]
 max_n_posrated = [None]
+alpha = [0.8]
 
 for param in params:
     for a in alpha:
@@ -14,13 +14,14 @@ for param in params:
                             "-m",
                             "code.scripts.sliding_window_eval",
                             "--clustering_approach",
-                            "k_means_fixed_k",
-                            "--clustering_k_means_n_clusters",
-                            str(param),
+                            "upper_bound",
                             "--single_random_state",
-                            "--save_users_predictions",
                             "--clustering_cluster_alpha",
                             str(a),
+                            "--clustering_pos_weighting_scheme",
+                            "relative",
+                            "--clustering_neg_weighting_scheme",
+                            "same_ratio",
                         ],
                         check=True,
                     )
