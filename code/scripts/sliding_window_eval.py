@@ -70,8 +70,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--logreg_temporal_decay_normalization", type=str, default="positives")
     parser.add_argument("--logreg_temporal_decay_param", type=float, default=0.01)
 
-    parser.add_argument("--ensemble_n_models", type=int, default=0)
-    parser.add_argument("--ensemble_max_n_posrated", type=int, default=45)
+    parser.add_argument("--clustering_val_split_n_val_posrated", type=int, default=8)
+    parser.add_argument("--clustering_val_split_n_val_negrated", type=int, default=6)
+    parser.add_argument("--clustering_val_split_n_steps_between_updates", type=int, default=0)
 
     parser.add_argument("--clustering_approach", type=str, default="none")
     parser.add_argument("--clustering_min_n_posrated", type=int, default=None)

@@ -29,6 +29,7 @@ from .compute_users_embeddings_logreg import (
 from .compute_users_scores_upper_bound import get_user_scores_upper_bound
 
 DT = np.float64
+K_VALUES = [3]
 N_EVAL_NEGATIVE_SAMPLES = 100
 
 
@@ -163,7 +164,8 @@ def train_models_clustering_none(
     return logreg, [], None, []
 
 
-def train_models_clustering_k_means_fixed_k(
+def train_logregs_for_clusters(
+    kmeans: KMeans,
     X_train: np.ndarray,
     y_train: np.ndarray,
     n_rated: int,
@@ -171,26 +173,13 @@ def train_models_clustering_k_means_fixed_k(
     random_state: int,
     eval_settings: dict,
 ) -> tuple:
-    global_logreg = train_models_clustering_none(
-        X_train=X_train,
-        y_train=y_train,
-        n_rated=n_rated,
-        rated_time_diffs=rated_time_diffs,
-        random_state=random_state,
-        eval_settings=eval_settings,
-    )[0]
-
-    n_clusters = eval_settings["clustering_k_means_n_clusters"]
-    assert n_clusters >= 2
-    kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, algorithm="elkan", n_init=10)
-    X_rated, y_rated = X_train[:n_rated], y_train[:n_rated]
-    pos_rated_mask, neg_rated_mask = y_rated == 1, y_rated == 0
-    pos_clusters_labels = kmeans.fit_predict(X_rated[pos_rated_mask])
-    neg_clusters_labels = kmeans.predict(X_rated[neg_rated_mask])
+    pos_rated_mask, neg_rated_mask = y_train[:n_rated] == 1, y_train[:n_rated] == 0
+    pos_clusters_labels = kmeans.fit_predict(X_train[:n_rated][pos_rated_mask])
+    neg_clusters_labels = kmeans.predict(X_train[:n_rated][neg_rated_mask])
     pos_original_idxs = np.where(pos_rated_mask)[0]
     neg_original_idxs = np.where(neg_rated_mask)[0]
     clusters_logregs, clusters_with_sufficient_size = [], []
-    for cluster_label in range(n_clusters):
+    for cluster_label in range(kmeans.n_clusters):
         pos_cluster_in_idxs = pos_original_idxs[np.where(pos_clusters_labels == cluster_label)[0]]
         pos_n_cluster_idxs = len(pos_cluster_in_idxs)
         if pos_n_cluster_idxs < eval_settings["clustering_selection_min_cluster_size"]:
@@ -221,6 +210,38 @@ def train_models_clustering_k_means_fixed_k(
         logreg.fit(X_train, y_train, sample_weight=sample_weights)
         clusters_with_sufficient_size.append(cluster_label)
         clusters_logregs.append(logreg)
+    return clusters_logregs, clusters_with_sufficient_size
+
+
+def train_models_clustering_k_means_fixed_k(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    n_rated: int,
+    rated_time_diffs: np.ndarray,
+    random_state: int,
+    eval_settings: dict,
+) -> tuple:
+    global_logreg = train_models_clustering_none(
+        X_train=X_train,
+        y_train=y_train,
+        n_rated=n_rated,
+        rated_time_diffs=rated_time_diffs,
+        random_state=random_state,
+        eval_settings=eval_settings,
+    )[0]
+
+    n_clusters = eval_settings["clustering_k_means_n_clusters"]
+    assert n_clusters >= 2
+    kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, algorithm="elkan", n_init=10)
+    clusters_logregs, clusters_with_sufficient_size = train_logregs_for_clusters(
+        kmeans=kmeans,
+        X_train=X_train,
+        y_train=y_train,
+        n_rated=n_rated,
+        rated_time_diffs=rated_time_diffs,
+        random_state=random_state,
+        eval_settings=eval_settings,
+    )
     return global_logreg, clusters_logregs, kmeans, clusters_with_sufficient_size
 
 
@@ -256,6 +277,200 @@ def get_X_y_train(
     return X_train, y_train
 
 
+def val_split_run_kmeans(
+    sessions_counter: int,
+    n_steps_between_updates: int,
+) -> bool:
+    return sessions_counter % (n_steps_between_updates + 1) == 0
+
+
+def split_train_val_set_dict(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    rated_time_diffs: np.ndarray,
+    n_rated: int,
+    split_n_val_posrated: int,
+    split_n_val_negrated: int,
+) -> dict:
+    y_train_rated = y_train[:n_rated]
+    pos_rated_mask, neg_rated_mask = y_train_rated == 1, y_train_rated == 0
+    if np.sum(neg_rated_mask) <= 10:
+        split_n_val_negrated = 4
+    pos_rated_indices, neg_rated_indices = np.where(pos_rated_mask)[0], np.where(neg_rated_mask)[0]
+    val_pos_indices = pos_rated_indices[:split_n_val_posrated]
+    val_neg_indices = neg_rated_indices[:split_n_val_negrated]
+    val_indices = np.concatenate([val_pos_indices, val_neg_indices])
+    train_mask = np.ones(n_rated, dtype=bool)
+    train_mask[val_indices] = False
+    if rated_time_diffs is None:
+        rated_time_diffs_for_logreg = None
+    else:
+        rated_time_diffs_for_logreg = rated_time_diffs[train_mask]
+    return {
+        "X_train_for_logreg": np.concatenate([X_train[:n_rated][train_mask], X_train[n_rated:]]),
+        "y_train_for_logreg": np.concatenate([y_train[:n_rated][train_mask], y_train[n_rated:]]),
+        "rated_time_diffs_for_logreg": rated_time_diffs_for_logreg,
+        "n_rated_for_logreg": np.sum(train_mask),
+        "X_train_for_val_pos": X_train[val_pos_indices],
+        "X_train_for_val_neg": X_train[val_neg_indices],
+    }
+
+
+def score_val_split_single_k(
+    global_logreg: object,
+    clusters_logregs: list,
+    clusters_with_sufficient_size: list,
+    kmeans: KMeans,
+    X_train_for_val_pos: np.ndarray,
+    X_train_for_val_neg: np.ndarray,
+    negrated_ranking_idxs: np.ndarray,
+) -> float:
+    y_val_logits_pos, _, _ = scoring_function_clustering(
+        global_logreg=global_logreg,
+        clusters_logregs=clusters_logregs,
+        clustering_model=kmeans,
+        clusters_with_sufficient_size=clusters_with_sufficient_size,
+        embeddings_to_score=X_train_for_val_pos,
+    )
+    y_val_logits_neg, _, _ = scoring_function_clustering(
+        global_logreg=global_logreg,
+        clusters_logregs=clusters_logregs,
+        clustering_model=kmeans,
+        clusters_with_sufficient_size=clusters_with_sufficient_size,
+        embeddings_to_score=X_train_for_val_neg,
+    )
+    y_val_logits_pos = y_val_logits_pos.reshape(-1, 1)
+    y_val_logits_neg_selected = y_val_logits_neg[negrated_ranking_idxs]
+    y_val_logits_combined = np.concatenate([y_val_logits_pos, y_val_logits_neg_selected], axis=1)
+    pos_vals = y_val_logits_combined[:, 0:1]
+    pos_ranks = np.sum(y_val_logits_combined[:, 1:] >= pos_vals, axis=1) + 1
+    ndcg = 1 / np.log2(pos_ranks + 1)
+    return np.mean(ndcg)
+
+
+def get_negrated_ranking_idxs_for_val_split(
+    n_val_posrated: int,
+    n_val_negrated: int,
+    random_state: int,
+) -> np.ndarray:
+    rng = np.random.default_rng(random_state)
+    negrated_ranking_idxs = np.array(
+        [rng.choice(n_val_negrated, size=4, replace=False) for _ in range(n_val_posrated)]
+    )
+    return negrated_ranking_idxs
+
+
+def train_models_clustering_val_split_do_k_means(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    n_rated: int,
+    rated_time_diffs: np.ndarray,
+    random_state: int,
+    eval_settings: dict,
+) -> tuple:
+    split_dict = split_train_val_set_dict(
+        X_train=X_train,
+        y_train=y_train,
+        rated_time_diffs=rated_time_diffs,
+        n_rated=n_rated,
+        split_n_val_posrated=eval_settings["clustering_val_split_n_val_posrated"],
+        split_n_val_negrated=eval_settings["clustering_val_split_n_val_negrated"],
+    )
+    negrated_ranking_idxs = get_negrated_ranking_idxs_for_val_split(
+        n_val_posrated=split_dict["X_train_for_val_pos"].shape[0],
+        n_val_negrated=split_dict["X_train_for_val_neg"].shape[0],
+        random_state=random_state,
+    )
+    global_logreg = train_models_clustering_none(
+        X_train=split_dict["X_train_for_logreg"],
+        y_train=split_dict["y_train_for_logreg"],
+        n_rated=split_dict["n_rated_for_logreg"],
+        rated_time_diffs=split_dict["rated_time_diffs_for_logreg"],
+        random_state=random_state,
+        eval_settings=eval_settings,
+    )[0]
+    k_scores = {
+        1: score_val_split_single_k(
+            global_logreg=global_logreg,
+            clusters_logregs=[],
+            clusters_with_sufficient_size=[],
+            kmeans=None,
+            X_train_for_val_pos=split_dict["X_train_for_val_pos"],
+            X_train_for_val_neg=split_dict["X_train_for_val_neg"],
+            negrated_ranking_idxs=negrated_ranking_idxs,
+        )
+    }
+    k_models = {1: ([], None, [])}
+    for k in K_VALUES:
+        kmeans = KMeans(n_clusters=k, random_state=random_state, algorithm="elkan", n_init=10)
+        clusters_logregs, clusters_with_sufficient_size = train_logregs_for_clusters(
+            kmeans=kmeans,
+            X_train=split_dict["X_train_for_logreg"],
+            y_train=split_dict["y_train_for_logreg"],
+            n_rated=split_dict["n_rated_for_logreg"],
+            rated_time_diffs=split_dict["rated_time_diffs_for_logreg"],
+            random_state=random_state,
+            eval_settings=eval_settings,
+        )
+        k_scores[k] = score_val_split_single_k(
+            global_logreg=global_logreg,
+            clusters_logregs=clusters_logregs,
+            clusters_with_sufficient_size=clusters_with_sufficient_size,
+            kmeans=kmeans,
+            X_train_for_val_pos=split_dict["X_train_for_val_pos"],
+            X_train_for_val_neg=split_dict["X_train_for_val_neg"],
+            negrated_ranking_idxs=negrated_ranking_idxs,
+        )
+        k_models[k] = (clusters_logregs, kmeans, clusters_with_sufficient_size)
+    best_k = max(k_scores, key=k_scores.get)
+    if best_k == 1:
+        return train_models_clustering_none(
+            X_train=X_train,
+            y_train=y_train,
+            n_rated=n_rated,
+            rated_time_diffs=rated_time_diffs,
+            random_state=random_state,
+            eval_settings=eval_settings,
+        )
+    else:
+        eval_settings_copy = eval_settings.copy()
+        eval_settings_copy["clustering_k_means_n_clusters"] = best_k
+        return train_models_clustering_k_means_fixed_k(
+            X_train=X_train,
+            y_train=y_train,
+            n_rated=n_rated,
+            rated_time_diffs=rated_time_diffs,
+            random_state=random_state,
+            eval_settings=eval_settings,
+        )
+
+
+def train_models_clustering_val_split(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    n_rated: int,
+    rated_time_diffs: np.ndarray,
+    random_state: int,
+    eval_settings: dict,
+    val_split_dict: dict,
+) -> dict:
+    do_kmeans = val_split_run_kmeans(
+        sessions_counter=val_split_dict["sessions_counter"],
+        n_steps_between_updates=eval_settings["clustering_val_split_n_steps_between_updates"],
+    )
+    if do_kmeans:
+        return train_models_clustering_val_split_do_k_means(
+            X_train=X_train,
+            y_train=y_train,
+            n_rated=n_rated,
+            rated_time_diffs=rated_time_diffs,
+            random_state=random_state,
+            eval_settings=eval_settings,
+        )
+    else:
+        raise NotImplementedError
+
+
 def train_models_clustering(
     train_set_embeddings: np.ndarray,
     train_set_ratings: np.ndarray,
@@ -263,6 +478,7 @@ def train_models_clustering(
     X_cache: np.ndarray,
     random_state: int,
     eval_settings: dict,
+    val_split_dict: dict = None,
 ) -> tuple:
     clustering_approach = eval_settings.get("clustering_approach", ClusteringApproach.NONE)
     n_pos, n_rated = np.sum(train_set_ratings == 1), train_set_ratings.shape[0]
@@ -300,7 +516,7 @@ def train_models_clustering(
             random_state=random_state,
             eval_settings=eval_settings,
         )
-        for n_clusters in [2, 3, 4, 5, 7, 10]:
+        for n_clusters in K_VALUES:
             eval_settings_copy = eval_settings.copy()
             eval_settings_copy["clustering_k_means_n_clusters"] = n_clusters
             clusters_dict[n_clusters] = train_models_clustering_k_means_fixed_k(
@@ -312,6 +528,16 @@ def train_models_clustering(
                 eval_settings=eval_settings_copy,
             )
         return clusters_dict
+    elif clustering_approach == ClusteringApproach.VAL_SPLIT:
+        return train_models_clustering_val_split(
+            X_train=X_train,
+            y_train=y_train,
+            n_rated=n_rated,
+            rated_time_diffs=train_set_time_diffs,
+            random_state=random_state,
+            eval_settings=eval_settings,
+            val_split_dict=val_split_dict,
+        )
 
 
 def scoring_function_clustering(
@@ -478,6 +704,7 @@ def get_train_rated_logits_dict(
     X_cache: np.ndarray,
     random_state: int,
     eval_settings: dict,
+    val_split_dict: dict = None,
 ) -> tuple:
     eval_settings = eval_settings.copy()
     eval_settings["logreg_temporal_decay"] = "none"
@@ -500,6 +727,7 @@ def get_train_rated_logits_dict(
             X_cache=X_cache,
             random_state=random_state,
             eval_settings=eval_settings,
+            val_split_dict=val_split_dict,
         )
     )
     y_train_rated_logits, y_train_negrated_ranking_logits, y_negative_samples_logits_after_train = (
@@ -716,7 +944,7 @@ def init_y_logits_components(
 ) -> tuple:
     clustering_approach = eval_settings.get("clustering_approach", ClusteringApproach.NONE)
     if clustering_approach == ClusteringApproach.UPPER_BOUND:
-        r = [1, 2, 3, 4, 5, 7, 10]
+        r = K_VALUES
         y_val_logits = {k: np.zeros(val_data_dict["y_val"].shape[0], dtype=DT) for k in r}
         y_val_negrated_ranking_logits = {
             k: np.zeros((n_val_pos, N_NEGRATED_RANKING), dtype=DT) for k in r
@@ -754,9 +982,9 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
     logreg_params = logreg_get_embed_function_params(
         users_ids=users_ids, random_state=random_state, eval_settings=eval_settings
     )
-
     users_scores = {}
     for user_id in tqdm(users_ids, desc="Computing users scores with clustering"):
+        val_split_dict = {"sessions_counter": 0}
         user_ratings = users_ratings[users_ratings["user_id"] == user_id]
         user_params = logreg_transform_embed_function_params(
             user_id=user_id,
@@ -799,6 +1027,7 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
             X_cache=user_params["X_cache"],
             random_state=random_state,
             eval_settings=eval_settings,
+            val_split_dict=val_split_dict,
         )
 
         val_negrated_papers_ids = val_negrated_ranking["paper_id"].tolist()
@@ -819,7 +1048,6 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
             n_val_negative_samples=n_val_negative_samples,
         )
         val_counter_all, val_counter_pos = 0, 0
-
         logreg_models = [global_logreg]
         for session_id in user_sessions_ids:
             user_train_set_embeddings, user_train_set_ratings, user_train_set_time_diffs = (
@@ -846,7 +1074,7 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
             )
             session_ratings = user_ratings[user_ratings["session_id"] == session_id]
             n_session_papers = session_ratings.shape[0]
-            n_session_papers_pos = (session_ratings["rating"] > 0).sum()
+            n_session_papers_pos = (session_ratings["rating"] == 1).sum()
             session_embeddings = val_data_dict["X_val"][
                 val_counter_all : val_counter_all + n_session_papers
             ]
@@ -903,6 +1131,7 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
                         X_cache=user_params["X_cache"],
                         random_state=random_state,
                         eval_settings=eval_settings,
+                        val_split_dict=val_split_dict,
                     )
                 )
                 y_logits = get_y_logits_components_single_k(
@@ -931,7 +1160,7 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
                 n_global_model_pos.append(y_logits[3])
                 n_global_model_neg.append(y_logits[4])
                 n_clusters_with_sufficient_size.append(len(clusters_with_sufficient_size))
-
+            val_split_dict["sessions_counter"] += 1
             logreg_models.append(global_logreg)
             val_counter_all += n_session_papers
             val_counter_pos += n_session_papers_pos

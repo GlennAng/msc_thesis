@@ -1,7 +1,7 @@
 import subprocess
 import sys
 
-params = [3]
+params = [None]
 max_n_posrated = [None]
 alpha = [0.8]
 
@@ -14,7 +14,7 @@ for param in params:
                             "-m",
                             "code.scripts.sliding_window_eval",
                             "--clustering_approach",
-                            "upper_bound",
+                            "val_split",
                             "--single_random_state",
                             "--clustering_cluster_alpha",
                             str(a),
