@@ -547,7 +547,6 @@ if __name__ == "__main__":
         users_ratings_selection=args["users_selection"], ids_only=True
     )
     users_ratings = load_users_ratings(relevant_users_ids=users_ids, include_neutral_ratings=True)
-    users_ratings = load_users_ratings(relevant_users_ids=users_ids, include_neutral_ratings=True)
     users_ratings = filter_users_ratings(
         users_ratings,
         n_min_sessions=args["users_n_min_sessions"],

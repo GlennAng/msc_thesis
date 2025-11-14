@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 from sklearn.cluster import KMeans
+from sklearn.metrics.pairwise import cosine_similarity
 
 from ....src.load_files import (
     load_papers,
@@ -185,7 +186,12 @@ class User_Visualizer:
             )
 
     def visualize_wordclouds(
-        self, pdf: PdfPages, fold_idx: int, pos_train_cluster_labels: np.ndarray
+        self,
+        pdf: PdfPages,
+        fold_idx: int,
+        pos_train_cluster_labels: np.ndarray,
+        clusters_scores: dict,
+        total_silhouette: float,
     ) -> dict:
         fold_predictions = self.user_predictions[str(fold_idx)]
         wc_pos_train_scores, wc_neg_train_scores, clusters_dict = train_wordclouds(
@@ -208,16 +214,30 @@ class User_Visualizer:
             use_tfidf_coefs=False,
             n_pos_train_papers_full=n_pos_train_papers_full,
             n_neg_train_papers_full=n_neg_train_papers_full,
+            title_addition=f" Total Silhouette: {total_silhouette:.3f}",
         )
-        for cluster_idx, cluster_scores in clusters_dict.items():
+        for cluster_idx in list(clusters_dict.keys()):
+            cluster_dict = clusters_dict[cluster_idx]
+            cluster_scores = clusters_scores[cluster_idx]
+            subtitle_avg, subtitle_max = "Avg Sim: [", "Max Sim: ["
+            for i in range(len(cluster_scores["mean_inter_avg_similarity"])):
+                if i > 0:
+                    subtitle_avg += ", "
+                    subtitle_max += ", "
+                subtitle_avg += f"{cluster_scores['mean_inter_avg_similarity'][i]:.3f}"
+                subtitle_max += f"{cluster_scores['mean_inter_max_similarity'][i]:.3f}"
+            subtitle_avg += f"] (Mean Inter: {cluster_scores['total_mean_inter_avg_similarity']:.3f})"
+            subtitle_max += f"] (Mean Inter: {cluster_scores['total_mean_inter_max_similarity']:.3f})"
+            subtitle = f"{subtitle_avg} | {subtitle_max}"
             generate_wordclouds(
                 pdf=pdf,
-                wc_pos_train_scores=cluster_scores["words_scores"],
+                wc_pos_train_scores=cluster_dict["words_scores"],
                 wc_neg_train_scores=wc_neg_train_scores,
                 use_tfidf_coefs=False,
-                n_pos_train_papers_full=cluster_scores["n_pos_train_papers"],
+                n_pos_train_papers_full=cluster_dict["n_pos_train_papers"],
                 n_neg_train_papers_full=n_neg_train_papers_full,
-                title_addition=f" - Cluster {cluster_idx}",
+                title_addition=f" Cluster {cluster_idx}, Silhouette: {cluster_scores['silhouette_score']:.3f}",
+                subtitle=subtitle,
             )
         return wc_words_scores
 
@@ -320,7 +340,6 @@ class User_Visualizer:
             papers_texts, fold_val_predictions_df
         )
 
-
         plot_training_papers(
             pdf,
             pos_train_papers_selection,
@@ -362,6 +381,85 @@ class User_Visualizer:
         )
 
 
+def get_clusters_scores(
+    pos_train_embeddings: np.ndarray, pos_train_cluster_labels: np.ndarray
+) -> tuple:
+    n_clusters = len(set(pos_train_cluster_labels))
+    pos_train_embeddings = pos_train_embeddings[:, :256]
+    clusters_embeddings = {}
+    for cluster_idx in range(n_clusters):
+        cluster_mask = pos_train_cluster_labels == cluster_idx
+        cluster_embeddings = pos_train_embeddings[cluster_mask]
+        clusters_embeddings[cluster_idx] = cluster_embeddings
+    clusters_scores = {}
+
+    for cluster_idx in range(n_clusters):
+        cluster_embeddings = clusters_embeddings[cluster_idx]
+
+        intra_sim_matrix = cosine_similarity(cluster_embeddings)
+        np.fill_diagonal(intra_sim_matrix, np.nan)
+        max_per_embedding = np.nanmax(intra_sim_matrix, axis=1)
+        avg_per_embedding = np.nanmean(intra_sim_matrix, axis=1)
+        min_per_embedding = np.nanmin(intra_sim_matrix, axis=1)
+        mean_intra_max_similarity = np.mean(max_per_embedding)
+        mean_intra_avg_similarity = np.mean(avg_per_embedding)
+        mean_intra_min_similarity = np.mean(min_per_embedding)
+
+        mean_inter_max_similarity = {cluster_idx2: 0.0 for cluster_idx2 in range(n_clusters)}
+        mean_inter_max_similarity[cluster_idx] = mean_intra_max_similarity
+        mean_inter_avg_similarity = {cluster_idx2: 0.0 for cluster_idx2 in range(n_clusters)}
+        mean_inter_avg_similarity[cluster_idx] = mean_intra_avg_similarity
+        mean_inter_min_similarity = {cluster_idx2: 0.0 for cluster_idx2 in range(n_clusters)}
+        mean_inter_min_similarity[cluster_idx] = mean_intra_min_similarity
+        for cluster_idx2 in range(n_clusters):
+            if cluster_idx2 == cluster_idx:
+                continue
+            other_cluster_embeddings = clusters_embeddings[cluster_idx2]
+            inter_sim_matrix = cosine_similarity(cluster_embeddings, other_cluster_embeddings)
+            max_per_row = np.max(inter_sim_matrix, axis=1)
+            mean_per_row = np.mean(inter_sim_matrix, axis=1)
+            min_per_row = np.min(inter_sim_matrix, axis=1)
+            mean_inter_max_similarity[cluster_idx2] = np.mean(max_per_row)
+            mean_inter_avg_similarity[cluster_idx2] = np.mean(mean_per_row)
+            mean_inter_min_similarity[cluster_idx2] = np.mean(min_per_row)
+
+        mean_inter_max_without_self = [
+            sim
+            for cluster_idx2, sim in mean_inter_max_similarity.items()
+            if cluster_idx2 != cluster_idx
+        ]
+        total_mean_inter_max_similarity = np.mean(mean_inter_max_without_self)
+        mean_inter_avg_without_self = [
+            sim
+            for cluster_idx2, sim in mean_inter_avg_similarity.items()
+            if cluster_idx2 != cluster_idx
+        ]
+        total_mean_inter_avg_similarity = np.mean(mean_inter_avg_without_self)
+        mean_inter_min_without_self = [
+            sim
+            for cluster_idx2, sim in mean_inter_min_similarity.items()
+            if cluster_idx2 != cluster_idx
+        ]
+        total_mean_inter_min_similarity = np.mean(mean_inter_min_without_self)
+        silhouette_score = (mean_intra_avg_similarity - total_mean_inter_avg_similarity) / max(
+            mean_intra_avg_similarity, total_mean_inter_avg_similarity
+        )
+
+        clusters_scores[cluster_idx] = {
+            "mean_inter_max_similarity": mean_inter_max_similarity,
+            "mean_inter_avg_similarity": mean_inter_avg_similarity,
+            "mean_inter_min_similarity": mean_inter_min_similarity,
+            "total_mean_inter_max_similarity": total_mean_inter_max_similarity,
+            "total_mean_inter_avg_similarity": total_mean_inter_avg_similarity,
+            "total_mean_inter_min_similarity": total_mean_inter_min_similarity,
+            "silhouette_score": silhouette_score,
+        }
+    total_silhouette = np.mean(
+        [clusters_scores[cluster_idx]["silhouette_score"] for cluster_idx in range(n_clusters)]
+    )
+    return clusters_scores, total_silhouette
+
+
 if __name__ == "__main__":
     args = parse_args()
     config, users_info, hyperparameters_combinations, results_before_averaging_over_folds = (
@@ -399,8 +497,12 @@ if __name__ == "__main__":
         pos_train_ratings = train_ratings[train_ratings["rating"] == 1]
         val_ratings = user_ratings[user_ratings["split"] == "val"]
         kmeans = KMeans(n_clusters=n_clusters, random_state=42, algorithm="elkan", n_init=10)
-        pos_train_cluster_labels = kmeans.fit_predict(
-            embedding.matrix[embedding.get_idxs(pos_train_ratings["paper_id"].tolist())]
+        pos_train_embeddings = embedding.matrix[
+            embedding.get_idxs(pos_train_ratings["paper_id"].tolist())
+        ]
+        pos_train_cluster_labels = kmeans.fit_predict(pos_train_embeddings)
+        clusters_scores, total_silhouette = get_clusters_scores(
+            pos_train_embeddings, pos_train_cluster_labels
         )
         train_cluster_labels = kmeans.predict(
             embedding.matrix[embedding.get_idxs(train_ratings["paper_id"].tolist())]
@@ -427,8 +529,9 @@ if __name__ == "__main__":
             file_name = user_folder / f"user_{user_id}_fold_{fold_idx}.pdf"
             with PdfPages(file_name) as pdf:
                 uv.visualize_user_info(pdf)
-
-                wc_words_scores = uv.visualize_wordclouds(pdf, fold_idx, pos_train_cluster_labels)
+                wc_words_scores = uv.visualize_wordclouds(
+                    pdf, fold_idx, pos_train_cluster_labels, clusters_scores, total_silhouette
+                )
                 if args["visualize_papers"]:
                     papers = load_papers(relevant_columns=["paper_id", "l1", "l2"])
                     uv.load_cosine_similarities_for_user()

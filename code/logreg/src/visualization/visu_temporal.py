@@ -112,7 +112,7 @@ def get_default_window_size(temporal_type: str) -> int:
     elif temporal_type == "days":
         return 30
     elif temporal_type == "n_posrated":
-        return 10
+        return 5
 
 
 def get_last_iter_included(temporal_type: str) -> int:
@@ -121,7 +121,7 @@ def get_last_iter_included(temporal_type: str) -> int:
     elif temporal_type == "days":
         return 500
     elif temporal_type == "n_posrated":
-        return 200
+        return 250
 
 
 def parse_args() -> dict:

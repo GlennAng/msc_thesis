@@ -8,6 +8,10 @@ from sklearn.cluster import KMeans
 from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm
 
+from ....finetuning.src.finetuning_compare_embeddings import (
+    compute_sims,
+    compute_sims_same_set,
+)
 from ....logreg.src.embeddings.embedding import Embedding
 from ....logreg.src.training.algorithm import Algorithm, get_model
 from ....logreg.src.training.evaluation import split_negrated_ranking, split_ratings
@@ -29,7 +33,7 @@ from .compute_users_embeddings_logreg import (
 from .compute_users_scores_upper_bound import get_user_scores_upper_bound
 
 DT = np.float64
-K_VALUES = [3]
+K_VALUES = [3, 5, 7]
 N_EVAL_NEGATIVE_SAMPLES = 100
 
 
@@ -40,6 +44,7 @@ class ClusteringApproach(Enum):
     K_MEAN_SELECTION_SILHOUETTE = auto()
     UPPER_BOUND = auto()
     VAL_SPLIT = auto()
+    COSINE = auto()
 
 
 def get_clustering_approach_from_arg(arg: str) -> ClusteringApproach:
@@ -56,6 +61,8 @@ def get_clustering_approach_from_arg(arg: str) -> ClusteringApproach:
         return ClusteringApproach.UPPER_BOUND
     elif arg == "val_split":
         return ClusteringApproach.VAL_SPLIT
+    elif arg == "cosine":
+        return ClusteringApproach.COSINE
     else:
         raise ValueError(f"Unknown clustering approach: {arg}")
 
@@ -506,6 +513,29 @@ def train_models_clustering(
             random_state=random_state,
             eval_settings=eval_settings,
         )
+    elif clustering_approach == ClusteringApproach.INCREMENTAL_K_MEANS:
+        k = n_pos // 25
+        k = max(1, min(k, 10))
+        if k == 1:
+            return train_models_clustering_none(
+                X_train=X_train,
+                y_train=y_train,
+                n_rated=n_rated,
+                rated_time_diffs=train_set_time_diffs,
+                random_state=random_state,
+                eval_settings=eval_settings,
+            )
+        else:
+            eval_settings_copy = eval_settings.copy()
+            eval_settings_copy["clustering_k_means_n_clusters"] = k
+            return train_models_clustering_k_means_fixed_k(
+                X_train=X_train,
+                y_train=y_train,
+                n_rated=n_rated,
+                rated_time_diffs=train_set_time_diffs,
+                random_state=random_state,
+                eval_settings=eval_settings_copy,
+            )
     elif clustering_approach == ClusteringApproach.UPPER_BOUND:
         clusters_dict = {}
         clusters_dict[1] = train_models_clustering_none(
@@ -537,6 +567,48 @@ def train_models_clustering(
             random_state=random_state,
             eval_settings=eval_settings,
             val_split_dict=val_split_dict,
+        )
+    elif clustering_approach == ClusteringApproach.COSINE:
+        """
+        X_pos = X_train[y_train == 1]
+        sim = compute_sims_same_set(X_pos[:, :256])
+        k = int(112 - 300 * sim)
+        k = max(1, min(k, 7))
+        print(sim, k)
+        if k == 1:
+            return train_models_clustering_none(
+                X_train=X_train,
+                y_train=y_train,
+                n_rated=n_rated,
+                rated_time_diffs=train_set_time_diffs,
+                random_state=random_state,
+                eval_settings=eval_settings,
+            )
+        else:
+            eval_settings_copy = eval_settings.copy()
+            eval_settings_copy["clustering_k_means_n_clusters"] = k
+            return train_models_clustering_k_means_fixed_k(
+                X_train=X_train,
+                y_train=y_train,
+                n_rated=n_rated,
+                rated_time_diffs=train_set_time_diffs,
+                random_state=random_state,
+                eval_settings=eval_settings_copy,
+            )
+        """
+        if n_pos < 50:
+            k = 4
+        else:
+            k = 7
+        eval_settings_copy = eval_settings.copy()
+        eval_settings_copy["clustering_k_means_n_clusters"] = k
+        return train_models_clustering_k_means_fixed_k(
+            X_train=X_train,
+            y_train=y_train,
+            n_rated=n_rated,
+            rated_time_diffs=train_set_time_diffs,
+            random_state=random_state,
+            eval_settings=eval_settings_copy,
         )
 
 

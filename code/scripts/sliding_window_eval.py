@@ -70,8 +70,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--logreg_temporal_decay_normalization", type=str, default="positives")
     parser.add_argument("--logreg_temporal_decay_param", type=float, default=0.01)
 
-    parser.add_argument("--clustering_val_split_n_val_posrated", type=int, default=8)
-    parser.add_argument("--clustering_val_split_n_val_negrated", type=int, default=6)
+    parser.add_argument("--clustering_val_split_n_val_posrated", type=int, default=12)
+    parser.add_argument("--clustering_val_split_n_val_negrated", type=int, default=8)
     parser.add_argument("--clustering_val_split_n_steps_between_updates", type=int, default=0)
 
     parser.add_argument("--clustering_approach", type=str, default="none")
@@ -79,7 +79,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clustering_max_n_posrated", type=int, default=None)
     parser.add_argument("--clustering_k_means_n_clusters", type=int, default=3)
     parser.add_argument("--clustering_selection_max_n_clusters", type=int, default=5)
-    parser.add_argument("--clustering_selection_min_cluster_size", type=int, default=5)
+    parser.add_argument("--clustering_selection_min_cluster_size", type=int, default=0)
     parser.add_argument("--clustering_upper_bound_max_increment", type=float, default=None)
     parser.add_argument("--clustering_upper_bound_max_decrement", type=float, default=None)
     parser.add_argument("--clustering_upper_bound_n_clusters_before_val", type=int, default=1)

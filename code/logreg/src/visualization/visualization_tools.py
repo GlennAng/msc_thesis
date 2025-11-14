@@ -1217,6 +1217,7 @@ def generate_wordclouds(
     largest_pos_tfidf_coef: float = None,
     largest_neg_tfidf_coef: float = None,
     title_addition: str = "",
+    subtitle: str = "",
 ) -> None:
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=PLOT_CONSTANTS["FIG_SIZE"])
     suptitle = (
@@ -1226,6 +1227,8 @@ def generate_wordclouds(
     )
     suptitle = suptitle + title_addition
     fig.suptitle(suptitle, fontsize=16, fontweight="bold")
+    if subtitle:
+        fig.text(0.5, 0.94, subtitle, fontsize=12, ha="center", va="center")
     color_palette = [
         "#453430",
         "#7D3E3E",
@@ -1257,11 +1260,11 @@ def generate_wordclouds(
         ax.set_title(title, fontweight="bold", pad=15)
 
     if use_tfidf_coefs:
-        pos_title = f"Positive TF-IDF Classifier Coefficients\n (Total N = {len(wc_pos_train_scores)}, Largest Coef = {format_number(largest_pos_tfidf_coef, 3)})."
-        neg_title = f"Negative TF-IDF Classifier Coefficients\n (Total N = {len(wc_neg_train_scores)}, Largest Coef = {format_number(largest_neg_tfidf_coef, 3)})."
+        pos_title = f"Positive TF-IDF Classifier Coefficients (Total N = {len(wc_pos_train_scores)}, Largest Coef = {format_number(largest_pos_tfidf_coef, 3)})."
+        neg_title = f"Negative TF-IDF Classifier Coefficients (Total N = {len(wc_neg_train_scores)}, Largest Coef = {format_number(largest_neg_tfidf_coef, 3)})."
     else:
-        pos_title = f"Positively Rated Training Papers\n (Total N = {n_pos_train_papers_full})."
-        neg_title = f"Negatively Rated Training Papers\n (Total N = {n_neg_train_papers_full})."
+        pos_title = f"Positively Rated Training Papers (Total N = {n_pos_train_papers_full})."
+        neg_title = f"Negatively Rated Training Papers (Total N = {n_neg_train_papers_full})."
     generate_wordcloud(wc_pos_train_scores, ax1, pos_title)
     generate_wordcloud(wc_neg_train_scores, ax2, neg_title)
     plt.tight_layout(pad=2.5)
