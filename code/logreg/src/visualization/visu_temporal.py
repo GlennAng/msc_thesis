@@ -83,7 +83,7 @@ def get_visu_types() -> dict:
             "title": "Mean Cosine Similarities with Initial Onboarding (All Papers)",
             "y_label": "Cosine Similarity",
         },
-        "cosine_start_rated": {
+        "cosine_start_racodeted": {
             "agg_func": "mean",
             "title": "Mean Cosine Similarities with Initial Onboarding (Rated Papers)",
             "y_label": "Cosine Similarity",

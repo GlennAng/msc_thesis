@@ -57,7 +57,7 @@ def get_sample_weights_temporal_decay_normalization_jointly(
     neg_decays = train_negrated_n * neg_weight * neg_decays
     cache_weight = weights_neg_scale * neg_sum * (1.0 - weights_cache_v) / neg_denominator
     correction = (weights_neg_scale + 1.0) / (pos_sum + weights_neg_scale * neg_sum)
-    pos_decays = correction * pos_decays
+    pos_decays = correction * (1.0 - weights_neg_scale) * pos_decays
     neg_decays = correction * neg_decays
     cache_weight = correction * cache_weight
     return pos_decays, neg_decays, cache_weight
@@ -88,6 +88,7 @@ def get_sample_weights_temporal_decay_normalization_positives(
     train_negrated_n = neg_decays.shape[0]
     neg_denominator = weights_cache_v * train_negrated_n + (1.0 - weights_cache_v) * n_cache
     assert neg_denominator > 0
+    pos_decays = (1.0 - weights_neg_scale) * pos_decays
     neg_weight = weights_neg_scale * weights_cache_v / neg_denominator
     neg_decays = np.full(shape=neg_decays.shape, fill_value=neg_weight)
     cache_weight = weights_neg_scale * (1.0 - weights_cache_v) / neg_denominator

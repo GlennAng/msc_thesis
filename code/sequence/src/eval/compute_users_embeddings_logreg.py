@@ -503,39 +503,6 @@ def get_sample_weights_temporal_decay_none(
     return sample_weights
 
 
-def get_sample_weights_temporal_decay(
-    y_train: np.ndarray,
-    n_rated: int,
-    rated_time_diffs: np.ndarray,
-    hyperparameters_combination: tuple,
-    temporal_decay: TemporalDecay,
-    temporal_decay_normalization: TemporalDecayNormalization,
-    temporal_decay_param: float,
-    is_cluster: bool = False,
-    cluster_in_idxs: np.ndarray = None,
-    cluster_out_idxs: np.ndarray = None,
-) -> np.ndarray:
-    assert temporal_decay_normalization == TemporalDecayNormalization.POSITIVES
-    n_total = y_train.shape[0]
-    sample_weights = np.empty(n_total, dtype=np.float64)
-    y_rated = y_train[:n_rated]
-    w_p, w_a, w_n, w_c = get_weights(
-        hyperparameters_combination=hyperparameters_combination,
-        n_posrated=np.sum(y_rated == 1),
-        n_negrated=np.sum(y_rated == 0),
-        n_cache=n_total - n_rated,
-        is_cluster=is_cluster,
-        n_cluster_in=cluster_in_idxs.shape[0] if is_cluster else None,
-        cluster_alpha=None,
-    )
-    sample_weights[y_train == 0] = w_n
-    sample_weights[n_rated:] = w_c
-
-    pos_time_diffs = rated_time_diffs[y_rated == 1]
-    pos_decays = np.exp(-temporal_decay_param * pos_time_diffs)
-    pos_decays /= np.sum(pos_decays) if pos_decays.shape[0] > 0 else pos_decays
-
-
 def get_sample_weights(
     y_train: np.ndarray,
     n_rated: int,
@@ -567,7 +534,16 @@ def get_sample_weights(
             cluster_alpha=eval_settings.get("clustering_cluster_alpha", None),
         )
     else:
-        assert temporal_decay_normalization == TemporalDecayNormalization.POSITIVES
+        return get_sample_weights_temporal_decay(
+            user_train_set_ratings=y_train[:n_rated],
+            user_train_set_time_diffs=rated_time_diffs,
+            n_cache=y_train.shape[0] - n_rated,
+            weights_neg_scale=hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_neg_scale"]],
+            weights_cache_v=hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_cache_v"]],
+            temporal_decay=temporal_decay,
+            temporal_decay_normalization=temporal_decay_normalization,
+            temporal_decay_param=eval_settings["logreg_temporal_decay_param"],
+        )
 
 
 def compute_logreg_user_embedding(

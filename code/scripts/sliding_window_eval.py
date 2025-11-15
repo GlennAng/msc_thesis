@@ -74,6 +74,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clustering_val_split_n_val_negrated", type=int, default=8)
     parser.add_argument("--clustering_val_split_n_steps_between_updates", type=int, default=0)
 
+    parser.add_argument("--clustering_ensemble_aggregation", type=str, default="mean")
+    parser.add_argument("--clustering_ensemble_temperature", type=float, default=1.0)
+    parser.add_argument("--clustering_ensemble_top_k", type=int, default=None)
+
     parser.add_argument("--clustering_approach", type=str, default="none")
     parser.add_argument("--clustering_min_n_posrated", type=int, default=None)
     parser.add_argument("--clustering_max_n_posrated", type=int, default=None)
