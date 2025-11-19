@@ -1,8 +1,7 @@
 import subprocess
 import sys
 
-
-params = [0.1]
+params = [1.0]
 for param in params:
     cmd = [
         sys.executable,
@@ -11,15 +10,16 @@ for param in params:
         "--clustering_approach",
         "k_means_fixed_k",
         "--clustering_k_means_n_clusters",
-        "7",
+        "1",
         "--single_random_state",
-        "--clustering_cluster_alpha",
-        "0.8",
-        "--clustering_pos_weighting_scheme",
-        "relative",
-        "--clustering_neg_weighting_scheme",
-        "same_ratio",
         "--save_users_predictions",
+        "--embed_function",
+        "clustering",
+        "--clustering_selection_min_cluster_size",
+        "10",
+        "--old_ratings",
+        "--clustering_cluster_alpha",
+        str(param),
     ]
     
     subprocess.run(cmd, check=True)

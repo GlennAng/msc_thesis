@@ -77,7 +77,7 @@ if __name__ == "__main__":
         else:
             raise ValueError(f"Unknown clustering approach: {clustering_approach}")
         # Get all three metrics
-        df = df[["user_id", "val_ndcg_all", "val_recall", "val_specificity"]]
+        df = df[["user_id", "val_ndcg_all", "val_recall", "val_specificity", "val_mrr_all"]]
         df = df[df["user_id"].isin(users_ids)]
         dfs[k] = df
 
@@ -87,7 +87,8 @@ if __name__ == "__main__":
         df = dfs[k].rename(columns={
             "val_ndcg_all": f"val_ndcg_all_{k}",
             "val_recall": f"val_recall_all_{k}",
-            "val_specificity": f"val_specificity_all_{k}"
+            "val_specificity": f"val_specificity_all_{k}",
+            "val_mrr_all": f"val_mrr_all_{k}"
         })
         if result_df is None:
             result_df = df
@@ -119,6 +120,7 @@ if __name__ == "__main__":
         agg_dict[f'val_ndcg_all_{k}'] = 'mean'
         agg_dict[f'val_recall_all_{k}'] = 'mean'
         agg_dict[f'val_specificity_all_{k}'] = 'mean'
+        agg_dict[f'val_mrr_all_{k}'] = 'mean'
     
     print("\n" + "="*80)
     print("SUMMARY BY BEST K (based on NDCG)")
@@ -133,6 +135,7 @@ if __name__ == "__main__":
         col_renames[f'val_ndcg_all_{k}'] = f'avg_ndcg_{k}'
         col_renames[f'val_recall_all_{k}'] = f'avg_recall_{k}'
         col_renames[f'val_specificity_all_{k}'] = f'avg_spec_{k}'
+        col_renames[f'val_mrr_all_{k}'] = f'avg_mrr_{k}'
     col_renames.update({
         'n_sessions_pos_val': 'avg_sessions',
         'n_posrated_val': 'avg_posrated',
@@ -162,10 +165,12 @@ if __name__ == "__main__":
         mean_ndcg = result_df[f'val_ndcg_all_{k}'].mean()
         mean_recall = result_df[f'val_recall_all_{k}'].mean()
         mean_spec = result_df[f'val_specificity_all_{k}'].mean()
-        print(f"k={k:2d} | NDCG: {mean_ndcg:.4f} | Recall: {mean_recall:.4f} | Specificity: {mean_spec:.4f}")
+        mean_mrr = result_df[f'val_mrr_all_{k}'].mean()
+        print(f"k={k:2d} | NDCG: {mean_ndcg:.4f} | Recall: {mean_recall:.4f} | Specificity: {mean_spec:.4f} | MRR: {mean_mrr:.4f}")
     
     # Best k (based on NDCG grouping)
     overall_ndcg_best_k = result_df.apply(lambda row: row[f'val_ndcg_all_{int(row["best_k"])}'], axis=1).mean()
     overall_recall_best_k = result_df.apply(lambda row: row[f'val_recall_all_{int(row["best_k"])}'], axis=1).mean()
     overall_spec_best_k = result_df.apply(lambda row: row[f'val_specificity_all_{int(row["best_k"])}'], axis=1).mean()
-    print(f"Best k (by NDCG) | NDCG: {overall_ndcg_best_k:.4f} | Recall: {overall_recall_best_k:.4f} | Specificity: {overall_spec_best_k:.4f}")
+    overall_mrr_best_k = result_df.apply(lambda row: row[f'val_mrr_all_{int(row["best_k"])}'], axis=1).mean()
+    print(f"Best k (by NDCG) | NDCG: {overall_ndcg_best_k:.4f} | Recall: {overall_recall_best_k:.4f} | Specificity: {overall_spec_best_k:.4f} | MRR: {overall_mrr_best_k:.4f}")

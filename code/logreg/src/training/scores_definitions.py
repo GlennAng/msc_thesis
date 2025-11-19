@@ -313,6 +313,7 @@ SCORES_DICT = {
     },
     "RECALL": {
         "abbreviation": "REC",
+        "abbreviation_for_visu_file": "REC",
         "type": Score_Type.DEFAULT,
         "increase_better": True,
         "page": 0,

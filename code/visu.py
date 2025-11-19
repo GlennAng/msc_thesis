@@ -1,9 +1,9 @@
 from pathlib import Path
 import pandas as pd
 
-dir = Path("code/sequence/data/all_k_relative_same_ratio_08_old/")
+dir = Path("code/sequence/data/baseline")
 for subdir in dir.iterdir():
-    if subdir.is_dir() and subdir.name.startswith("clustering_all_multi_session_"):
+    if subdir.is_dir():
         print(f"Results for run: {subdir.name}")
     df = pd.read_csv(subdir / "outputs/users_results.csv")
     df = df[df["user_id"] == 9]

@@ -219,15 +219,15 @@ class User_Visualizer:
         for cluster_idx in list(clusters_dict.keys()):
             cluster_dict = clusters_dict[cluster_idx]
             cluster_scores = clusters_scores[cluster_idx]
-            subtitle_avg, subtitle_max = "Avg Sim: [", "Max Sim: ["
+            subtitle_avg, subtitle_max = "AvgS: [", "MaxS: ["
             for i in range(len(cluster_scores["mean_inter_avg_similarity"])):
                 if i > 0:
                     subtitle_avg += ", "
                     subtitle_max += ", "
-                subtitle_avg += f"{cluster_scores['mean_inter_avg_similarity'][i]:.3f}"
-                subtitle_max += f"{cluster_scores['mean_inter_max_similarity'][i]:.3f}"
-            subtitle_avg += f"] (Mean Inter: {cluster_scores['total_mean_inter_avg_similarity']:.3f})"
-            subtitle_max += f"] (Mean Inter: {cluster_scores['total_mean_inter_max_similarity']:.3f})"
+                subtitle_avg += f"{cluster_scores['mean_inter_avg_similarity'][i]:.2f}"
+                subtitle_max += f"{cluster_scores['mean_inter_max_similarity'][i]:.2f}"
+            subtitle_avg += f"] (Mean: {cluster_scores['total_mean_inter_avg_similarity']:.2f})"
+            subtitle_max += f"] (Mean: {cluster_scores['total_mean_inter_max_similarity']:.2f})"
             subtitle = f"{subtitle_avg} | {subtitle_max}"
             generate_wordclouds(
                 pdf=pdf,

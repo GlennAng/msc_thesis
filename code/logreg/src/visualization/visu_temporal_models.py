@@ -537,7 +537,7 @@ def plot_data_sessions_compare(sessions_df: pd.DataFrame, args: dict, path: str 
     else:
         legend_loc = "lower right"
     ax.legend(loc=legend_loc, fontsize=8.5)
-    plt.savefig(path)
+    plt.savefig(path, bbox_inches="tight")
     plt.close()
 
 

@@ -74,9 +74,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clustering_val_split_n_val_negrated", type=int, default=8)
     parser.add_argument("--clustering_val_split_n_steps_between_updates", type=int, default=0)
 
-    parser.add_argument("--clustering_ensemble_aggregation", type=str, default="mean")
-    parser.add_argument("--clustering_ensemble_temperature", type=float, default=1.0)
-    parser.add_argument("--clustering_ensemble_top_k", type=int, default=None)
+    parser.add_argument("--clustering_knn_alpha", type=float, default=5.0)
 
     parser.add_argument("--clustering_approach", type=str, default="none")
     parser.add_argument("--clustering_min_n_posrated", type=int, default=None)
@@ -87,9 +85,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clustering_upper_bound_max_increment", type=float, default=None)
     parser.add_argument("--clustering_upper_bound_max_decrement", type=float, default=None)
     parser.add_argument("--clustering_upper_bound_n_clusters_before_val", type=int, default=1)
-    parser.add_argument("--clustering_pos_weighting_scheme", type=str, default="absolute")
-    parser.add_argument("--clustering_neg_weighting_scheme", type=str, default="none")
-    parser.add_argument("--clustering_cluster_alpha", type=float, default=20.0)
+    parser.add_argument("--clustering_pos_weighting_scheme", type=str, default="relative")
+    parser.add_argument("--clustering_neg_weighting_scheme", type=str, default="same_ratio")
+    parser.add_argument("--clustering_cluster_alpha", type=float, default=0.8)
 
     parser.add_argument("--save_users_predictions", action="store_true", default=False)
     args_dict = vars(parser.parse_args())

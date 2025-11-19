@@ -44,7 +44,7 @@ class ClusteringApproach(Enum):
     K_MEAN_SELECTION_SILHOUETTE = auto()
     UPPER_BOUND = auto()
     VAL_SPLIT = auto()
-    ENSEMBLE = auto()
+    KNN = auto()
 
 
 def get_clustering_approach_from_arg(arg: str) -> ClusteringApproach:
@@ -61,8 +61,8 @@ def get_clustering_approach_from_arg(arg: str) -> ClusteringApproach:
         return ClusteringApproach.UPPER_BOUND
     elif arg == "val_split":
         return ClusteringApproach.VAL_SPLIT
-    elif arg == "ensemble":
-        return ClusteringApproach.ENSEMBLE
+    elif arg == "knn":
+        return ClusteringApproach.KNN
     else:
         raise ValueError(f"Unknown clustering approach: {arg}")
 
@@ -568,15 +568,26 @@ def train_models_clustering(
             eval_settings=eval_settings,
             val_split_dict=val_split_dict,
         )
-    elif clustering_approach == ClusteringApproach.ENSEMBLE:
-        return train_models_clustering_k_means_fixed_k(
-            X_train=X_train,
-            y_train=y_train,
-            n_rated=n_rated,
-            rated_time_diffs=train_set_time_diffs,
-            random_state=random_state,
-            eval_settings=eval_settings,
-        )
+    elif clustering_approach == ClusteringApproach.KNN:
+        k = eval_settings.get("clustering_k_means_n_clusters", 1)
+        if k == 1:
+            return train_models_clustering_none(
+                X_train=X_train,
+                y_train=y_train,
+                n_rated=n_rated,
+                rated_time_diffs=train_set_time_diffs,
+                random_state=random_state,
+                eval_settings=eval_settings,
+            )
+        else:
+            return train_models_clustering_k_means_fixed_k(
+                X_train=X_train,
+                y_train=y_train,
+                n_rated=n_rated,
+                rated_time_diffs=train_set_time_diffs,
+                random_state=random_state,
+                eval_settings=eval_settings,
+            )
 
 
 def scoring_function_clustering(
@@ -623,40 +634,33 @@ def scoring_function_clustering(
     return logits, n_global_model_pos, n_global_model_neg
 
 
-def scoring_function_ensemble(
-    clusters_logregs: list,
-    clustering_model: object,
-    embeddings_to_score: np.ndarray,
-    aggregation_method: str,
-    top_k: int,
-    temperature: float,
+def compute_knn_value(
+    train_embeddings: np.ndarray,
+    train_ratings: np.ndarray,
+    val_embeddings: np.ndarray,
+    knn_alpha: float,
 ) -> np.ndarray:
-    if top_k is None:
-        top_k = len(clusters_logregs)
-    assert aggregation_method in ["mean", "softmax", "linear"]
-    logits = np.zeros((embeddings_to_score.shape[0], len(clusters_logregs)), dtype=DT)
-    for cluster_idx, logreg in enumerate(clusters_logregs):
-        cluster_logits = logreg.decision_function(embeddings_to_score)
-        logits[:, cluster_idx] = cluster_logits
-    if aggregation_method == "mean":
-        if top_k < len(clusters_logregs):
-            sorted_logits = np.sort(logits, axis=1)[:, ::-1]
-            logits = np.mean(sorted_logits[:, :top_k], axis=1)
-        else:
-            logits = np.mean(logits, axis=1)
-    else:
-        distances = clustering_model.transform(embeddings_to_score)
-        if top_k < len(clusters_logregs):
-            top_k_indices = np.argsort(distances, axis=1)[:, :top_k]
-            top_k_distances = np.take_along_axis(distances, top_k_indices, axis=1)
-            logits = np.take_along_axis(logits, top_k_indices, axis=1)
-            similarities = -top_k_distances / temperature
-        else:
-            similarities = -distances / temperature
-        exp_sim = np.exp(similarities - np.max(similarities, axis=1, keepdims=True))
-        cluster_probs = exp_sim / np.sum(exp_sim, axis=1, keepdims=True)
-        logits = np.sum(logits * cluster_probs, axis=1)
-    return logits
+    pos_embeddings = train_embeddings[train_ratings == 1]
+    neg_embeddings = train_embeddings[train_ratings == 0]
+    sims_pos = compute_sims(val_embeddings, pos_embeddings, agg=False)
+    sims_neg = compute_sims(val_embeddings, neg_embeddings, agg=False)
+    
+    K = 3
+    # Get top K similarities
+    top_k_pos = np.partition(sims_pos, -K, axis=1)[:, -K:]
+    top_k_neg = np.partition(sims_neg, -K, axis=1)[:, -K:]
+    
+    # Apply softmax to weight by similarity strength
+    from scipy.special import softmax
+    weights_pos = softmax(top_k_pos, axis=1)  # shape: (n_val, K)
+    weights_neg = softmax(top_k_neg, axis=1)
+    
+    # Weighted average instead of simple mean
+    weighted_pos = (top_k_pos * weights_pos).sum(axis=1)
+    weighted_neg = (top_k_neg * weights_neg).sum(axis=1)
+    
+    knn_score = weighted_pos - weighted_neg
+    return knn_alpha * knn_score
 
 
 def get_negrated_ranking_idxs(
@@ -835,26 +839,25 @@ def get_y_val_logits_session(
     y_val_logits: np.ndarray,
     eval_settings: dict,
     embeddings_ratings: np.ndarray = None,
+    user_train_set_embeddings: np.ndarray = None,
+    user_train_set_ratings: np.ndarray = None,
 ) -> tuple:
-    if eval_settings["clustering_approach"] == ClusteringApproach.ENSEMBLE:
-        session_logits = scoring_function_ensemble(
-            clusters_logregs=clusters_logregs,
-            clustering_model=clustering_model,
-            embeddings_to_score=session_embeddings,
-            aggregation_method=eval_settings["clustering_ensemble_aggregation"],
-            top_k=eval_settings["clustering_ensemble_top_k"],
-            temperature=eval_settings["clustering_ensemble_temperature"],
+    session_logits, n_global_model_pos, n_global_model_neg = scoring_function_clustering(
+        global_logreg=global_logreg,
+        clusters_logregs=clusters_logregs,
+        clustering_model=clustering_model,
+        clusters_with_sufficient_size=clusters_with_sufficient_size,
+        embeddings_to_score=session_embeddings,
+        embeddings_ratings=embeddings_ratings,
+    )
+    if eval_settings["clustering_approach"] == ClusteringApproach.KNN:
+        session_logits_knn = compute_knn_value(
+            train_embeddings=user_train_set_embeddings,
+            train_ratings=user_train_set_ratings,
+            val_embeddings=session_embeddings,
+            knn_alpha=eval_settings["clustering_knn_alpha"],
         )
-        n_global_model_pos, n_global_model_neg = 0, 0
-    else:
-        session_logits, n_global_model_pos, n_global_model_neg = scoring_function_clustering(
-            global_logreg=global_logreg,
-            clusters_logregs=clusters_logregs,
-            clustering_model=clustering_model,
-            clusters_with_sufficient_size=clusters_with_sufficient_size,
-            embeddings_to_score=session_embeddings,
-            embeddings_ratings=embeddings_ratings,
-        )
+        session_logits = session_logits + session_logits_knn
     y_val_logits[val_counter_all : val_counter_all + n_session_papers] = session_logits
     return y_val_logits, n_global_model_pos, n_global_model_neg
 
@@ -870,6 +873,8 @@ def get_y_val_negrated_ranking_logits_session(
     n_session_papers_pos: int,
     y_val_negrated_ranking_logits: np.ndarray,
     eval_settings: dict,
+    user_train_set_embeddings: np.ndarray,
+    user_train_set_ratings: np.ndarray,
 ) -> np.ndarray:
     if n_session_papers_pos <= 0:
         return y_val_negrated_ranking_logits
@@ -881,22 +886,22 @@ def get_y_val_negrated_ranking_logits_session(
     val_negrated_embeddings_session = val_negrated_embeddings[
         val_negrated_ranking_idxs_session_flat
     ]
-    if eval_settings["clustering_approach"] == ClusteringApproach.ENSEMBLE:
-        val_negrated_ranking_logits_session = scoring_function_ensemble(
-            clusters_logregs=clusters_logregs,
-            clustering_model=clustering_model,
-            embeddings_to_score=val_negrated_embeddings_session,
-            aggregation_method=eval_settings["clustering_ensemble_aggregation"],
-            top_k=eval_settings["clustering_ensemble_top_k"],
-            temperature=eval_settings["clustering_ensemble_temperature"],
+    val_negrated_ranking_logits_session, _, _ = scoring_function_clustering(
+        global_logreg=global_logreg,
+        clusters_logregs=clusters_logregs,
+        clustering_model=clustering_model,
+        clusters_with_sufficient_size=clusters_with_sufficient_size,
+        embeddings_to_score=val_negrated_embeddings_session,
+    )
+    if eval_settings["clustering_approach"] == ClusteringApproach.KNN:
+        val_negrated_ranking_logits_session_knn = compute_knn_value(
+            train_embeddings=user_train_set_embeddings,
+            train_ratings=user_train_set_ratings,
+            val_embeddings=val_negrated_embeddings_session,
+            knn_alpha=eval_settings["clustering_knn_alpha"],
         )
-    else:
-        val_negrated_ranking_logits_session, _, _ = scoring_function_clustering(
-            global_logreg=global_logreg,
-            clusters_logregs=clusters_logregs,
-            clustering_model=clustering_model,
-            clusters_with_sufficient_size=clusters_with_sufficient_size,
-            embeddings_to_score=val_negrated_embeddings_session,
+        val_negrated_ranking_logits_session = (
+            val_negrated_ranking_logits_session + val_negrated_ranking_logits_session_knn
         )
     val_negrated_ranking_logits_session = val_negrated_ranking_logits_session.reshape(
         (-1, N_NEGRATED_RANKING)
@@ -917,25 +922,27 @@ def get_y_negative_samples_logits_session(
     n_session_papers_pos: int,
     y_negative_samples_logits: np.ndarray,
     eval_settings: dict,
+    user_train_set_embeddings: np.ndarray,
+    user_train_set_ratings: np.ndarray,
 ) -> np.ndarray:
     if n_session_papers_pos <= 0:
         return y_negative_samples_logits
-    if eval_settings["clustering_approach"] == ClusteringApproach.ENSEMBLE:
-        y_negative_samples_logits_session = scoring_function_ensemble(
-            clusters_logregs=clusters_logregs,
-            clustering_model=clustering_model,
-            embeddings_to_score=val_negative_samples_embeddings,
-            aggregation_method=eval_settings["clustering_ensemble_aggregation"],
-            top_k=eval_settings["clustering_ensemble_top_k"],
-            temperature=eval_settings["clustering_ensemble_temperature"],
+    y_negative_samples_logits_session, _, _ = scoring_function_clustering(
+        global_logreg=global_logreg,
+        clusters_logregs=clusters_logregs,
+        clustering_model=clustering_model,
+        clusters_with_sufficient_size=clusters_with_sufficient_size,
+        embeddings_to_score=val_negative_samples_embeddings,
+    )
+    if eval_settings["clustering_approach"] == ClusteringApproach.KNN:
+        y_negative_samples_logits_session_knn = compute_knn_value(
+            train_embeddings=user_train_set_embeddings,
+            train_ratings=user_train_set_ratings,
+            val_embeddings=val_negative_samples_embeddings,
+            knn_alpha=eval_settings["clustering_knn_alpha"],
         )
-    else:
-        y_negative_samples_logits_session, _, _ = scoring_function_clustering(
-            global_logreg=global_logreg,
-            clusters_logregs=clusters_logregs,
-            clustering_model=clustering_model,
-            clusters_with_sufficient_size=clusters_with_sufficient_size,
-            embeddings_to_score=val_negative_samples_embeddings,
+        y_negative_samples_logits_session = (
+            y_negative_samples_logits_session + y_negative_samples_logits_session_knn
         )
     y_negative_samples_logits_session = np.tile(
         y_negative_samples_logits_session, (n_session_papers_pos, 1)
@@ -1007,6 +1014,8 @@ def get_y_logits_components_single_k(
     y_negative_samples_logits: np.ndarray,
     embeddings_ratings: np.ndarray,
     eval_settings: dict,
+    user_train_set_embeddings: np.ndarray,
+    user_train_set_ratings: np.ndarray,
 ) -> tuple:
     y_val_logits, n_global_model_pos, n_global_model_neg = get_y_val_logits_session(
         global_logreg=global_logreg,
@@ -1019,6 +1028,8 @@ def get_y_logits_components_single_k(
         y_val_logits=y_val_logits,
         eval_settings=eval_settings,
         embeddings_ratings=embeddings_ratings,
+        user_train_set_embeddings=user_train_set_embeddings,
+        user_train_set_ratings=user_train_set_ratings,
     )
     y_val_negrated_ranking_logits = get_y_val_negrated_ranking_logits_session(
         global_logreg=global_logreg,
@@ -1031,6 +1042,8 @@ def get_y_logits_components_single_k(
         n_session_papers_pos=n_session_papers_pos,
         y_val_negrated_ranking_logits=y_val_negrated_ranking_logits,
         eval_settings=eval_settings,
+        user_train_set_embeddings=user_train_set_embeddings,
+        user_train_set_ratings=user_train_set_ratings,
     )
     y_negative_samples_logits = get_y_negative_samples_logits_session(
         global_logreg=global_logreg,
@@ -1042,6 +1055,8 @@ def get_y_logits_components_single_k(
         n_session_papers_pos=n_session_papers_pos,
         y_negative_samples_logits=y_negative_samples_logits,
         eval_settings=eval_settings,
+        user_train_set_embeddings=user_train_set_embeddings,
+        user_train_set_ratings=user_train_set_ratings,
     )
     return (
         y_val_logits,
@@ -1267,6 +1282,8 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
                         val_counter_all : val_counter_all + n_session_papers
                     ],
                     eval_settings=eval_settings,
+                    user_train_set_embeddings=user_train_set_embeddings,
+                    user_train_set_ratings=user_train_set_ratings,
                 )
                 y_val_logits = y_logits[0]
                 y_val_negrated_ranking_logits = y_logits[1]

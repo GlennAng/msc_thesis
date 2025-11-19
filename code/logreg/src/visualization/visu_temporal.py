@@ -51,7 +51,7 @@ def get_visu_types() -> dict:
         "pos_portion_rated": {
             "agg_func": "mean",
             "title": "Mean Portion of Upvoted Papers (among Rated Papers)",
-            "y_label": "Portion of Upvoted Papers",
+            "y_label": "Portion of Upvoted Papers (among Rated Papers)",
         },
         "cosine_with_self_all": {
             "agg_func": "mean",
@@ -127,7 +127,7 @@ def get_last_iter_included(temporal_type: str) -> int:
 def parse_args() -> dict:
     parser = argparse.ArgumentParser()
     parser.add_argument("--visu_type", type=str, choices=list(get_visu_types().keys()))
-    parser.add_argument("--users_selection", type=str, default="session_based_no_filtering")
+    parser.add_argument("--users_selection", type=str, default="session_based_filtering")
     parser.add_argument(
         "--temporal_type", type=str, default="sessions", choices=["sessions", "days", "n_posrated"]
     )
@@ -670,7 +670,7 @@ def plot_data_sessions(
     else:
         legend_loc = "lower right"
     ax.legend(loc=legend_loc, fontsize=8.5)
-    plt.savefig(path)
+    plt.savefig(path, bbox_inches="tight")
     plt.close()
 
 
