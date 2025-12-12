@@ -123,15 +123,17 @@ if __name__ == "__main__":
 
     from ....src.load_files import (
         load_papers,
+        load_finetuning_users_ids,
         load_session_based_users_ids,
         load_users_ratings,
         load_users_significant_categories,
     )
 
-    users_ids = load_session_based_users_ids()
-    users_ids_non_cs = load_session_based_users_ids(
+    users_ids = load_finetuning_users_ids()
+    users_ids_non_cs = load_finetuning_users_ids(
         select_non_cs_users_only=True,
     )
+    print(users_ids_non_cs)
     users_ids_cs = sorted(list(set(users_ids) - set(users_ids_non_cs)))
     papers = load_papers()
     users_ratings = load_users_ratings(relevant_users_ids=users_ids)

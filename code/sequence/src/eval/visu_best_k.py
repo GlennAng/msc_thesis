@@ -168,9 +168,20 @@ if __name__ == "__main__":
         mean_mrr = result_df[f'val_mrr_all_{k}'].mean()
         print(f"k={k:2d} | NDCG: {mean_ndcg:.4f} | Recall: {mean_recall:.4f} | Specificity: {mean_spec:.4f} | MRR: {mean_mrr:.4f}")
     
-    # Best k (based on NDCG grouping)
-    overall_ndcg_best_k = result_df.apply(lambda row: row[f'val_ndcg_all_{int(row["best_k"])}'], axis=1).mean()
-    overall_recall_best_k = result_df.apply(lambda row: row[f'val_recall_all_{int(row["best_k"])}'], axis=1).mean()
-    overall_spec_best_k = result_df.apply(lambda row: row[f'val_specificity_all_{int(row["best_k"])}'], axis=1).mean()
-    overall_mrr_best_k = result_df.apply(lambda row: row[f'val_mrr_all_{int(row["best_k"])}'], axis=1).mean()
-    print(f"Best k (by NDCG) | NDCG: {overall_ndcg_best_k:.4f} | Recall: {overall_recall_best_k:.4f} | Specificity: {overall_spec_best_k:.4f} | MRR: {overall_mrr_best_k:.4f}")
+    optimal_k_output_path = folder / "user_optimal_k.csv"
+    
+    # Prepare column list: user_id, best_k, and all ndcg columns
+    ndcg_columns = [f"val_ndcg_all_{k}" for k in sorted(dfs.keys())]
+    cols_to_keep = ["user_id", "best_k"] + ndcg_columns
+
+    # Create rename dictionary
+    rename_dict = {"best_k": "optimal_k"}
+    for k in sorted(dfs.keys()):
+        rename_dict[f"val_ndcg_all_{k}"] = f"ndcg_k_{k}"
+    
+    # Select specific columns and rename
+    optimal_k_df = result_df[cols_to_keep].rename(columns=rename_dict)
+    
+    # Save to CSV
+    optimal_k_df.to_csv(optimal_k_output_path, index=False)
+    print(f"\nSaved optimal k mapping to: {optimal_k_output_path}")

@@ -336,8 +336,317 @@ def get_weights_cluster_neg_same_ratio(
         w_neg_in_cluster = correction * neg_scale * cache_v / cache_denom
     else:
         w_neg_in_cluster = correction * neg_scale * desired_ratio * cache_term / n_neg_cluster_in
-        w_neg_out_cluster = correction * neg_scale * (1.0 - desired_ratio) * cache_term / n_neg_cluster_out
+        w_neg_out_cluster = (
+            correction * neg_scale * (1.0 - desired_ratio) * cache_term / n_neg_cluster_out
+        )
     return w_pos_in_cluster, w_neg_in_cluster, w_cache, w_pos_out_cluster, w_neg_out_cluster
+
+
+def get_weights_cluster_exponential(
+    correction: int,
+    neg_scale: float,
+    cache_v: float,
+    n_posrated: int,
+    n_negrated: int,
+    n_cache: int,
+    cluster_alpha: float,
+    cluster_label: int,
+    pos_clusters_idxs: dict,
+    neg_clusters_idxs: dict,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+) -> tuple:
+    # Generate the masks and original indices
+    n_rated = n_posrated + n_negrated
+    pos_rated_mask = y_train[:n_rated] == 1
+    neg_rated_mask = y_train[:n_rated] == 0
+    pos_original_idxs = np.where(pos_rated_mask)[0]
+    neg_original_idxs = np.where(neg_rated_mask)[0]
+
+    # Map cluster indices to original X_train indices
+    pos_cluster_original_idxs = pos_original_idxs[pos_clusters_idxs[cluster_label]]
+    X_pos_cluster = X_train[pos_cluster_original_idxs]
+    mean_pos_cluster = np.mean(X_pos_cluster, axis=0)
+
+    mean_norm = np.linalg.norm(mean_pos_cluster)
+    if mean_norm > 0:
+        mean_pos_cluster_normalized = mean_pos_cluster / mean_norm
+    else:
+        mean_pos_cluster_normalized = mean_pos_cluster
+
+    all_sims = []
+    all_cluster_labels = []
+    cluster_sizes = {}
+    for k, idxs in pos_clusters_idxs.items():
+        if len(idxs) == 0:
+            cluster_sizes[k] = 0
+            continue
+        # Map cluster indices to original X_train indices
+        original_idxs = pos_original_idxs[idxs]
+        samples = X_train[original_idxs]
+        samples_normalized = samples / np.linalg.norm(samples, axis=1, keepdims=True)
+        sims = np.dot(samples_normalized, mean_pos_cluster_normalized)
+        all_sims.extend(sims)
+        all_cluster_labels.extend([k] * len(sims))
+        cluster_sizes[k] = len(idxs)
+
+    all_sims = np.array(all_sims)
+    exp_sims = np.exp(cluster_alpha * all_sims)
+    total_sim = np.sum(exp_sims)
+    normalized_weights = exp_sims / total_sim
+    assert len(normalized_weights) == n_posrated
+
+    w_pos_dict = {}
+    idx = 0
+    for k, idxs in pos_clusters_idxs.items():
+        n = cluster_sizes[k]
+        if n > 0:
+            cluster_weights = normalized_weights[idx : idx + n]
+            cluster_weights_scaled = correction * (1.0 - neg_scale) * cluster_weights
+            w_pos_dict[k] = cluster_weights_scaled
+            idx += n
+        else:
+            w_pos_dict[k] = np.array([])
+
+    w_neg_dict = {}
+    w_cache, cache_denom = get_weights_cache(
+        correction=correction,
+        neg_scale=neg_scale,
+        cache_v=cache_v,
+        n_negrated=n_negrated,
+        n_cache=n_cache,
+    )
+
+    neg_weight_per_sample = correction * neg_scale * cache_v / cache_denom
+    for k, idxs in neg_clusters_idxs.items():
+        if len(idxs) > 0:
+            w_neg_dict[k] = np.full(len(idxs), neg_weight_per_sample)
+        else:
+            w_neg_dict[k] = np.array([])
+
+    return w_pos_dict, w_neg_dict, w_cache
+
+
+def get_weights_cluster_merge(
+    correction: int,
+    neg_scale: float,
+    cache_v: float,
+    n_posrated: int,
+    n_negrated: int,
+    n_cache: int,
+    cluster_alpha: float,
+    cluster_label: int,
+    pos_clusters_idxs: dict,
+    neg_clusters_idxs: dict,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+) -> tuple:
+    # Generate the masks and original indices
+    n_rated = n_posrated + n_negrated
+    pos_rated_mask = y_train[:n_rated] == 1
+    neg_rated_mask = y_train[:n_rated] == 0
+    pos_original_idxs = np.where(pos_rated_mask)[0]
+    neg_original_idxs = np.where(neg_rated_mask)[0]
+
+    # Map cluster indices to original X_train indices
+    pos_cluster_original_idxs = pos_original_idxs[pos_clusters_idxs[cluster_label]]
+    X_pos_cluster = X_train[pos_cluster_original_idxs]
+    mean_pos_cluster = np.mean(X_pos_cluster, axis=0)
+
+    mean_norm = np.linalg.norm(mean_pos_cluster)
+    if mean_norm > 0:
+        mean_pos_cluster_normalized = mean_pos_cluster / mean_norm
+    else:
+        mean_pos_cluster_normalized = mean_pos_cluster
+
+    cluster_idxs = pos_original_idxs[pos_clusters_idxs[cluster_label]]
+    cluster_samples = X_train[cluster_idxs]
+    cluster_samples_normalized = cluster_samples / np.linalg.norm(
+        cluster_samples, axis=1, keepdims=True
+    )
+    cluster_sims = np.dot(cluster_samples_normalized, mean_pos_cluster_normalized)
+    cluster_sim = np.mean(cluster_sims)
+
+    in_clusters = [cluster_label]
+    out_clusters = []
+
+    THRESHOLD = -0.03
+
+    cluster_sizes = {}
+    for k, idxs in pos_clusters_idxs.items():
+        cluster_sizes[k] = len(idxs)
+        if k == cluster_label:
+            continue
+        original_idxs = pos_original_idxs[idxs]
+        samples = X_train[original_idxs]
+        samples_normalized = samples / np.linalg.norm(samples, axis=1, keepdims=True)
+        sims = np.dot(samples_normalized, mean_pos_cluster_normalized)
+        sim = np.mean(sims)
+        if sim - cluster_sim >= THRESHOLD:
+            print(f"Cluster {k} assigned to IN clusters (sim={sim:.4f}, ref={cluster_sim:.4f})")
+            in_clusters.append(k)
+        else:
+            out_clusters.append(k)
+
+    n_in_samples = sum(cluster_sizes[k] for k in in_clusters)
+    n_out_samples = sum(cluster_sizes[k] for k in out_clusters)
+    denom = cluster_alpha * n_in_samples + (1 - cluster_alpha) * n_out_samples
+    w_in = correction * (1.0 - neg_scale) * cluster_alpha / denom
+    w_out = correction * (1.0 - neg_scale) * (1 - cluster_alpha) / denom
+
+    w_pos_dict = {}
+    for k in pos_clusters_idxs.keys():
+        n = cluster_sizes[k]
+        if n > 0:
+            if k in in_clusters:
+                w_pos_dict[k] = np.full(n, w_in)
+            else:
+                w_pos_dict[k] = np.full(n, w_out)
+        else:
+            w_pos_dict[k] = np.array([])
+    desired_ratio = cluster_alpha * n_in_samples / denom
+    w_neg_dict = {}
+    w_cache, cache_denom = get_weights_cache(
+        correction=correction,
+        neg_scale=neg_scale,
+        cache_v=cache_v,
+        n_negrated=n_negrated,
+        n_cache=n_cache,
+    )
+    cluster_sizes_neg = {}
+    for k, idxs in neg_clusters_idxs.items():
+        cluster_sizes_neg[k] = len(idxs)
+    n_neg_cluster_in = sum(cluster_sizes_neg[k] for k in in_clusters)
+    n_neg_cluster_out = n_negrated - n_neg_cluster_in
+    cache_term = (n_negrated * cache_v) / cache_denom
+    if n_neg_cluster_in == 0:
+        w_neg_in_cluster = 0.0
+        w_neg_out_cluster = correction * neg_scale * cache_v / cache_denom
+    elif n_neg_cluster_out == 0:
+        w_neg_out_cluster = 0.0
+        w_neg_in_cluster = correction * neg_scale * cache_v / cache_denom
+    else:
+        w_neg_in_cluster = correction * neg_scale * desired_ratio * cache_term / n_neg_cluster_in
+        w_neg_out_cluster = (
+            correction * neg_scale * (1.0 - desired_ratio) * cache_term / n_neg_cluster_out
+        )
+    for k, idxs in neg_clusters_idxs.items():
+        if len(idxs) > 0:
+            if k in in_clusters:
+                w_neg_dict[k] = np.full(len(idxs), w_neg_in_cluster)
+            else:
+                w_neg_dict[k] = np.full(len(idxs), w_neg_out_cluster)
+        else:
+            w_neg_dict[k] = np.array([])
+    return w_pos_dict, w_neg_dict, w_cache
+
+
+def get_weights_cluster_softmax(
+    correction: int,
+    neg_scale: float,
+    cache_v: float,
+    n_posrated: int,
+    n_negrated: int,
+    n_cache: int,
+    cluster_alpha: float,
+    cluster_label: int,
+    pos_clusters_idxs: dict,
+    neg_clusters_idxs: dict,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+) -> tuple:
+    # Generate the masks and original indices
+    n_rated = n_posrated + n_negrated
+    pos_rated_mask = y_train[:n_rated] == 1
+    neg_rated_mask = y_train[:n_rated] == 0
+    pos_original_idxs = np.where(pos_rated_mask)[0]
+    neg_original_idxs = np.where(neg_rated_mask)[0]
+
+    # Map cluster indices to original X_train indices
+    pos_cluster_original_idxs = pos_original_idxs[pos_clusters_idxs[cluster_label]]
+    X_pos_cluster = X_train[pos_cluster_original_idxs]
+    mean_pos_cluster = np.mean(X_pos_cluster, axis=0)
+
+    mean_norm = np.linalg.norm(mean_pos_cluster)
+    if mean_norm > 0:
+        mean_pos_cluster_normalized = mean_pos_cluster / mean_norm
+    else:
+        mean_pos_cluster_normalized = mean_pos_cluster
+    clusters_norms = {}
+    clusters_lengths = {}
+    for k, idxs in pos_clusters_idxs.items():
+        original_idxs = pos_original_idxs[idxs]
+        samples = X_train[original_idxs]
+        samples_normalized = samples / np.linalg.norm(samples, axis=1, keepdims=True)
+        sims = np.dot(samples_normalized, mean_pos_cluster_normalized)
+        clusters_norms[k] = np.mean(sims)
+        clusters_lengths[k] = len(idxs)
+
+    clusters_keys = list(clusters_norms.keys())
+    clusters_sims = np.array([clusters_norms[k] for k in clusters_keys])
+    clusters_sims_scaled = clusters_sims / cluster_alpha
+    clusters_sims_exp = np.exp(clusters_sims_scaled - np.max(clusters_sims_scaled))
+    clusters_softmax = clusters_sims_exp / np.sum(clusters_sims_exp)
+    clusters_softmax_dict = {k: clusters_softmax[i] for i, k in enumerate(clusters_keys)}
+    denom = np.sum(clusters_softmax_dict[k] * clusters_lengths[k] for k in clusters_keys)
+    w_pos_dict = {}
+    for k in clusters_keys:
+        w_pos_dict[k] = correction * (1.0 - neg_scale) * clusters_softmax_dict[k] / denom
+    w_neg_dict = {}
+    w_cache, cache_denom = get_weights_cache(
+        correction=correction,
+        neg_scale=neg_scale,
+        cache_v=cache_v,
+        n_negrated=n_negrated,
+        n_cache=n_cache,
+    )
+    neg_weight_per_sample = correction * neg_scale * cache_v / cache_denom
+    for k, idxs in neg_clusters_idxs.items():
+        if len(idxs) > 0:
+            w_neg_dict[k] = np.full(len(idxs), neg_weight_per_sample)
+        else:
+            w_neg_dict[k] = np.array([])
+    return w_pos_dict, w_neg_dict, w_cache
+
+
+def get_weights_cluster_single(
+    correction: int,
+    neg_scale: float,
+    cache_v: float,
+    n_posrated: int,
+    n_negrated: int,
+    n_cache: int,
+    cluster_alpha: float,
+    cluster_label: int,
+    pos_clusters_idxs: dict,
+    neg_clusters_idxs: dict,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+) -> tuple:
+    n_clusters = len(pos_clusters_idxs)
+    w_pos_dict = {}
+    for k, idxs in pos_clusters_idxs.items():
+        cluster_size = len(idxs)
+        if cluster_size > 0:
+            cluster_weight = correction * (1.0 - neg_scale) / n_clusters / cluster_size
+            w_pos_dict[k] = np.full(cluster_size, cluster_weight)
+        else:
+            w_pos_dict[k] = np.array([])
+    w_neg_dict = {}
+    w_cache, cache_denom = get_weights_cache(
+        correction=correction,
+        neg_scale=neg_scale,
+        cache_v=cache_v,
+        n_negrated=n_negrated,
+        n_cache=n_cache,
+    )
+    neg_weight_per_sample = correction * neg_scale * cache_v / cache_denom
+    for k, idxs in neg_clusters_idxs.items():
+        if len(idxs) > 0:
+            w_neg_dict[k] = np.full(len(idxs), neg_weight_per_sample)
+        else:
+            w_neg_dict[k] = np.array([])
+    return w_pos_dict, w_neg_dict, w_cache
 
 
 def get_weights_cluster_scheme(
@@ -352,7 +661,72 @@ def get_weights_cluster_scheme(
     n_pos_cluster_in: int,
     n_neg_cluster_in: int,
     cluster_alpha: float,
+    cluster_label: int,
+    pos_clusters_idxs: dict,
+    neg_clusters_idxs: dict,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
 ) -> tuple:
+    if pos_scheme == "exponential":
+        return get_weights_cluster_exponential(
+            correction=correction,
+            neg_scale=neg_scale,
+            cache_v=cache_v,
+            n_posrated=n_posrated,
+            n_negrated=n_negrated,
+            n_cache=n_cache,
+            cluster_alpha=cluster_alpha,
+            cluster_label=cluster_label,
+            pos_clusters_idxs=pos_clusters_idxs,
+            neg_clusters_idxs=neg_clusters_idxs,
+            X_train=X_train,
+            y_train=y_train,
+        )
+    elif pos_scheme == "softmax":
+        return get_weights_cluster_softmax(
+            correction=correction,
+            neg_scale=neg_scale,
+            cache_v=cache_v,
+            n_posrated=n_posrated,
+            n_negrated=n_negrated,
+            n_cache=n_cache,
+            cluster_alpha=cluster_alpha,
+            cluster_label=cluster_label,
+            pos_clusters_idxs=pos_clusters_idxs,
+            neg_clusters_idxs=neg_clusters_idxs,
+            X_train=X_train,
+            y_train=y_train,
+        )
+    elif pos_scheme == "merge":
+        return get_weights_cluster_merge(
+            correction=correction,
+            neg_scale=neg_scale,
+            cache_v=cache_v,
+            n_posrated=n_posrated,
+            n_negrated=n_negrated,
+            n_cache=n_cache,
+            cluster_alpha=cluster_alpha,
+            cluster_label=cluster_label,
+            pos_clusters_idxs=pos_clusters_idxs,
+            neg_clusters_idxs=neg_clusters_idxs,
+            X_train=X_train,
+            y_train=y_train,
+        )
+    elif pos_scheme == "single":
+        return get_weights_cluster_single(
+            correction=correction,
+            neg_scale=neg_scale,
+            cache_v=cache_v,
+            n_posrated=n_posrated,
+            n_negrated=n_negrated,
+            n_cache=n_cache,
+            cluster_alpha=cluster_alpha,
+            cluster_label=cluster_label,
+            pos_clusters_idxs=pos_clusters_idxs,
+            neg_clusters_idxs=neg_clusters_idxs,
+            X_train=X_train,
+            y_train=y_train,
+        )
     if neg_scheme == "none":
         return get_weights_cluster_neg_none(
             correction=correction,
@@ -427,19 +801,26 @@ def get_weights(
     is_cluster: bool = False,
     pos_scheme: str = None,
     neg_scheme: str = None,
-    n_pos_cluster_in: int = None,
-    n_neg_cluster_in: int = None,
+    cluster_label: int = None,
+    pos_clusters_idxs: dict = None,
+    neg_clusters_idxs: dict = None,
     cluster_alpha: float = None,
+    X_train: np.ndarray = None,
+    y_train: np.ndarray = None,
 ) -> tuple:
-    correction = n_posrated + n_negrated + n_cache
+    n_pos_cluster_in = len(pos_clusters_idxs[cluster_label]) if is_cluster else None
+    n_neg_cluster_in = len(neg_clusters_idxs[cluster_label]) if is_cluster else None
+    n_rated = n_posrated + n_negrated
+    correction = n_rated + n_cache
     neg_scale = hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_neg_scale"]]
     cache_v = hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_cache_v"]]
-    if is_cluster:
-        assert n_pos_cluster_in is not None and n_neg_cluster_in is not None
-        n_pos_cluster_out = n_posrated - n_pos_cluster_in
-        n_neg_cluster_out = n_negrated - n_neg_cluster_in
-        assert n_pos_cluster_out >= 0 and n_neg_cluster_out >= 0
-        assert cluster_alpha is not None
+    if is_cluster or pos_scheme == "single":
+        if is_cluster:
+            assert n_pos_cluster_in is not None and n_neg_cluster_in is not None
+            n_pos_cluster_out = n_posrated - n_pos_cluster_in
+            n_neg_cluster_out = n_negrated - n_neg_cluster_in
+            assert n_pos_cluster_out >= 0 and n_neg_cluster_out >= 0
+            assert cluster_alpha is not None
         return get_weights_cluster_scheme(
             correction=correction,
             neg_scale=neg_scale,
@@ -452,6 +833,11 @@ def get_weights(
             n_pos_cluster_in=n_pos_cluster_in,
             n_neg_cluster_in=n_neg_cluster_in,
             cluster_alpha=cluster_alpha,
+            cluster_label=cluster_label,
+            pos_clusters_idxs=pos_clusters_idxs,
+            neg_clusters_idxs=neg_clusters_idxs,
+            X_train=X_train,
+            y_train=y_train,
         )
     else:
         w_pos_in_cluster = correction * (1.0 - neg_scale) / n_posrated
@@ -463,22 +849,22 @@ def get_weights(
 
 
 def get_sample_weights_temporal_decay_none(
+    X_train: np.ndarray,
     y_train: np.ndarray,
     n_rated: int,
     hyperparameters_combination: tuple,
     is_cluster: bool = False,
     pos_scheme: str = None,
     neg_scheme: str = None,
-    pos_cluster_in_idxs: np.ndarray = None,
-    pos_cluster_out_idxs: np.ndarray = None,
-    neg_cluster_in_idxs: np.ndarray = None,
-    neg_cluster_out_idxs: np.ndarray = None,
+    cluster_label: int = None,
+    pos_clusters_idxs: dict = None,
+    neg_clusters_idxs: dict = None,
     cluster_alpha: float = None,
 ) -> np.ndarray:
     n_total = y_train.shape[0]
     sample_weights = np.empty(n_total, dtype=np.float64)
     y_rated = y_train[:n_rated]
-    w_pos_in_cluster, w_neg_in_cluster, w_cache, w_pos_out_cluster, w_neg_out_cluster = get_weights(
+    weights = get_weights(
         hyperparameters_combination=hyperparameters_combination,
         n_posrated=np.sum(y_rated == 1),
         n_negrated=np.sum(y_rated == 0),
@@ -486,33 +872,117 @@ def get_sample_weights_temporal_decay_none(
         is_cluster=is_cluster,
         pos_scheme=pos_scheme,
         neg_scheme=neg_scheme,
-        n_pos_cluster_in=pos_cluster_in_idxs.shape[0] if is_cluster else None,
-        n_neg_cluster_in=neg_cluster_in_idxs.shape[0] if is_cluster else None,
+        cluster_label=cluster_label,
+        pos_clusters_idxs=pos_clusters_idxs,
+        neg_clusters_idxs=neg_clusters_idxs,
         cluster_alpha=cluster_alpha,
+        X_train=X_train,
+        y_train=y_train,
     )
-    if not is_cluster:
+    if not is_cluster and pos_scheme not in ["exponential", "softmax", "merge", "single"]:
+        w_pos_in_cluster, w_neg_in_cluster, w_cache, w_pos_out_cluster, w_neg_out_cluster = weights
         sample_weights[y_train == 1] = w_pos_in_cluster
         sample_weights[y_train == 0] = w_neg_in_cluster
     else:
-        sample_weights[pos_cluster_in_idxs] = w_pos_in_cluster
-        sample_weights[neg_cluster_in_idxs] = w_neg_in_cluster
-        sample_weights[pos_cluster_out_idxs] = w_pos_out_cluster
-        sample_weights[neg_cluster_out_idxs] = w_neg_out_cluster
+        if pos_scheme in ["exponential", "softmax", "merge", "single"]:
+            w_pos, w_neg, w_cache = weights
+            pos_rated_mask = y_train[:n_rated] == 1
+            neg_rated_mask = y_train[:n_rated] == 0
+            pos_original_idxs = np.where(pos_rated_mask)[0]
+            neg_original_idxs = np.where(neg_rated_mask)[0]
+            for k in pos_clusters_idxs.keys():
+                original_pos_idxs = pos_original_idxs[pos_clusters_idxs[k]]
+                original_neg_idxs = neg_original_idxs[neg_clusters_idxs[k]]
+                sample_weights[original_pos_idxs] = w_pos[k]
+                sample_weights[original_neg_idxs] = w_neg[k]
+
+            n_posrated = np.sum(y_rated == 1)
+            n_negrated = np.sum(y_rated == 0)
+            n_cache = n_total - n_rated
+            assert n_posrated + n_negrated == n_rated and n_rated + n_cache == n_total
+            cache_v = hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_cache_v"]]
+            neg_scale = hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_neg_scale"]]
+            pos_goal = n_total * (1.0 - neg_scale)
+            neg_denom = cache_v * n_negrated + (1.0 - cache_v) * (n_total - n_rated)
+            neg_goal = n_negrated * n_total * neg_scale * cache_v / neg_denom
+            cache_goal = (n_total - n_rated) * n_total * neg_scale * (1.0 - cache_v) / neg_denom
+            assert np.isclose(pos_goal + neg_goal + cache_goal, n_total)
+
+            actual_pos = np.sum(sample_weights[:n_rated][y_rated == 1])
+            pos_sum = 0
+            for k in pos_clusters_idxs.keys():
+                pos_sum += np.sum(w_pos[k])
+            actual_neg = np.sum(sample_weights[:n_rated][y_rated == 0])
+            assert np.isclose(actual_pos, pos_goal), f"{actual_pos} vs {pos_goal}"
+            assert np.isclose(actual_neg, neg_goal), f"{actual_neg} vs {neg_goal}"
+        else:
+            pos_rated_mask = y_train[:n_rated] == 1
+            neg_rated_mask = y_train[:n_rated] == 0
+            pos_original_idxs = np.where(pos_rated_mask)[0]
+            neg_original_idxs = np.where(neg_rated_mask)[0]
+            w_pos_in_cluster, w_neg_in_cluster, w_cache, w_pos_out_cluster, w_neg_out_cluster = (
+                weights
+            )
+            pos_cluster_in_idxs = pos_clusters_idxs[cluster_label]
+            neg_cluster_in_idxs = neg_clusters_idxs[cluster_label]
+            pos_cluster_out_idxs = [
+                idx
+                for lbl, idxs in pos_clusters_idxs.items()
+                if lbl != cluster_label
+                for idx in idxs
+            ]
+            pos_cluster_out_idxs = np.array(pos_cluster_out_idxs, dtype=np.int64)
+            neg_cluster_out_idxs = [
+                idx
+                for lbl, idxs in neg_clusters_idxs.items()
+                if lbl != cluster_label
+                for idx in idxs
+            ]
+            neg_cluster_out_idxs = np.array(neg_cluster_out_idxs, dtype=np.int64)
+            sample_weights[pos_original_idxs[pos_cluster_in_idxs]] = w_pos_in_cluster
+            sample_weights[neg_original_idxs[neg_cluster_in_idxs]] = w_neg_in_cluster
+            sample_weights[pos_original_idxs[pos_cluster_out_idxs]] = w_pos_out_cluster
+            sample_weights[neg_original_idxs[neg_cluster_out_idxs]] = w_neg_out_cluster
+            """
+            sample_weights[pos_cluster_in_idxs] = w_pos_in_cluster
+            sample_weights[neg_cluster_in_idxs] = w_neg_in_cluster
+            sample_weights[pos_cluster_out_idxs] = w_pos_out_cluster
+            sample_weights[neg_cluster_out_idxs] = w_neg_out_cluster
+            """
+
+            n_posrated = np.sum(y_rated == 1)
+            n_negrated = np.sum(y_rated == 0)
+            n_cache = n_total - n_rated
+            assert n_posrated + n_negrated == n_rated and n_rated + n_cache == n_total
+            cache_v = hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_cache_v"]]
+            neg_scale = hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_neg_scale"]]
+            pos_goal = n_total * (1.0 - neg_scale)
+            neg_denom = cache_v * n_negrated + (1.0 - cache_v) * (n_total - n_rated)
+            neg_goal = n_negrated * n_total * neg_scale * cache_v / neg_denom
+            cache_goal = (n_total - n_rated) * n_total * neg_scale * (1.0 - cache_v) / neg_denom
+            assert np.isclose(pos_goal + neg_goal + cache_goal, n_total)
+            assert np.isclose(pos_goal, w_pos_in_cluster * len(pos_cluster_in_idxs) + w_pos_out_cluster * len(pos_cluster_out_idxs)), f"pos_goal: {pos_goal}, computed: {w_pos_in_cluster * len(pos_cluster_in_idxs) + w_pos_out_cluster * len(pos_cluster_out_idxs)}"
+
+            actual_pos = np.sum(sample_weights[:n_rated][y_rated == 1])
+            actual_neg = np.sum(sample_weights[:n_rated][y_rated == 0])
+            assert np.isclose(actual_pos, pos_goal), f"{actual_pos} vs {pos_goal}"
+            assert np.isclose(actual_neg, neg_goal), f"{actual_neg} vs {neg_goal}"
+
     sample_weights[n_rated:] = w_cache
-    assert np.isclose(np.sum(sample_weights), n_total)
+    assert np.isclose(np.sum(sample_weights), n_total), f"{np.sum(sample_weights)} vs {n_total}"
     return sample_weights
 
 
 def get_sample_weights(
+    X_train: np.ndarray,
     y_train: np.ndarray,
     n_rated: int,
     rated_time_diffs: np.ndarray,
     eval_settings: dict,
     is_cluster: bool = False,
-    pos_cluster_in_idxs: np.ndarray = None,
-    pos_cluster_out_idxs: np.ndarray = None,
-    neg_cluster_in_idxs: np.ndarray = None,
-    neg_cluster_out_idxs: np.ndarray = None,
+    cluster_label: int = None,
+    pos_clusters_idxs: dict = None,
+    neg_clusters_idxs: dict = None,
 ) -> np.ndarray:
     hyperparameters_combination = get_hyperparameters_combination(eval_settings)
     temporal_decay = get_temporal_decay_from_arg(eval_settings["logreg_temporal_decay"])
@@ -521,16 +991,16 @@ def get_sample_weights(
     )
     if temporal_decay == TemporalDecay.NONE:
         return get_sample_weights_temporal_decay_none(
+            X_train=X_train,
             y_train=y_train,
             n_rated=n_rated,
             hyperparameters_combination=hyperparameters_combination,
             is_cluster=is_cluster,
             pos_scheme=eval_settings.get("clustering_pos_weighting_scheme", None),
             neg_scheme=eval_settings.get("clustering_neg_weighting_scheme", None),
-            pos_cluster_in_idxs=pos_cluster_in_idxs,
-            pos_cluster_out_idxs=pos_cluster_out_idxs,
-            neg_cluster_in_idxs=neg_cluster_in_idxs,
-            neg_cluster_out_idxs=neg_cluster_out_idxs,
+            cluster_label=cluster_label,
+            pos_clusters_idxs=pos_clusters_idxs,
+            neg_clusters_idxs=neg_clusters_idxs,
             cluster_alpha=eval_settings.get("clustering_cluster_alpha", None),
         )
     else:
@@ -538,7 +1008,9 @@ def get_sample_weights(
             user_train_set_ratings=y_train[:n_rated],
             user_train_set_time_diffs=rated_time_diffs,
             n_cache=y_train.shape[0] - n_rated,
-            weights_neg_scale=hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_neg_scale"]],
+            weights_neg_scale=hyperparameters_combination[
+                LOGREG_HYPERPARAMETERS["weights_neg_scale"]
+            ],
             weights_cache_v=hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_cache_v"]],
             temporal_decay=temporal_decay,
             temporal_decay_normalization=temporal_decay_normalization,

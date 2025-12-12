@@ -17,9 +17,11 @@ N_NEGRATED_RANKING = 4
 
 
 class UsersRatingsSelection(Enum):
+    TOTAL = auto()
     FINETUNING_TRAIN = auto()
     SEQUENCE_TRAIN = auto()
     SESSION_BASED_NO_FILTERING = auto()
+    SESSION_BASED_NO_FILTERING_POS = auto()
     SESSION_BASED_NO_FILTERING_OLD = auto()
     SESSION_BASED_FILTERING = auto()
     SESSION_BASED_FILTERING_OLD = auto()
@@ -61,7 +63,8 @@ def check_single_split(
     )
     valid_split_val = n_posrated_val >= min_n_posrated_val and n_negrated_val >= min_n_negrated_val
     valid_split = valid_split_train and valid_split_val
-    test_size_split = len(val_ratings) / len(user_ratings)
+    #test_size_split = len(val_ratings) / len(user_ratings)
+    test_size_split = n_posrated_val / (n_posrated_train + n_posrated_val)
     return valid_split, test_size_split
 
 
@@ -540,6 +543,9 @@ def load_users_ratings_from_selection(
     elif users_ratings_selection == UsersRatingsSelection.SESSION_BASED_NO_FILTERING:
         path = ProjectPaths.data_session_based_no_filtering_ratings_path()
         users_ratings = pd.read_parquet(path, engine="pyarrow")
+    elif users_ratings_selection == UsersRatingsSelection.SESSION_BASED_NO_FILTERING_POS:
+        path = ProjectPaths.data_session_based_no_filtering_pos_ratings_path()
+        users_ratings = pd.read_parquet(path, engine="pyarrow")
     elif users_ratings_selection == UsersRatingsSelection.SESSION_BASED_FILTERING:
         path = ProjectPaths.data_session_based_filtering_ratings_path()
         users_ratings = pd.read_parquet(path, engine="pyarrow")
@@ -582,6 +588,22 @@ def load_users_ratings_from_selection(
 if __name__ == "__main__":
     users_ratings = load_users_ratings()
 
+    # get a df user_id n_pos n_neg
+
+    users_ratings_counts = (
+        users_ratings.groupby("user_id")
+        .agg(
+            n_posrated=("rating", lambda x: (x == 1).sum()),
+            n_negrated=("rating", lambda x: (x == 0).sum()),
+        )
+        .reset_index()
+    )
+    users_ratings_counts = users_ratings_counts[(users_ratings_counts["n_negrated"] >= 20) &
+                                                (users_ratings_counts["n_posrated"] >= 20)]
+    users_ratings_counts["n_total"] = users_ratings_counts["n_posrated"] + users_ratings_counts["n_negrated"]
+    print(users_ratings_counts.describe())
+
+    """
     SESSION_BASED_NO_FILTERING_PARAMS = {
         "filter_for_negrated_ranking": False,
         "min_n_posrated_train": 20,
@@ -594,6 +616,9 @@ if __name__ == "__main__":
     save_session_based_no_filtering_ratings(
         users_ratings=users_ratings, params=SESSION_BASED_NO_FILTERING_PARAMS
     )
+    """
+
+    """
 
     FINETUNING_PARAMS = {
         "n_test_users": 500,
@@ -629,3 +654,4 @@ if __name__ == "__main__":
     )
     save_sequence_users_ids(seq_users_ratings)
     save_sequence_train_ratings(users_ratings=users_ratings)
+    """

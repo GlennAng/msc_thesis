@@ -22,7 +22,7 @@ from .create_example_configs import (
     create_example_config_sliding_window,
 )
 
-CLUSTERING_POS_WEIGHTING_SCHEMES = ["absolute", "relative"]
+CLUSTERING_POS_WEIGHTING_SCHEMES = ["absolute", "relative", "exponential", "softmax", "merge"]
 CLUSTERING_NEG_WEIGHTING_SCHEMES = [
     "none",
     "fixed_neg_scale",
@@ -75,6 +75,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clustering_val_split_n_steps_between_updates", type=int, default=0)
 
     parser.add_argument("--clustering_knn_alpha", type=float, default=5.0)
+
+    parser.add_argument("--clustering_db_scan_eps", type=float, default=0.2)
+    parser.add_argument("--clustering_db_scan_min_samples", type=int, default=5)
 
     parser.add_argument("--clustering_approach", type=str, default="none")
     parser.add_argument("--clustering_min_n_posrated", type=int, default=None)

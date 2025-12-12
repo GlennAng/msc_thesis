@@ -15,18 +15,21 @@ def plot_piecharts(
     distribution_1: pd.Series, distribution_2: pd.Series, title_1: str, title_2: str
 ) -> None:
     _, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+    ax1.set_facecolor('#fafafa')  # Very subtle grey background for subplot 1
+    ax2.set_facecolor('#fafafa')  # Very subtle grey background for subplot 2
+    
     categories = distribution_1.index
     distribution_2 = distribution_2.reindex(categories)
     colors = plt.cm.tab20.colors
     radius = 3.0
     wedges1, _ = ax1.pie(distribution_1, labels=None, startangle=140, colors=colors, radius=radius)
     ax2.pie(distribution_2, labels=None, startangle=140, colors=colors, radius=radius)
-    ax1.set_title(title_1, fontweight="bold", fontsize=18)
-    ax2.set_title(title_2, fontweight="bold", fontsize=18)
+    ax1.set_title(title_1, fontweight="bold", fontsize=24)  # Increased from 18
+    ax2.set_title(title_2, fontweight="bold", fontsize=24)  # Increased from 18
     ax1.axis("equal")
     ax2.axis("equal")
     ax1.legend(
-        wedges1, categories, loc="upper right", bbox_to_anchor=(2.0, 0.05), ncol=4, fontsize=14
+        wedges1, categories, loc="upper right", bbox_to_anchor=(2.0, 0.05), ncol=4, fontsize=18  # Increased from 14
     )  # only need 1 legend
     plt.savefig("piecharts.pdf", format="pdf", dpi=300, bbox_inches="tight")
     plt.tight_layout()
@@ -39,6 +42,8 @@ def plot_vertical_mirrorchart(
     distribution_1 = distribution_1 * 100
     distribution_2 = distribution_2 * 100
     _, ax = plt.subplots(figsize=(12, 8))
+    ax.set_facecolor('#fafafa')  # Very subtle grey background for plot area only
+    
     categories = distribution_1.index
     distribution_2 = distribution_2.reindex(categories)
     x_pos = np.arange(len(categories))
@@ -60,13 +65,16 @@ def plot_vertical_mirrorchart(
 
     for i, bar in enumerate(bars1):
         height = bar.get_height()
+        width = bar.get_x() + bar.get_width() / 2
+        if i == 0:
+            width -= 0.1  # Adjust first label position slightly to the left
         ax.text(
-            bar.get_x() + bar.get_width() / 2,
+            width,
             height + 0.5,
             f"{distribution_1.values[i]:.2f}",
             ha="center",
             va="bottom",
-            fontsize=9,
+            fontsize=10.5,  # Increased from 9
             fontweight="bold",
         )
     for i, bar in enumerate(bars2):
@@ -77,23 +85,28 @@ def plot_vertical_mirrorchart(
             f"{distribution_2.values[i]:.2f}",
             ha="center",
             va="top",
-            fontsize=9,
+            fontsize=10.5,  # Increased from 9
             fontweight="bold",
         )
     ax.set_xticks(x_pos)
-    ax.set_xticklabels(categories, rotation=45, ha="right")
-    ax.set_ylabel("Share (in %)", fontsize=12)
-    max_value = 75
-    y_ticks = np.linspace(0, max_value, 4)
-    ax.set_yticks(list(-y_ticks[1:]) + list(y_ticks))
-    ax.set_yticklabels([str(abs(y)) for y in ax.get_yticks()])
+    ax.set_xticklabels(categories, rotation=45, ha="right", fontsize=14)  # Added fontsize
+    ax.set_ylabel("Share (in %)", fontsize=16)  # Increased from 12
+    ax.tick_params(axis='y', labelsize=14)  # Added tick label size
+
+    # Set y-axis ticks at -75, -50, -25, 0, 25
+    y_ticks = [-75, -50, -25, 0, 25]
+    ax.set_yticks(y_ticks)
+    ax.set_yticklabels([str(abs(y)) for y in y_ticks])
+
     ax.axhline(y=0, color="black", linestyle="-", alpha=0.3)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+
     handles = [bars1[0], bars2[0]]  # Use only the first bar of each type
     labels = [title_1, title_2]
-    ax.legend(handles, labels, loc="best")
-    plt.title(title, fontweight="bold", fontsize=14)
+    ax.legend(handles, labels, loc="best", fontsize=16)  # Added fontsize
+
+    plt.title(title, fontweight="bold", fontsize=18)  # Increased from 14
     plt.savefig("mirrorchart.pdf", format="pdf", dpi=300, bbox_inches="tight")
     plt.tight_layout()
     plt.show()
@@ -112,8 +125,8 @@ print(papers_distribution)
 print("\nPapers in ratings distribution:")
 print(papers_in_ratings_distribution)
 
-piecharts_title_1 = "Papers from Database Category Distribution"
-piecharts_title_2 = "Papers in Ratings Category Distribution"
+piecharts_title_1 = "Papers in Corpus"
+piecharts_title_2 = "Papers in User Ratings"
 plot_piecharts(
     papers_distribution, papers_in_ratings_distribution, piecharts_title_1, piecharts_title_2
 )
@@ -121,7 +134,7 @@ plot_piecharts(
 plot_vertical_mirrorchart(
     papers_distribution,
     papers_in_ratings_distribution,
-    "Papers Category Distribution Comparison",
+    "",
     piecharts_title_1,
     piecharts_title_2,
 )

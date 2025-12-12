@@ -139,11 +139,9 @@ for i, model_choice in enumerate(MODELS_CHOICES):
             finetuning_model_path=model_path,
             device=device,
             mode="eval",
-            n_unfreeze_layers=0,
+            unfreeze_parameters_dict={"n_unfreeze_layers": 0},
         )
         model.categories_embeddings_l1 = None
-        if model == "gte-large-en-v1.5_no_projection":
-            model.projection = None
     embedding_wrapper = CustomEmbeddingWrapper(
         model_choice=model_choice, device=device, model=model
     )

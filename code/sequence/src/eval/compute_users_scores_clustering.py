@@ -4,14 +4,11 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 from scipy.special import expit
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, DBSCAN
 from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm
 
-from ....finetuning.src.finetuning_compare_embeddings import (
-    compute_sims,
-    compute_sims_same_set,
-)
+from ....finetuning.src.finetuning_compare_embeddings import compute_sims
 from ....logreg.src.embeddings.embedding import Embedding
 from ....logreg.src.training.algorithm import Algorithm, get_model
 from ....logreg.src.training.evaluation import split_negrated_ranking, split_ratings
@@ -45,6 +42,8 @@ class ClusteringApproach(Enum):
     UPPER_BOUND = auto()
     VAL_SPLIT = auto()
     KNN = auto()
+    SINGLE = auto()
+    DB_SCAN = auto()
 
 
 def get_clustering_approach_from_arg(arg: str) -> ClusteringApproach:
@@ -63,6 +62,10 @@ def get_clustering_approach_from_arg(arg: str) -> ClusteringApproach:
         return ClusteringApproach.VAL_SPLIT
     elif arg == "knn":
         return ClusteringApproach.KNN
+    elif arg == "single":
+        return ClusteringApproach.SINGLE
+    elif arg == "db_scan":
+        return ClusteringApproach.DB_SCAN
     else:
         raise ValueError(f"Unknown clustering approach: {arg}")
 
@@ -123,21 +126,20 @@ def train_logreg_single_cluster(
     random_state: int,
     eval_settings: dict,
     is_cluster: bool = False,
-    pos_cluster_in_idxs: np.ndarray = None,
-    pos_cluster_out_idxs: np.ndarray = None,
-    neg_cluster_in_idxs: np.ndarray = None,
-    neg_cluster_out_idxs: np.ndarray = None,
+    cluster_label: int = None,
+    pos_clusters_idxs: dict = None,
+    neg_clusters_idxs: dict = None,
 ) -> object:
     sample_weights = get_sample_weights(
+        X_train=X_train,
         y_train=y_train,
         n_rated=n_rated,
         rated_time_diffs=rated_time_diffs,
         eval_settings=eval_settings,
         is_cluster=is_cluster,
-        pos_cluster_in_idxs=pos_cluster_in_idxs,
-        pos_cluster_out_idxs=pos_cluster_out_idxs,
-        neg_cluster_in_idxs=neg_cluster_in_idxs,
-        neg_cluster_out_idxs=neg_cluster_out_idxs,
+        cluster_label=cluster_label,
+        pos_clusters_idxs=pos_clusters_idxs,
+        neg_clusters_idxs=neg_clusters_idxs,
     )
     logreg = get_model(
         algorithm=Algorithm.LOGREG,
@@ -158,8 +160,6 @@ def train_models_clustering_none(
     random_state: int,
     eval_settings: dict,
 ) -> tuple:
-    n_pos = np.sum(y_train == 1)
-    assert n_pos >= eval_settings["clustering_selection_min_cluster_size"]
     logreg = train_logreg_single_cluster(
         X_train=X_train,
         y_train=y_train,
@@ -186,26 +186,26 @@ def train_logregs_for_clusters(
     pos_original_idxs = np.where(pos_rated_mask)[0]
     neg_original_idxs = np.where(neg_rated_mask)[0]
     clusters_logregs, clusters_with_sufficient_size = [], []
+    pos_clusters_idxs, neg_clusters_idxs = {}, {}
     for cluster_label in range(kmeans.n_clusters):
-        pos_cluster_in_idxs = pos_original_idxs[np.where(pos_clusters_labels == cluster_label)[0]]
-        pos_n_cluster_idxs = len(pos_cluster_in_idxs)
+        pos_clusters_idxs[cluster_label] = np.where(pos_clusters_labels == cluster_label)[0]
+        neg_clusters_idxs[cluster_label] = np.where(neg_clusters_labels == cluster_label)[0]
+    assert sum(len(idxs) for idxs in pos_clusters_idxs.values()) == len(pos_original_idxs)
+    assert sum(len(idxs) for idxs in neg_clusters_idxs.values()) == len(neg_original_idxs)
+    for cluster_label in range(kmeans.n_clusters):
+        pos_n_cluster_idxs = len(pos_clusters_idxs[cluster_label])
         if pos_n_cluster_idxs < eval_settings["clustering_selection_min_cluster_size"]:
             continue
-        pos_cluster_out_idxs = pos_original_idxs[np.where(pos_clusters_labels != cluster_label)[0]]
-        assert len(pos_cluster_in_idxs) + len(pos_cluster_out_idxs) == len(pos_original_idxs)
-        neg_cluster_in_idxs = neg_original_idxs[np.where(neg_clusters_labels == cluster_label)[0]]
-        neg_cluster_out_idxs = neg_original_idxs[np.where(neg_clusters_labels != cluster_label)[0]]
-        assert len(neg_cluster_in_idxs) + len(neg_cluster_out_idxs) == len(neg_original_idxs)
         sample_weights = get_sample_weights(
+            X_train=X_train,
             y_train=y_train,
             n_rated=n_rated,
             rated_time_diffs=rated_time_diffs,
             eval_settings=eval_settings,
             is_cluster=True,
-            pos_cluster_in_idxs=pos_cluster_in_idxs,
-            pos_cluster_out_idxs=pos_cluster_out_idxs,
-            neg_cluster_in_idxs=neg_cluster_in_idxs,
-            neg_cluster_out_idxs=neg_cluster_out_idxs,
+            cluster_label=cluster_label,
+            pos_clusters_idxs=pos_clusters_idxs,
+            neg_clusters_idxs=neg_clusters_idxs,
         )
         logreg = get_model(
             algorithm=Algorithm.LOGREG,
@@ -218,6 +218,131 @@ def train_logregs_for_clusters(
         clusters_with_sufficient_size.append(cluster_label)
         clusters_logregs.append(logreg)
     return clusters_logregs, clusters_with_sufficient_size
+
+
+def assign_to_nearest_cluster(
+    dbscan: DBSCAN,
+    X_fitted: np.ndarray,
+    fitted_labels: np.ndarray,
+    X_new: np.ndarray,
+) -> np.ndarray:
+    from sklearn.neighbors import NearestNeighbors
+    core_mask = fitted_labels != -1
+    core_points = X_fitted[core_mask]
+    core_labels = fitted_labels[core_mask]
+    if len(core_points) == 0:
+        return np.full(len(X_new), -1)
+    nbrs = NearestNeighbors(n_neighbors=1, metric=dbscan.metric).fit(core_points)
+    distances, indices = nbrs.kneighbors(X_new)
+    new_labels = core_labels[indices.flatten()]
+    new_labels[distances.flatten() > dbscan.eps] = -1
+    return new_labels
+
+
+def train_logregs_for_clusters_db(
+    dbscan: DBSCAN,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    n_rated: int,
+    rated_time_diffs: np.ndarray,
+    random_state: int,
+    eval_settings: dict,
+) -> tuple:
+    pos_rated_mask, neg_rated_mask = y_train[:n_rated] == 1, y_train[:n_rated] == 0
+    pos_clusters_labels = dbscan.fit_predict(X_train[:n_rated][pos_rated_mask])
+    neg_clusters_labels = assign_to_nearest_cluster(
+        dbscan=dbscan, 
+        X_fitted=X_train[:n_rated][pos_rated_mask],
+        fitted_labels=pos_clusters_labels,
+        X_new=X_train[:n_rated][neg_rated_mask]
+    )
+    pos_original_idxs = np.where(pos_rated_mask)[0]
+    neg_original_idxs = np.where(neg_rated_mask)[0]
+    clusters_logregs, clusters_with_sufficient_size = [], []
+    pos_clusters_idxs, neg_clusters_idxs = {}, {}
+    
+    unique_clusters = set(pos_clusters_labels).union(set(neg_clusters_labels))
+    for cluster_label in unique_clusters:
+        pos_clusters_idxs[cluster_label] = np.where(pos_clusters_labels == cluster_label)[0]
+        neg_clusters_idxs[cluster_label] = np.where(neg_clusters_labels == cluster_label)[0]
+    assert sum(len(idxs) for idxs in pos_clusters_idxs.values()) == len(pos_original_idxs)
+    assert sum(len(idxs) for idxs in neg_clusters_idxs.values()) == len(neg_original_idxs)
+    
+    for cluster_label in unique_clusters:
+        if cluster_label == -1:
+            continue
+        pos_n_cluster_idxs = len(pos_clusters_idxs[cluster_label])
+        if pos_n_cluster_idxs < eval_settings["clustering_selection_min_cluster_size"]:
+            continue
+        sample_weights = get_sample_weights(
+            X_train=X_train,
+            y_train=y_train,
+            n_rated=n_rated,
+            rated_time_diffs=rated_time_diffs,
+            eval_settings=eval_settings,
+            is_cluster=True,
+            cluster_label=cluster_label,
+            pos_clusters_idxs=pos_clusters_idxs,
+            neg_clusters_idxs=neg_clusters_idxs,
+        )
+        logreg = get_model(
+            algorithm=Algorithm.LOGREG,
+            max_iter=eval_settings["logreg_max_iter"],
+            clf_C=eval_settings["logreg_clf_C"],
+            random_state=random_state,
+            logreg_solver=eval_settings["logreg_solver"],
+        )
+        
+        logreg.fit(X_train, y_train, sample_weight=sample_weights)
+        clusters_with_sufficient_size.append(cluster_label)
+        clusters_logregs.append(logreg)
+    
+    return clusters_logregs, clusters_with_sufficient_size
+
+
+def train_logreg_single(
+    kmeans: KMeans,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    n_rated: int,
+    rated_time_diffs: np.ndarray,
+    random_state: int,
+    eval_settings: dict,
+) -> tuple:
+    pos_rated_mask, neg_rated_mask = y_train[:n_rated] == 1, y_train[:n_rated] == 0
+    pos_clusters_labels = kmeans.fit_predict(X_train[:n_rated][pos_rated_mask])
+    neg_clusters_labels = kmeans.predict(X_train[:n_rated][neg_rated_mask])
+    pos_original_idxs = np.where(pos_rated_mask)[0]
+    neg_original_idxs = np.where(neg_rated_mask)[0]
+    pos_clusters_idxs, neg_clusters_idxs = {}, {}
+    for cluster_label in range(kmeans.n_clusters):
+        pos_clusters_idxs[cluster_label] = np.where(pos_clusters_labels == cluster_label)[0]
+        neg_clusters_idxs[cluster_label] = np.where(neg_clusters_labels == cluster_label)[0]
+    assert sum(len(idxs) for idxs in pos_clusters_idxs.values()) == len(pos_original_idxs)
+    assert sum(len(idxs) for idxs in neg_clusters_idxs.values()) == len(neg_original_idxs)
+    eval_settings_copy = eval_settings.copy()
+    eval_settings_copy["clustering_pos_weighting_scheme"] = "single"
+    eval_settings_copy["clustering_neg_weighting_scheme"] = "none"
+    sample_weights = get_sample_weights(
+        X_train=X_train,
+        y_train=y_train,
+        n_rated=n_rated,
+        rated_time_diffs=rated_time_diffs,
+        eval_settings=eval_settings_copy,
+        is_cluster=False,
+        cluster_label=None,
+        pos_clusters_idxs=pos_clusters_idxs,
+        neg_clusters_idxs=neg_clusters_idxs,
+    )
+    logreg = get_model(
+        algorithm=Algorithm.LOGREG,
+        max_iter=eval_settings["logreg_max_iter"],
+        clf_C=eval_settings["logreg_clf_C"],
+        random_state=random_state,
+        logreg_solver=eval_settings["logreg_solver"],
+    )
+    logreg.fit(X_train, y_train, sample_weight=sample_weights)
+    return logreg, [], kmeans, []
 
 
 def train_models_clustering_k_means_fixed_k(
@@ -252,12 +377,69 @@ def train_models_clustering_k_means_fixed_k(
     return global_logreg, clusters_logregs, kmeans, clusters_with_sufficient_size
 
 
+def train_models_clustering_k_means_single(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    n_rated: int,
+    rated_time_diffs: np.ndarray,
+    random_state: int,
+    eval_settings: dict,
+) -> tuple:
+    n_clusters = eval_settings["clustering_k_means_n_clusters"]
+    assert n_clusters >= 2
+    kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, algorithm="elkan", n_init=10)
+    return train_logreg_single(
+        kmeans=kmeans,
+        X_train=X_train,
+        y_train=y_train,
+        n_rated=n_rated,
+        rated_time_diffs=rated_time_diffs,
+        random_state=random_state,
+        eval_settings=eval_settings,
+    )
+
+
+def train_models_clustering_db_scan(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    n_rated: int,
+    rated_time_diffs: np.ndarray,
+    random_state: int,
+    eval_settings: dict,
+) -> tuple:
+    global_logreg = train_models_clustering_none(
+        X_train=X_train,
+        y_train=y_train,
+        n_rated=n_rated,
+        rated_time_diffs=rated_time_diffs,
+        random_state=random_state,
+        eval_settings=eval_settings,
+    )[0]
+
+    dbscan = DBSCAN(
+        eps=eval_settings["clustering_db_scan_eps"],
+        min_samples=eval_settings["clustering_db_scan_min_samples"],
+        metric="cosine",
+        n_jobs=-1,
+    )
+    clusters_logregs, clusters_with_sufficient_size = train_logregs_for_clusters_db(
+        dbscan=dbscan,
+        X_train=X_train,
+        y_train=y_train,
+        n_rated=n_rated,
+        rated_time_diffs=rated_time_diffs,
+        random_state=random_state,
+        eval_settings=eval_settings,
+    )
+    return global_logreg, clusters_logregs, dbscan, clusters_with_sufficient_size
+
+
 def check_single_cluster(
     clustering_approach: ClusteringApproach, eval_settings: dict, n_pos: int
 ) -> bool:
     if clustering_approach == ClusteringApproach.NONE:
         return True
-    if clustering_approach == ClusteringApproach.K_MEANS_FIXED_K:
+    if clustering_approach in [ClusteringApproach.K_MEANS_FIXED_K, ClusteringApproach.SINGLE]:
         if eval_settings.get("clustering_k_means_n_clusters", 1) == 1:
             return True
     min_n_posrated = eval_settings.get("clustering_min_n_posrated", None)
@@ -588,6 +770,26 @@ def train_models_clustering(
                 random_state=random_state,
                 eval_settings=eval_settings,
             )
+    elif clustering_approach == ClusteringApproach.SINGLE:
+        return train_models_clustering_k_means_single(
+            X_train=X_train,
+            y_train=y_train,
+            n_rated=n_rated,
+            rated_time_diffs=train_set_time_diffs,
+            random_state=random_state,
+            eval_settings=eval_settings,
+        )
+    elif clustering_approach == ClusteringApproach.DB_SCAN:
+        return train_models_clustering_db_scan(
+            X_train=X_train,
+            y_train=y_train,
+            n_rated=n_rated,
+            rated_time_diffs=train_set_time_diffs,
+            random_state=random_state,
+            eval_settings=eval_settings,
+        )
+    else:
+        raise ValueError(f"Unknown clustering approach: {clustering_approach}")
 
 
 def scoring_function_clustering(
@@ -609,7 +811,15 @@ def scoring_function_clustering(
             n_global_model_neg,
         )
 
-    clusters_labels = clustering_model.predict(embeddings_to_score)
+    if isinstance(clustering_model, DBSCAN):
+        clusters_labels = assign_to_nearest_cluster(
+            dbscan=clustering_model,
+            X_fitted=clustering_model.components_,
+            fitted_labels=clustering_model.labels_[clustering_model.core_sample_indices_],
+            X_new=embeddings_to_score,
+        )
+    else:
+        clusters_labels = clustering_model.predict(embeddings_to_score)
     logits = np.zeros(embeddings_to_score.shape[0], dtype=DT)
     assigned_mask = np.zeros(embeddings_to_score.shape[0], dtype=bool)
     for cluster_label, logreg in zip(clusters_with_sufficient_size, clusters_logregs):
@@ -644,21 +854,22 @@ def compute_knn_value(
     neg_embeddings = train_embeddings[train_ratings == 0]
     sims_pos = compute_sims(val_embeddings, pos_embeddings, agg=False)
     sims_neg = compute_sims(val_embeddings, neg_embeddings, agg=False)
-    
+
     K = 3
     # Get top K similarities
     top_k_pos = np.partition(sims_pos, -K, axis=1)[:, -K:]
     top_k_neg = np.partition(sims_neg, -K, axis=1)[:, -K:]
-    
+
     # Apply softmax to weight by similarity strength
     from scipy.special import softmax
+
     weights_pos = softmax(top_k_pos, axis=1)  # shape: (n_val, K)
     weights_neg = softmax(top_k_neg, axis=1)
-    
+
     # Weighted average instead of simple mean
     weighted_pos = (top_k_pos * weights_pos).sum(axis=1)
     weighted_neg = (top_k_neg * weights_neg).sum(axis=1)
-    
+
     knn_score = weighted_pos - weighted_neg
     return knn_alpha * knn_score
 
@@ -787,6 +998,8 @@ def get_train_rated_logits_dict(
 ) -> tuple:
     eval_settings = eval_settings.copy()
     eval_settings["logreg_temporal_decay"] = "none"
+    if eval_settings["clustering_approach"] == ClusteringApproach.DB_SCAN:
+        eval_settings["clustering_approach"] = ClusteringApproach.NONE
 
     if eval_settings["clustering_approach"] == ClusteringApproach.UPPER_BOUND:
         return get_train_rated_logits_dict_upper_bound(
@@ -1200,6 +1413,50 @@ def compute_users_scores_clustering(eval_settings: dict, random_state: int) -> d
                     ],
                 )
             )
+            """
+            one_vs_all = "last"
+            if one_vs_all == "first":
+                keep_idx = np.where(user_train_set_ratings == 1)[0][0]
+            elif one_vs_all == "last":
+                keep_idx = np.where(user_train_set_ratings == 1)[0][-1]
+            elif one_vs_all == "mean":
+                pos_idxs = np.where(user_train_set_ratings == 1)[0]
+                mean_pos_embedding = np.mean(user_train_set_embeddings[pos_idxs], axis=0)
+                user_train_set_embeddings = np.vstack(
+                    [user_train_set_embeddings, mean_pos_embedding]
+                )
+                user_train_set_ratings = np.hstack([user_train_set_ratings, 1])
+                if user_train_set_time_diffs is not None:
+                    user_train_set_time_diffs = np.hstack(
+                        [user_train_set_time_diffs, np.min(user_train_set_time_diffs)]
+                    )
+                keep_idx = len(user_train_set_ratings) - 1
+            user_train_set_ratings = user_train_set_ratings.copy()
+            mask = (user_train_set_ratings != 1) | (np.arange(len(user_train_set_ratings)) == keep_idx)
+            user_train_set_ratings = user_train_set_ratings[mask]       
+            user_train_set_embeddings = user_train_set_embeddings[mask]
+            user_train_set_time_diffs = (
+                user_train_set_time_diffs[mask] if user_train_set_time_diffs is not None else None
+            )
+            neg_idxs = np.where(user_train_set_ratings == 0)[0]
+            mean_neg_embedding = np.mean(user_train_set_embeddings[neg_idxs], axis=0)
+            user_train_set_embeddings = np.vstack(
+                [user_train_set_embeddings, mean_neg_embedding]
+            )
+            user_train_set_ratings = np.hstack([user_train_set_ratings, 0])
+            if user_train_set_time_diffs is not None:
+                user_train_set_time_diffs = np.hstack(
+                    [user_train_set_time_diffs, np.min(user_train_set_time_diffs)]
+                )
+            user_train_set_ratings = user_train_set_ratings.copy()
+            mask = (user_train_set_ratings != 0) | (np.arange(len(user_train_set_ratings)) == len(user_train_set_ratings) - 1)
+            user_train_set_ratings = user_train_set_ratings[mask]
+            user_train_set_embeddings = user_train_set_embeddings[mask]
+            user_train_set_time_diffs = (
+                user_train_set_time_diffs[mask] if user_train_set_time_diffs is not None else None
+            )
+            """
+
             session_ratings = user_ratings[user_ratings["session_id"] == session_id]
             n_session_papers = session_ratings.shape[0]
             n_session_papers_pos = (session_ratings["rating"] == 1).sum()

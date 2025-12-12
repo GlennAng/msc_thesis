@@ -64,6 +64,7 @@ class Evaluator:
         users_embeddings: dict = None,
         users_scores: dict = None,
     ) -> None:
+        print(embedding.matrix.shape[0], "papers in embedding.")
         self.embedding = embedding
         users_ids = users_ratings["user_id"].unique().tolist()
         users_significant_categories = load_users_significant_categories(
@@ -88,6 +89,7 @@ class Evaluator:
             random_state=self.config["cache_random_state"],
             n_categories_cache=self.config["n_categories_cache"],
         )
+        print(len(self.cache_papers_ids), "papers in cache.", len(self.cache_papers_categories_ids), "categories in cache.")
 
         if self.config["n_jobs"] == 1:
             self.evaluate_users_in_sequence(

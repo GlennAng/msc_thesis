@@ -3,11 +3,17 @@ from pathlib import Path
 
 import mteb
 import numpy as np
+import random
+import sys
 import torch
 from transformers import AutoTokenizer
 
 from ...src.project_paths import ProjectPaths
 from .finetuning_model import FinetuningModel, load_finetuning_model
+
+random.seed(42)
+np.random.seed(42)
+torch.manual_seed(42)
 
 
 class CustomEmbeddingWrapper:
@@ -45,7 +51,14 @@ class CustomEmbeddingWrapper:
 
 
 def get_tasks():
-    return [
+    return ["TwitterURLCorpus",]
+    """
+        "TRECCOVID",
+        "LEMBSummScreenFDRetrieval",
+        "LEMBQMSumRetrieval",
+        "LEMBWikimQARetrieval",
+        "LEMBNarrativeQARetrieval",
+        "ArguAna",
         "ArXivHierarchicalClusteringP2P",
         "ArXivHierarchicalClusteringS2S",
         "BigPatentClustering.v2",
@@ -55,7 +68,9 @@ def get_tasks():
         "StackExchangeClusteringP2P.v2",
         "StackExchangeClustering.v2",
         "ToxicConversationsClassification",
+        "TRECCOVID",
     ]
+    """
 
 
 def extract_results(path: Path) -> dict:
@@ -75,60 +90,47 @@ def extract_results(path: Path) -> dict:
 
 
 if __name__ == "__main__":
+    arg = sys.argv[1]
+    assert arg in ["pca", "no_pca"], "Argument must be 'pca' or 'no_pca'"
+    pca = arg == "pca"
+    # delete path
+    path_to_delete = ProjectPaths.data_path() / "no_model_name_available" / "no_revision_available"
+    if path_to_delete.exists():
+        import shutil
+
+        shutil.rmtree(path_to_delete)
     model_path = ProjectPaths.finetuning_data_model_path() / "state_dicts"
     tokenizer = AutoTokenizer.from_pretrained((ProjectPaths.finetuning_data_model_hf()))
     device = "cuda" if torch.cuda.is_available() else "cpu"
     tasks = get_tasks()
     evaluation = mteb.MTEB(tasks=mteb.get_tasks(tasks=tasks))
 
-    finetuning_model_with_projection = load_finetuning_model(
+    model = load_finetuning_model(
         finetuning_model_path=model_path,
         device=device,
         mode="eval",
         unfreeze_parameters_dict={"n_unfreeze_layers": 0},
     )
-    finetuning_model_with_projection.categories_embeddings_l1 = None
-    embedding_wrapper_with_projection = CustomEmbeddingWrapper(
-        model=finetuning_model_with_projection, tokenizer=tokenizer
+    model.categories_embeddings_l1 = None
+    if not pca:
+        model.projection = None
+    embedding_wrapper = CustomEmbeddingWrapper(
+        model=model, tokenizer=tokenizer
     )
     evaluation.run(
-        model=embedding_wrapper_with_projection,
+        model=embedding_wrapper,
         output_folder=ProjectPaths.data_path(),
         overwrite_results=True,
         encode_kwargs={"batch_size": 512, "max_length": 512},
     )
-    results_with_projection = extract_results(
-        ProjectPaths.data_path() / "no_model_name_available" / "no_revision_available"
-    )
-    print("FINISHED EVALUATION WITH PROJECTION")
-    finetuning_model_without_projection = load_finetuning_model(
-        finetuning_model_path=model_path,
-        device=device,
-        mode="eval",
-        unfreeze_parameters_dict={"n_unfreeze_layers": 0},
-    )
-    finetuning_model_without_projection.categories_embeddings_l1 = None
-    finetuning_model_without_projection.projection = None
-    embedding_wrapper_without_projection = CustomEmbeddingWrapper(
-        model=finetuning_model_without_projection, tokenizer=tokenizer
-    )
-    evaluation.run(
-        model=embedding_wrapper_without_projection,
-        output_folder=ProjectPaths.data_path(),
-        overwrite_results=True,
-        encode_kwargs={"batch_size": 512, "max_length": 512},
-    )
-    results_without_projection = extract_results(
+    results = extract_results(
         ProjectPaths.data_path() / "no_model_name_available" / "no_revision_available"
     )
 
-    assert sorted(list(results_with_projection.keys())) == sorted(
-        list(results_without_projection.keys())
-    )
-    for task in results_with_projection.keys():
+    print(f"Results with{' ' if pca else 'out '}PCA:")
+    for task in results:
         print(f"Task: {task}")
-        print(f"Without Projection: {results_without_projection[task]}")
-        print(f"With Projection: {results_with_projection[task]}")
+        print(f"Result: {results[task]}")
         print()
 
 # Performance worse in different languages and domains

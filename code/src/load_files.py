@@ -256,7 +256,13 @@ if __name__ == "__main__":
     papers = load_papers()
     assert (papers["paper_id"] == papers_texts["paper_id"]).all()
 
-    users_ratings = load_users_ratings()
+    users_ratings = load_users_ratings(include_neutral_ratings=True)
+    print(len(users_ratings))
+    # count how often rating 1
+    print((users_ratings["rating"] == 1).sum())
+    print((users_ratings["rating"] == 2).sum())
+    print((users_ratings["rating"] == 0).sum())
+    print(users_ratings["time"].min(), users_ratings["time"].max())
     users_significant_categories = load_users_significant_categories()
 
     if ProjectPaths.data_finetuning_users_ids_path().exists():

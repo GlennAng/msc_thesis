@@ -45,6 +45,10 @@ class ProjectPaths:
     @staticmethod
     def data_session_based_no_filtering_ratings_path():
         return ProjectPaths.data_path() / "session_based_no_filtering_ratings.parquet"
+    
+    @staticmethod
+    def data_session_based_no_filtering_pos_ratings_path():
+        return ProjectPaths.data_path() / "session_based_no_filtering_pos_ratings.parquet"
 
     @staticmethod
     def data_session_based_no_filtering_ratings_old_path():
