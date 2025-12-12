@@ -3,7 +3,8 @@
 .ipynb_checkpoints/
 __pycache__/
 *.pyc
-data
+/data
+code/sequence/data
 code/logreg/embeddings
 code/logreg/experiments
 code/logreg/outputs
