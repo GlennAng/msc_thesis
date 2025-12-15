@@ -60,9 +60,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--logreg_n_cache", type=int, default=5000)
     parser.add_argument("--logreg_n_categories_cache", type=int, default=0)
     parser.add_argument("--logreg_n_val_negative_samples", type=int, default=100)
-    parser.add_argument("--logreg_weights_neg_scale", type=float, default=0.8375)
+    parser.add_argument("--logreg_weights_neg_scale", type=float, default=0.8)
     parser.add_argument("--logreg_weights_cache_v", type=float, default=0.9)
-    parser.add_argument("--logreg_clf_C", type=float, default=0.4)
+    parser.add_argument("--logreg_clf_C", type=float, default=0.25)
     parser.add_argument("--logreg_max_iter", type=int, default=10000)
     parser.add_argument("--logreg_solver", type=str, default="lbfgs")
 
@@ -111,7 +111,7 @@ def process_papers_embedding_path(args_dict: dict) -> None:
         papers_embedding_path = (
             ProjectPaths.logreg_embeddings_path()
             / "after_pca"
-            / "gte_large_256_categories_l2_unit_100"
+            / "gte_large_256"
         )
     else:
         papers_embedding_path = Path(args_dict["papers_embedding_path"]).resolve()
@@ -205,7 +205,7 @@ def create_example_config_sliding_window_eval(args_dict: dict) -> dict:
     if args_dict["single_val_session"]:
         example_config = create_example_config()
         example_config["load_users_coefs"] = True
-        example_config["users_ratings_selection"] = "session_based_filtering"
+        example_config["users_ratings_selection"] = "msc_late_split"
     else:
         example_config = create_example_config_sliding_window()
     if args_dict["old_ratings"]:
@@ -304,7 +304,7 @@ def create_visualization(args_dict: dict, time_taken: float) -> None:
             "--outputs_folder",
             str(outputs_folder),
             "--score",
-            "ndcg_all",
+            "msc_auc",
         ],
         check=True,
     )

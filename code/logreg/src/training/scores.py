@@ -17,6 +17,7 @@ from .scores_definitions import (
     get_score_ranking,
     get_score_ranking_session,
 )
+from .training_data import load_negrated_ranking_idxs_for_user_timesort
 
 FIRST_LAST_PERCENT = float(FIRST_LAST_PERCENT) / 100.0
 
@@ -383,7 +384,9 @@ def score_user_models(
     user_info: dict,
     sessions_min_times: dict,
     save_users_predictions_bool: bool = False,
-    user_scores: dict = None
+    user_scores: dict = None,
+    ratings: pd.DataFrame = None,
+    negrated_ranking: pd.DataFrame = None,
 ) -> tuple:
     user_results, user_predictions = {}, {}
     for i, model in enumerate(user_models):
@@ -406,6 +409,8 @@ def score_user_models(
             user_outputs_dict=user_outputs_dict,
             user_info=user_info,
             sessions_min_times=sessions_min_times,
+            ratings=ratings,
+            negrated_ranking=negrated_ranking,
         )
         if save_users_predictions_bool:
             user_predictions = gather_user_predictions(user_predictions, user_outputs_dict, i)
@@ -424,7 +429,9 @@ def score_user_models_sliding_window(
     user_info: dict,
     sessions_min_times: dict,
     save_users_predictions_bool: bool = False,
-    user_scores: dict = None
+    user_scores: dict = None,
+    ratings: pd.DataFrame = None,
+    negrated_ranking: pd.DataFrame = None,
 ) -> tuple:
     user_results, user_predictions = {}, {}
     if user_scores is not None:
@@ -445,6 +452,8 @@ def score_user_models_sliding_window(
         user_outputs_dict=user_outputs_dict,
         user_info=user_info,
         sessions_min_times=sessions_min_times,
+        ratings=ratings,
+        negrated_ranking=negrated_ranking,
     )
     if save_users_predictions_bool:
         user_predictions = gather_user_predictions(user_predictions, user_outputs_dict, 0)
@@ -672,25 +681,13 @@ def get_scores_ranking_before_avging_split(
 
 
 def get_scores_ranking_before_avging(
-    y_train_rated: np.ndarray,
-    y_train_rated_logits: np.ndarray,
-    y_val: np.ndarray,
-    y_val_logits: np.ndarray,
+    y_train_rated_pos_logits: np.ndarray,
+    y_val_pos_logits: np.ndarray,
+    y_negative_samples_train_logits: np.ndarray,
     y_train_negrated_ranking_logits: np.ndarray,
     y_val_negrated_ranking_logits: np.ndarray,
     y_negative_samples_logits: np.ndarray,
-    y_negative_samples_logits_after_train: np.ndarray = None,
 ) -> tuple:
-    y_train_rated_pos_logits, y_val_pos_logits, y_negative_samples_train_logits = (
-        get_scores_ranking_preprocessing(
-            y_train_rated=y_train_rated,
-            y_train_rated_logits=y_train_rated_logits,
-            y_val=y_val,
-            y_val_logits=y_val_logits,
-            y_negative_samples_logits=y_negative_samples_logits,
-            y_negative_samples_logits_after_train=y_negative_samples_logits_after_train,
-        )
-    )
     scores_ranking_before_avging_train = get_scores_ranking_before_avging_split(
         y_pos_logits=y_train_rated_pos_logits,
         y_negrated_ranking_logits=y_train_negrated_ranking_logits,
@@ -1003,12 +1000,54 @@ def get_scores_info(
         )
 
 
+def get_msc_auc_score(
+    user_scores: list,
+    scores_to_indices_dict: dict,
+    y_val_pos_logits: np.ndarray,
+    y_val_negrated_ranking_logits: np.ndarray,
+    ratings: pd.DataFrame = None,
+    negrated_ranking: pd.DataFrame = None,
+) -> None:
+    score = Score.MSC_AUC
+    train_score = 0.0
+    val_score = 0.0
+
+    N_MIN_VAL_POS = 1
+
+    negrated_ranking_idxs = load_negrated_ranking_idxs_for_user_timesort(
+        pos_ratings=ratings[ratings["rating"] == 1],
+        negrated_ranking=negrated_ranking,
+        causal_mask=True,
+        negrated_ranking_idxs=np.zeros(y_val_negrated_ranking_logits.shape, dtype=int),
+        negrated_same_session=True,
+    )
+    pos_greater_than_neg = y_val_pos_logits[:, np.newaxis] > y_val_negrated_ranking_logits
+    valid_mask = (negrated_ranking_idxs != -1)
+    wins_per_row = np.sum(pos_greater_than_neg & valid_mask, axis=1)
+    valid_count_per_row = np.sum(valid_mask, axis=1)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        percentage_per_row = np.where(
+            valid_count_per_row > 0,
+            wins_per_row / valid_count_per_row,
+            np.nan
+        )
+    n_non_nan = np.sum(~np.isnan(percentage_per_row))
+    if n_non_nan < N_MIN_VAL_POS:
+        val_score = np.nan
+    else:
+        val_score = np.nanmean(percentage_per_row)
+    fill_user_scores_with_score(
+        score, user_scores, scores_to_indices_dict, train_score, val_score
+    )
+
 def get_user_scores(
     scores_to_indices_dict: dict,
     val_data_dict: dict,
     user_outputs_dict: dict,
     user_info: dict,
     sessions_min_times: dict,
+    ratings: pd.DataFrame = None,
+    negrated_ranking: pd.DataFrame = None,
 ) -> tuple:
     user_scores = [None] * len(scores_to_indices_dict)
 
@@ -1029,18 +1068,26 @@ def get_user_scores(
         y_val=val_data_dict["y_val"],
         categories_dict=val_data_dict["categories_dict"],
     )
-    scores_ranking_before_avging_train, scores_ranking_before_avging_val = (
-        get_scores_ranking_before_avging(
+    y_train_rated_pos_logits, y_val_pos_logits, y_negative_samples_train_logits = (
+        get_scores_ranking_preprocessing(
             y_train_rated=val_data_dict["y_train_rated"],
             y_train_rated_logits=user_outputs_dict["y_train_rated_logits"],
             y_val=val_data_dict["y_val"],
             y_val_logits=user_outputs_dict["y_val_logits"],
-            y_train_negrated_ranking_logits=user_outputs_dict["y_train_negrated_ranking_logits"],
-            y_val_negrated_ranking_logits=user_outputs_dict["y_val_negrated_ranking_logits"],
             y_negative_samples_logits=user_outputs_dict["y_negative_samples_logits"],
             y_negative_samples_logits_after_train=user_outputs_dict.get(
                 "y_negative_samples_logits_after_train", None
             ),
+        )
+    )
+    scores_ranking_before_avging_train, scores_ranking_before_avging_val = (
+        get_scores_ranking_before_avging(
+            y_train_rated_pos_logits=y_train_rated_pos_logits,
+            y_val_pos_logits=y_val_pos_logits,
+            y_negative_samples_train_logits=y_negative_samples_train_logits,
+            y_train_negrated_ranking_logits=user_outputs_dict["y_train_negrated_ranking_logits"],
+            y_val_negrated_ranking_logits=user_outputs_dict["y_val_negrated_ranking_logits"],
+            y_negative_samples_logits=user_outputs_dict["y_negative_samples_logits"],
         )
     )
     get_scores_ranking(
@@ -1069,5 +1116,13 @@ def get_user_scores(
         scores_to_indices_dict=scores_to_indices_dict,
         val_data_dict=val_data_dict,
         user_info=user_info,
+    )
+    get_msc_auc_score(
+        user_scores=user_scores,
+        scores_to_indices_dict=scores_to_indices_dict,
+        y_val_pos_logits=y_val_pos_logits,
+        y_val_negrated_ranking_logits=user_outputs_dict["y_val_negrated_ranking_logits"],
+        ratings=ratings,
+        negrated_ranking=negrated_ranking,
     )
     return tuple(user_scores)

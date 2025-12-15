@@ -187,7 +187,7 @@ def init_users_ratings(eval_settings: dict) -> tuple:
     if eval_settings["old_ratings"]:
         urs = UsersRatingsSelection.SESSION_BASED_FILTERING_OLD
     else:
-        urs = UsersRatingsSelection.SESSION_BASED_FILTERING
+        urs = UsersRatingsSelection.MSC_EARLY_SPLIT
     users_ratings = load_users_ratings_from_selection(
         users_ratings_selection=urs, relevant_users_ids=eval_settings["users_selection"]
     )

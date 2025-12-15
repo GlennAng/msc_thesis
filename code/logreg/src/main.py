@@ -29,6 +29,7 @@ from .training.users_ratings import (
 from .training.weights_handler import Weights_Handler, load_hyperparameter_range
 
 
+
 def config_assertions(config: Dict[str, Any]) -> None:
     assert config["cache_type"] in [
         "categories_cache",

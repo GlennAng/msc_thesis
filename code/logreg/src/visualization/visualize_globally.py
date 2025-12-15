@@ -80,6 +80,11 @@ class Global_Visualizer:
         self.users_info = clean_users_info(users_info, include_base=False, include_cache=True)
         self.hyperparameters_combinations = hyperparameters_combinations
         self.results_before_averaging_over_folds = results_before_averaging_over_folds
+        msc_auc = results_before_averaging_over_folds["val_msc_auc"]
+        msc_auc_without_nan = msc_auc[~msc_auc.isna()]
+        print(f"Length MSC AUC without NaN: {len(msc_auc_without_nan)}")
+        print(f"Mean MSC AUC without NaN: {msc_auc_without_nan.mean()}")
+        print(f"First 10 Users where it is Nan: {results_before_averaging_over_folds[msc_auc.isna()]['user_id'].unique()[:10]}")
         self.folder = folder
         self.score, self.tail = score, tail
         self.users_significant_categories = load_users_significant_categories(

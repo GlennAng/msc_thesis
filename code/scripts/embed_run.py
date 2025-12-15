@@ -12,6 +12,11 @@ MODEL_CHOICES = [
     "Qwen3-Embedding-0.6B",
     "Qwen3-Embedding-4B",
     "Qwen3-Embedding-8B",
+    "gte_qwen1p5_7B_instruct",
+    "gte_Qwen2_7B_instruct",
+    "F2LLM-0.6B",
+    "F2LLM-1.7B",
+    "F2LLM-4B",
 ]
 EMBEDDINGS_FOLDER = ProjectPaths.logreg_embeddings_path() / "before_pca"
 MAX_SEQUENCE_LENGTH = 512
@@ -60,6 +65,31 @@ elif model_name == "Qwen3-Embedding-8B":
     model_path = f"Qwen/{model_name}"
     if batch_size is None:
         batch_size = 25
+elif model_name == "gte_qwen1p5_7B_instruct":
+    model_abbreviation = "gte_qwen1p5_7B_instruct"
+    model_path = "Alibaba-NLP/gte-qwen1p5-7B-instruct"
+    if batch_size is None:
+        batch_size = 15
+elif model_name == "gte_Qwen2_7B_instruct":
+    model_abbreviation = "gte_Qwen2_7B_instruct"
+    model_path = "Alibaba-NLP/gte-Qwen2-7B-instruct"
+    if batch_size is None:
+        batch_size = 20
+elif model_name == "F2LLM-0.6B":
+    model_abbreviation = "F2LLM_0p6B"
+    model_path = "codefuse-ai/F2LLM-0.6B"
+    if batch_size is None:
+        batch_size = 175
+elif model_name == "F2LLM-1.7B":
+    model_abbreviation = "F2LLM_1p7B"
+    model_path = "codefuse-ai/F2LLM-1.7B"
+    if batch_size is None:
+        batch_size = 75
+elif model_name == "F2LLM-4B":
+    model_abbreviation = "F2LLM_4B"
+    model_path = "codefuse-ai/F2LLM-4B"
+    if batch_size is None:
+        batch_size = 30
 
 
 embeddings_folder = EMBEDDINGS_FOLDER / f"{model_abbreviation}"

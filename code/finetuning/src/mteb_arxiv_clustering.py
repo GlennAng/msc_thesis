@@ -111,17 +111,12 @@ class CustomEmbeddingWrapper:
 
 
 MODELS_CHOICES = [
-    "gte-base-en-v1.5",
-    "gte-large-en-v1.5",
-    "gte-large-en-v1.5_no_projection",
-    "specter2_base",
     "Qwen/Qwen3-Embedding-0.6B",
     "Qwen/Qwen3-Embedding-4B",
     "Qwen/Qwen3-Embedding-8B",
     ProjectPaths.finetuning_data_experiments_path() / "gte_large_256_2025-07-12-06-44"
 ]
-MODELS_TO_LOAD = ["gte-large-en-v1.5", "gte-large-en-v1.5_no_projection"]
-MODELS_TO_LOAD += [model for model in MODELS_CHOICES if isinstance(model, Path)]
+MODELS_TO_LOAD = [model for model in MODELS_CHOICES if isinstance(model, Path)]
 MODELS_NAMES = [model if isinstance(model, str) else model.stem for model in MODELS_CHOICES]
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

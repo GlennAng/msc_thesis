@@ -29,6 +29,7 @@ class Score_Type(Enum):
     RANKING_SESSION = auto()
     INFO = auto()
     CATEGORY = auto()
+    MSC = auto()
 
 
 class Neg_Type(Enum):
@@ -889,6 +890,13 @@ SCORES_DICT = {
         "page": 4,
         "calculator": calculate_category_l1l2_most_frequent_identical,
     },
+    "MSC_AUC": {
+        "abbreviation": "MSC\nAUC",
+        "type": Score_Type.MSC,
+        "increase_better": True,
+        "page": 4,
+        "abbreviation_for_visu_file": "MSC_AUC",
+    }
 }
 
 Score = Enum("Score", list(SCORES_DICT.keys()))

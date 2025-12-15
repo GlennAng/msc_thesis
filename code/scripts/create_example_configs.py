@@ -61,10 +61,10 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
     )
     example_config.update(
         {
-            "weights": "global:cache_v",
-            "clf_C": 0.1,
+            "weights": "global:cache_v_s_normalized",
+            "clf_C": 0.25,
             "weights_cache_v": 0.9,
-            "weights_neg_scale": 5.0,
+            "weights_neg_scale": 0.8,
         }
     )
     example_config.update(
@@ -101,7 +101,7 @@ def create_example_config_sliding_window(users_embeddings_dict_path: Path = None
     if users_embeddings_dict_path is None:
         users_embeddings_dict_path = ProjectPaths.sequence_data_sliding_window_eval_path() / "logreg"
     update_dict = {
-        "users_ratings_selection": "session_based_filtering",
+        "users_ratings_selection": "msc_early_split",
         "evaluation": "sliding_window",
         "users_coefs_path": str(users_embeddings_dict_path.resolve()),
         "n_cache": 0,

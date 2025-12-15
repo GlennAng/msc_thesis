@@ -37,11 +37,43 @@ def is_qwen_instruct(model_path: str) -> bool:
     return model_path.startswith("Qwen/")
 
 
+def is_gte_qwen_instruct(model_path: str) -> bool:
+    return model_path == "Alibaba-NLP/gte-qwen1p5-7B-instruct"
+
+
+def is_gte_qwen2_instruct(model_path: str) -> bool:
+    return model_path == "Alibaba-NLP/gte-Qwen2-7B-instruct"
+
+def is_codefuse(model_path: str) -> bool:
+    return model_path.startswith("codefuse-ai/F2LLM")
+
 def load_model_and_tokenizer(model_path: str) -> tuple:
     if is_qwen_instruct(model_path):
         tokenizer = AutoTokenizer.from_pretrained(model_path, padding_side="left")
         model = AutoModel.from_pretrained(
             model_path, trust_remote_code=True, torch_dtype="auto"
+        ).to(device)
+    elif is_gte_qwen_instruct(model_path):
+        tokenizer = AutoTokenizer.from_pretrained('Alibaba-NLP/gte-Qwen1.5-7B-instruct', trust_remote_code=True)
+        model = AutoModel.from_pretrained(
+            'Alibaba-NLP/gte-Qwen1.5-7B-instruct', 
+            trust_remote_code=True,
+            torch_dtype=torch.float16
+        ).to(device)
+    elif is_gte_qwen2_instruct(model_path):
+        tokenizer = AutoTokenizer.from_pretrained('Alibaba-NLP/gte-Qwen2-7B-instruct', trust_remote_code=True)
+        model = AutoModel.from_pretrained(
+            'Alibaba-NLP/gte-Qwen2-7B-instruct', 
+            trust_remote_code=True,
+            torch_dtype=torch.float16
+        ).to(device)
+    elif is_codefuse(model_path):
+        tokenizer = AutoTokenizer.from_pretrained(model_path, revision="refs/pr/2")
+        model = AutoModel.from_pretrained(
+            model_path,
+            torch_dtype=torch.bfloat16,
+            device_map={'': 0},
+            revision="refs/pr/2"
         ).to(device)
     else:
         tokenizer = AutoTokenizer.from_pretrained(model_path)
@@ -79,6 +111,14 @@ def last_token_pool(last_hidden_states: torch.Tensor, attention_mask: torch.Tens
         return last_hidden_states[
             torch.arange(batch_size, device=last_hidden_states.device), sequence_lengths
         ]
+    
+
+def last_token_pool_f2(last_hidden_states: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+    sequence_lengths = attention_mask.sum(dim=1) - 1
+    batch_size = last_hidden_states.shape[0]
+    return last_hidden_states[
+        torch.arange(batch_size, device=last_hidden_states.device), sequence_lengths
+    ]
 
 
 def get_detailed_instruct(task_description: str, query: str) -> str:
@@ -89,13 +129,16 @@ def tokenize_papers(
     batch_papers: list, tokenizer: AutoTokenizer, max_sequence_length: int, model_path: str
 ) -> dict:
     is_qwen_model = is_qwen_instruct(model_path)
+    is_gte_qwen_model = is_gte_qwen_instruct(model_path)
+    is_gte_qwen2_model = is_gte_qwen2_instruct(model_path)
+    is_codefuse_model = is_codefuse(model_path)
     batch_papers_ids, batch_papers_titles, batch_papers_abstracts = zip(*batch_papers)
     batch_papers_ids, batch_papers_titles, batch_papers_abstracts = (
         list(batch_papers_ids),
         list(batch_papers_titles),
         list(batch_papers_abstracts),
     )
-    if is_qwen_model:
+    if is_qwen_model or is_gte_qwen_model or is_gte_qwen2_model or is_codefuse_model:
         batch_papers_texts = [
             f"Title: {title}. Abstract: {abstract}"
             for title, abstract in zip(batch_papers_titles, batch_papers_abstracts)
@@ -122,8 +165,12 @@ def tokenize_papers(
 def extract_embeddings(
     batch_outputs: dict, attention_mask: torch.Tensor, model_path: str
 ) -> torch.Tensor:
-    if is_qwen_instruct(model_path):
+    if is_qwen_instruct(model_path) or is_gte_qwen_instruct(model_path) or is_gte_qwen2_instruct(model_path):
         embeddings = last_token_pool(batch_outputs.last_hidden_state, attention_mask)
+        embeddings = F.normalize(embeddings, p=2, dim=1)
+        return embeddings
+    elif is_codefuse(model_path):
+        embeddings = last_token_pool_f2(batch_outputs.last_hidden_state, attention_mask)
         embeddings = F.normalize(embeddings, p=2, dim=1)
         return embeddings
     else:
@@ -243,7 +290,11 @@ if __name__ == "__main__":
         print(f"Found {len(relevant_papers_ids)} missing papers.")
     papers_texts = papers_texts[papers_texts["paper_id"].isin(relevant_papers_ids)]
     papers_texts = papers_texts[["paper_id", "title", "abstract"]].values.tolist()
-    max_sequence_length = args.max_sequence_length + (20 if is_qwen_instruct else 0)
+    is_qwen = is_qwen_instruct(args.model_path)
+    is_gte_qwen = is_gte_qwen_instruct(args.model_path)
+    is_gte_qwen2 = is_gte_qwen2_instruct(args.model_path)
+    is_instruct = is_qwen or is_gte_qwen or is_gte_qwen2
+    max_sequence_length = args.max_sequence_length + (20 if is_instruct else 0)
     tokenize_and_encode_papers_in_batches(
         embeddings_folder=embeddings_folder,
         papers=papers_texts,

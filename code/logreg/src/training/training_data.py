@@ -35,6 +35,7 @@ def load_negrated_ranking_idxs_for_user_random(
                 random.sample(neg_idxs, negrated_ranking_idxs.shape[1])
             )
             negrated_ranking_idxs[i] = negrated_ranking_idxs_sample
+    print(negrated_ranking_idxs)
     return negrated_ranking_idxs
 
 
@@ -43,6 +44,7 @@ def load_negrated_ranking_idxs_for_user_timesort(
     negrated_ranking: pd.DataFrame,
     causal_mask: bool,
     negrated_ranking_idxs: np.ndarray,
+    negrated_same_session: bool,
 ) -> np.ndarray:
     assert len(pos_ratings) == negrated_ranking_idxs.shape[0]
     n_negrated = negrated_ranking_idxs.shape[1]
@@ -55,13 +57,20 @@ def load_negrated_ranking_idxs_for_user_timesort(
 
     for i, (pos_time, pos_session_id) in enumerate(zip(pos_times, pos_session_ids)):
         if causal_mask:
-            valid_mask = neg_session_ids >= pos_session_id
-            assert valid_mask.any()
+            if negrated_same_session:
+                valid_mask = neg_session_ids == pos_session_id
+            else:
+                valid_mask = neg_session_ids >= pos_session_id
+                assert valid_mask.any()
             valid_neg_times = neg_times[valid_mask]
             valid_neg_indices = neg_indices[valid_mask]
             time_diffs = np.abs(valid_neg_times - pos_time)
             closest_idxs = np.argsort(time_diffs)[:n_negrated]
-            negrated_ranking_idxs[i] = valid_neg_indices[closest_idxs]
+            indices = -1 * np.ones(n_negrated, dtype=np.int64)
+            n_matches = len(closest_idxs)
+            if n_matches > 0:
+                indices[:n_matches] = valid_neg_indices[closest_idxs]
+            negrated_ranking_idxs[i] = indices
         else:
             time_diffs = np.abs(neg_times - pos_time)
             closest_idxs = np.argsort(time_diffs)[:n_negrated]
@@ -76,8 +85,9 @@ def load_negrated_ranking_idxs_for_user(
     causal_mask: bool,
     random_state: int,
     same_negrated_for_all_pos: bool,
+    negrated_same_session: bool = True,
 ) -> np.ndarray:
-    pos_ratings = ratings[ratings["rating"] > 0]
+    pos_ratings = ratings[ratings["rating"] == 1]
     n_pos, n_neg = len(pos_ratings), len(negrated_ranking)
     min_n_negrated = min(N_NEGRATED_RANKING, n_neg)
     negrated_ranking_idxs = np.zeros((n_pos, min_n_negrated), dtype=np.int64)
@@ -87,6 +97,7 @@ def load_negrated_ranking_idxs_for_user(
             negrated_ranking=negrated_ranking,
             causal_mask=causal_mask,
             negrated_ranking_idxs=negrated_ranking_idxs,
+            negrated_same_session=negrated_same_session,
         )
     else:
         assert not causal_mask
@@ -539,6 +550,16 @@ def store_user_info_initial(user_ratings: pd.DataFrame, cache_n: int) -> dict:
     user_info = {"n_cache": cache_n, "n_base": 0, "n_zerorated": 0}
     user_info["n_posrated"] = len(user_ratings[user_ratings["rating"] == 1])
     user_info["n_negrated"] = len(user_ratings[user_ratings["rating"] == 0])
+    user_info["n_rated"] = len(user_ratings)
+    first_session_idx = user_ratings["session_id"].min()
+    first_session = user_ratings[user_ratings["session_id"] == first_session_idx]
+    user_info["n_rated_first_session"] = len(first_session)
+    n_pos_first_session = len(first_session[first_session["rating"] == 1])
+    n_neg_first_session = len(first_session[first_session["rating"] == 0])
+    user_info["ratio_pos_first_session"] = (
+        n_pos_first_session / (n_pos_first_session + n_neg_first_session)
+    )
+    
     assert user_info["n_posrated"] + user_info["n_negrated"] == len(user_ratings)
     user_info["n_sessions"] = user_ratings["session_id"].nunique()
     pos_ratings = user_ratings[user_ratings["rating"] == 1]

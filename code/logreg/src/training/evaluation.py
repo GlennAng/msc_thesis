@@ -331,6 +331,8 @@ class Evaluator:
         val_causal_mask = self.config["users_ratings_selection"] in [
             UsersRatingsSelection.SESSION_BASED_FILTERING,
             UsersRatingsSelection.SESSION_BASED_FILTERING_OLD,
+            UsersRatingsSelection.MSC_EARLY_SPLIT,
+            UsersRatingsSelection.MSC_LATE_SPLIT,
         ]
         train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
             ratings=train_ratings,
@@ -360,6 +362,8 @@ class Evaluator:
             sessions_min_times=sessions_min_times,
             save_users_predictions_bool=self.config["save_users_predictions"],
             user_scores=user_scores,
+            ratings=val_ratings,
+            negrated_ranking=val_negrated_ranking,
         )
         user_results_dict[0] = user_results
         user_predictions_dict[0].update(user_predictions)
@@ -505,6 +509,8 @@ class Evaluator:
             sessions_min_times=sessions_min_times,
             save_users_predictions_bool=self.config["save_users_predictions"],
             user_scores=user_scores,
+            ratings=val_ratings,
+            negrated_ranking=val_negrated_ranking,
         )
         user_results_dict[0] = user_results
         user_predictions_dict[0].update(user_predictions)

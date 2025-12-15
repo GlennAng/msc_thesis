@@ -58,7 +58,7 @@ PLOT_CONSTANTS = {
     "LINE_HEIGHT": 0.025,
     "WORD_SPACING": 0.0075,
     "X_LOCATION": -0.125,
-    "PLOT_SCORES": [Score.BALANCED_ACCURACY, Score.RECALL, Score.PRECISION, Score.SPECIFICITY],
+    "PLOT_SCORES": [Score.BALANCED_ACCURACY, Score.RECALL, Score.MSC_AUC, Score.SPECIFICITY],
 }
 PRINT_SCORES = [
     Score.RECALL,
@@ -71,7 +71,7 @@ PRINT_SCORES = [
     Score.MRR_SAMPLES,
     Score.NDCG_ALL,
     Score.MRR_ALL,
-    Score.INFO_NCE_1,
+    Score.MSC_AUC,
 ]
 n_scores_halved = len(Score) // 2
 
@@ -215,6 +215,9 @@ def get_hyperparameters_ranges_str(hyperparameters_ranges: dict) -> str:
 def get_users_info_table(users_info: pd.DataFrame) -> list:
     data = []
     rows = {
+        "Number of rated Papers": users_info["n_posrated"] + users_info["n_negrated"],
+        "Number of rated Papers first Session": users_info["n_rated_first_session"],
+        "Ratio of positively rated Papers first Session": users_info["ratio_pos_first_session"],
         "Number of positively rated Papers": users_info["n_posrated"],
         "Number of negatively rated Papers": users_info["n_negrated"],
         "Percentage of positively rated among all rated": users_info["n_posrated"]

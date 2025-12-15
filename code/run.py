@@ -2,8 +2,7 @@ import os
 import subprocess
 import sys
 
-"""
-params = [1, 2, 3, 4, 5, 7, 10]
+params = [("code/logreg/embeddings/after_pca/gte_Qwen2_7B_instruct_256", 0.85)]
 for param in params:
     cmd = [
         sys.executable,
@@ -12,25 +11,15 @@ for param in params:
         "--clustering_approach",
         "k_means_fixed_k",
         "--clustering_k_means_n_clusters",
-        str(param),
-        "--single_random_state",
-        "--save_users_predictions",
+        "1",
         "--embed_function",
         "clustering",
-        "--old_ratings"
+        "--logreg_clf_C",
+        "0.5",
+        "--papers_embedding_path",
+        param[0],
+        "--logreg_weights_neg_scale",
+        str(param[1]),
     ]
     
-    subprocess.run(cmd, check=True)
-"""
-experiments_folder = "code/logreg/experiments/christmas"
-all_files = os.listdir(experiments_folder)
-for file in all_files:
-    config_path = os.path.join(experiments_folder, file)
-    cmd = [
-        sys.executable,
-        "-m",
-        "code.scripts.average_seeds",
-        "--config_path",
-        config_path,
-    ]
     subprocess.run(cmd, check=True)

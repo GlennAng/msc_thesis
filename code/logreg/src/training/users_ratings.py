@@ -25,6 +25,8 @@ class UsersRatingsSelection(Enum):
     SESSION_BASED_NO_FILTERING_OLD = auto()
     SESSION_BASED_FILTERING = auto()
     SESSION_BASED_FILTERING_OLD = auto()
+    MSC_EARLY_SPLIT = auto()
+    MSC_LATE_SPLIT = auto()
 
 
 def get_users_ratings_selection_from_arg(urs_arg: str) -> UsersRatingsSelection:
@@ -117,7 +119,14 @@ def filter_users_ratings_with_sufficient_votes_session_based(
     users_ratings_with_sufficient_votes = []
     users_ids = users_ratings["user_id"].unique()
     for user_id in users_ids:
+
         user_ratings = users_ratings[users_ratings["user_id"] == user_id].reset_index(drop=True)
+        n_pos = len(user_ratings[user_ratings["rating"] == 1])
+        if n_pos < (min_n_posrated_train + min_n_posrated_val):
+            continue
+        n_neg = len(user_ratings[user_ratings["rating"] == 0])
+        if n_neg < (min_n_negrated_train + min_n_negrated_val):
+            continue
         n_sessions = user_ratings["session_id"].nunique()
         if n_sessions < min_n_sessions:
             continue
@@ -164,7 +173,7 @@ def filter_users_ratings_with_sufficient_votes(
 
 
 def save_session_based_no_filtering_ratings(users_ratings: pd.DataFrame, params: dict) -> None:
-    path = ProjectPaths.data_session_based_no_filtering_ratings_path()
+    path = ProjectPaths.data_msc_early_split_ratings_path()
     if path.exists():
         print(f"{path} already exists. Skipping saving.")
         return
@@ -248,8 +257,7 @@ def check_user_ratings_for_conditions(user_ratings: pd.DataFrame, params: dict) 
     n_negrated_val = len(val_ratings) - n_posrated_val
     assert n_posrated_train >= params["n_posrated_train_for_first_split"]
     conditions_met = (
-        n_posrated_train <= params["max_n_posrated_train_in_first_split"]
-        and n_negrated_train >= params["min_n_negrated_train_in_first_split"]
+        n_negrated_train >= params["min_n_negrated_train_in_first_split"]
         and n_posrated_val >= params["min_n_posrated_val_in_first_split"]
         and n_negrated_val >= params["min_n_negrated_val_in_first_split"]
         and n_pos_val_sessions >= params["min_n_pos_val_sessions_in_first_split"]
@@ -275,7 +283,7 @@ def append_removed_for_negrated_ranking(
 def save_session_based_filtering_ratings(
     users_ratings_head: pd.DataFrame, users_ratings_tail: pd.DataFrame, params: dict
 ) -> None:
-    path = ProjectPaths.data_session_based_filtering_ratings_path()
+    path = ProjectPaths.data_session_based_filtering_less_restrictive_ratings_path()
     if path.exists():
         print(f"{path} already exists. Skipping saving.")
         return
@@ -283,9 +291,9 @@ def save_session_based_filtering_ratings(
     users_ratings = filter_users_ratings_with_sufficient_votes_session_based(
         users_ratings=users_ratings_head,
         min_n_posrated_train=params["n_posrated_train_for_first_split"],
-        min_n_negrated_train=0,
-        min_n_posrated_val=0,
-        min_n_negrated_val=0,
+        min_n_negrated_train=20,
+        min_n_posrated_val=4,
+        min_n_negrated_val=4,
         min_n_sessions=0,
         test_size=1.0,
     )
@@ -555,6 +563,12 @@ def load_users_ratings_from_selection(
     elif users_ratings_selection == UsersRatingsSelection.SESSION_BASED_FILTERING_OLD:
         path = ProjectPaths.data_session_based_filtering_ratings_old_path()
         users_ratings = pd.read_parquet(path, engine="pyarrow")
+    elif users_ratings_selection == UsersRatingsSelection.MSC_EARLY_SPLIT:
+        path = ProjectPaths.data_msc_early_split_ratings_path()
+        users_ratings = pd.read_parquet(path, engine="pyarrow")
+    elif users_ratings_selection == UsersRatingsSelection.MSC_LATE_SPLIT:
+        path = ProjectPaths.data_msc_late_split_ratings_path()
+        users_ratings = pd.read_parquet(path, engine="pyarrow")
 
     assert users_ratings["user_id"].is_monotonic_increasing
     assert users_ratings.groupby("user_id")["time"].is_monotonic_increasing.all()
@@ -588,6 +602,20 @@ def load_users_ratings_from_selection(
 if __name__ == "__main__":
     users_ratings = load_users_ratings()
 
+    SESSION_BASED_NO_FILTERING_PARAMS = {
+        "filter_for_negrated_ranking": False,
+        "min_n_posrated_train": 20,
+        "min_n_negrated_train": 20,
+        "min_n_posrated_val": 5,
+        "min_n_negrated_val": 5,
+        "min_n_sessions": 5,
+        "test_size": 0.0,
+    }
+    save_session_based_no_filtering_ratings(
+        users_ratings=users_ratings, params=SESSION_BASED_NO_FILTERING_PARAMS
+    )
+    """
+
     # get a df user_id n_pos n_neg
 
     users_ratings_counts = (
@@ -602,8 +630,6 @@ if __name__ == "__main__":
                                                 (users_ratings_counts["n_posrated"] >= 20)]
     users_ratings_counts["n_total"] = users_ratings_counts["n_posrated"] + users_ratings_counts["n_negrated"]
     print(users_ratings_counts.describe())
-
-    """
     SESSION_BASED_NO_FILTERING_PARAMS = {
         "filter_for_negrated_ranking": False,
         "min_n_posrated_train": 20,
@@ -643,6 +669,29 @@ if __name__ == "__main__":
         "min_n_posrated_val_in_first_split": 10,
         "min_n_negrated_val_in_first_split": 4,
         "min_n_pos_val_sessions_in_first_split": 3,
+    }
+    save_session_based_filtering_ratings(
+        users_ratings_head=users_ratings_head,
+        users_ratings_tail=users_ratings_tail,
+        params=SESSION_BASED_FILTERING_PARAMS,
+    )
+    seq_users_ratings = load_users_ratings_from_selection(
+        users_ratings_selection=UsersRatingsSelection.SESSION_BASED_FILTERING
+    )
+    save_sequence_users_ids(seq_users_ratings)
+    save_sequence_train_ratings(users_ratings=users_ratings)
+    """
+    """
+    users_ratings = load_users_ratings()
+    users_ratings_head, users_ratings_tail = filter_users_ratings_for_negrated_ranking(
+        users_ratings=users_ratings, n_negrated_ranking=N_NEGRATED_RANKING
+    )
+    SESSION_BASED_FILTERING_PARAMS = {
+        "n_posrated_train_for_first_split": 20,
+        "min_n_negrated_train_in_first_split": 20,
+        "min_n_posrated_val_in_first_split": 4,
+        "min_n_negrated_val_in_first_split": 4,
+        "min_n_pos_val_sessions_in_first_split": 0,
     }
     save_session_based_filtering_ratings(
         users_ratings_head=users_ratings_head,

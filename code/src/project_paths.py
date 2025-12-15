@@ -41,6 +41,14 @@ class ProjectPaths:
     @staticmethod
     def data_sequence_users_ids_path():
         return ProjectPaths.data_path() / "sequence_users_ids.pkl"
+    
+    @staticmethod
+    def data_msc_early_split_ratings_path():
+        return ProjectPaths.data_path() / "msc_early_split_ratings.parquet"
+    
+    @staticmethod
+    def data_msc_late_split_ratings_path():
+        return ProjectPaths.data_path() / "msc_late_split_ratings.parquet"
 
     @staticmethod
     def data_session_based_no_filtering_ratings_path():
@@ -61,6 +69,18 @@ class ProjectPaths:
     @staticmethod
     def data_session_based_filtering_ratings_old_path():
         return ProjectPaths.data_path() / "session_based_filtering_ratings_old.parquet"
+    
+    @staticmethod
+    def data_session_based_filtering_less_restrictive_ratings_path():
+        return ProjectPaths.data_path() / "session_based_filtering_less_restrictive_ratings.parquet"
+    
+    @staticmethod
+    def data_msc_full_ratings_path():
+        return ProjectPaths.data_path() / "msc_full_ratings.parquet"
+    
+    @staticmethod
+    def data_msc_sliding_window_ratings_path():
+        return ProjectPaths.data_path() / "msc_sliding_window_ratings.parquet"
 
     @staticmethod
     def data_sequence_train_ratings_path():
