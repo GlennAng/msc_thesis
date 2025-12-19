@@ -749,7 +749,7 @@ def gather_finetuning_dataset(dataset_type: str, users_type: str) -> tuple:
         )
     else:
         users_ratings = load_users_ratings_from_selection(
-            users_ratings_selection=UsersRatingsSelection.SESSION_BASED_NO_FILTERING,
+            users_ratings_selection=UsersRatingsSelection.MSC_LATE_SPLIT,
             relevant_users_ids="finetuning_val",
         )
         if dataset_type == "train":
@@ -1003,10 +1003,10 @@ if __name__ == "__main__":
     os.makedirs(ProjectPaths.finetuning_data_model_path(), exist_ok=True)
     os.makedirs(ProjectPaths.finetuning_data_model_state_dicts_path(), exist_ok=True)
     os.makedirs(ProjectPaths.finetuning_data_model_datasets_path(), exist_ok=True)
+    save_users_embeddings_tensor()
     save_transformer_model(
         model_path=ProjectPaths.finetuning_data_model_path() / "state_dicts" / "transformer_model"
     )
-    save_users_embeddings_tensor()
     save_projection_tensor()
     save_categories_embeddings_tensor()
     save_eval_papers_tokenized()

@@ -896,7 +896,14 @@ SCORES_DICT = {
         "increase_better": True,
         "page": 4,
         "abbreviation_for_visu_file": "MSC_AUC",
-    }
+    },
+    "MSC_NDCG": {
+        "abbreviation": "MSC\nNDCG",
+        "type": Score_Type.MSC,
+        "increase_better": True,
+        "page": 4,
+        "abbreviation_for_visu_file": "MSC_NDCG",
+    },
 }
 
 Score = Enum("Score", list(SCORES_DICT.keys()))

@@ -26,7 +26,7 @@ class FinetuningModel(nn.Module):
         transformer_model: AutoModel,
         projection: nn.Linear,
         users_embeddings: nn.Embedding,
-        categories_embeddings_l1: nn.Embedding,
+        categories_embeddings_l1: nn.Embedding = None,
         categories_embeddings_l2: nn.Embedding = None,
         categories_l1_weight: nn.Parameter = None,
         categories_l2_weight: nn.Parameter = None,
@@ -53,8 +53,9 @@ class FinetuningModel(nn.Module):
         components = [
             self.projection.weight,
             self.users_embeddings.weight,
-            self.categories_embeddings_l1.weight,
         ]
+        if self.categories_embeddings_l1 is not None:
+            components.append(self.categories_embeddings_l1.weight)
         if self.categories_embeddings_l2 is not None:
             components.append(self.categories_embeddings_l2.weight)
             components.append(self.categories_l1_weight)
@@ -162,7 +163,7 @@ class FinetuningModel(nn.Module):
         if self.projection is not None:
             papers_embeddings = self.projection(papers_embeddings)
         papers_embeddings = F.normalize(papers_embeddings, p=2, dim=1)
-        if self.categories_embeddings_l1 is None and category_l1_tensor is None:
+        if self.categories_embeddings_l1 is None:
             return papers_embeddings
         categories_embeddings = self.categories_embeddings_l1(category_l1_tensor)
         if self.categories_embeddings_l2 is not None and category_l2_tensor is not None:
@@ -282,10 +283,11 @@ class FinetuningModel(nn.Module):
         self.transformer_model.save_pretrained(model_path / "transformer_model")
         torch.save(self.projection.state_dict(), model_path / "projection.pt")
         torch.save(self.users_embeddings.state_dict(), model_path / "users_embeddings.pt")
-        torch.save(
-            self.categories_embeddings_l1.state_dict(),
-            model_path / "categories_embeddings_l1.pt",
-        )
+        if self.categories_embeddings_l1 is not None:
+            torch.save(
+                self.categories_embeddings_l1.state_dict(),
+                model_path / "categories_embeddings_l1.pt",
+            )
         if self.categories_embeddings_l2 is not None:
             torch.save(
                 self.categories_embeddings_l2.state_dict(),
@@ -596,6 +598,7 @@ def load_finetuning_model(
     tensors_parameters_dict: dict = {},
     include_categories_embeddings_l2: bool = False,
     val_users_embeddings_idxs: torch.Tensor = None,
+    use_category_l1: bool = False,
 ) -> FinetuningModel:
     valid_modes = ["train", "eval"]
     if mode not in valid_modes:
@@ -608,22 +611,26 @@ def load_finetuning_model(
     transformer_model_path = finetuning_model_path / "transformer_model"
     fix_gte_config(transformer_model_path)
     transformer_model = load_transformer_model(transformer_model_path, device)
-    transformer_embeddings_dim = get_transformer_embeddings_dim(transformer_model)
 
     projection = load_projection(
         tensors_parameters_dict=tensors_parameters_dict,
         device=device,
         projection_path=finetuning_model_path / "projection.pt",
     )
-    categories_embeddings_l1 = load_embeddings(
-        embeddings_type="categories_embeddings_l1",
-        tensors_parameters_dict=tensors_parameters_dict,
-        device=device,
-        embeddings_path=finetuning_model_path / "categories_embeddings_l1.pt",
-    )
-    categories_embeddings_l1_dim = categories_embeddings_l1.embedding_dim
+    projection_dim = projection.out_features
+    if use_category_l1:
+        categories_embeddings_l1 = load_embeddings(
+            embeddings_type="categories_embeddings_l1",
+            tensors_parameters_dict=tensors_parameters_dict,
+            device=device,
+            embeddings_path=finetuning_model_path / "categories_embeddings_l1.pt",
+        )
+        categories_embeddings_l1_dim = categories_embeddings_l1.embedding_dim
+    else:
+        categories_embeddings_l1 = None
+        categories_embeddings_l1_dim = 0
     tensors_parameters_dict.update(
-        {"users_embeddings_dim": transformer_embeddings_dim + categories_embeddings_l1_dim + 1}
+        {"users_embeddings_dim": projection_dim + categories_embeddings_l1_dim + 1}
     )
     users_embeddings = load_embeddings(
         embeddings_type="users_embeddings",

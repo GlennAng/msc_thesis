@@ -279,7 +279,12 @@ if __name__ == "__main__":
             seeds=TEST_RANDOM_STATES + [VAL_RANDOM_STATE],
             include_old_cache=False
         )
-        relevant_papers_ids = set(relevant_papers_ids_no_filtering + relevant_papers_ids_filtering)
+        relevant_papers_ids_msc = find_relevant_papers_ids(
+            users_ratings_selection=UsersRatingsSelection.MSC_EARLY_SPLIT,
+            seeds=TEST_RANDOM_STATES + [VAL_RANDOM_STATE],
+            include_old_cache=False,
+        )
+        relevant_papers_ids = set(relevant_papers_ids_no_filtering + relevant_papers_ids_filtering + relevant_papers_ids_msc)
         relevant_papers_ids = sorted(list(relevant_papers_ids))
         print(f"Found {len(relevant_papers_ids)} relevant papers.")
     if args.existing_embedding:

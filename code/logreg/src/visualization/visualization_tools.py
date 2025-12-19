@@ -64,7 +64,6 @@ PRINT_SCORES = [
     Score.RECALL,
     Score.SPECIFICITY,
     Score.BALANCED_ACCURACY,
-    Score.CEL,
     Score.NDCG,
     Score.MRR,
     Score.NDCG_SAMPLES,
@@ -72,6 +71,7 @@ PRINT_SCORES = [
     Score.NDCG_ALL,
     Score.MRR_ALL,
     Score.MSC_AUC,
+    Score.MSC_NDCG,
 ]
 n_scores_halved = len(Score) // 2
 

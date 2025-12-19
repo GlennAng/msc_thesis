@@ -10,7 +10,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
         embeddings_folder = (
             ProjectPaths.logreg_embeddings_path()
             / "after_pca"
-            / "gte_large_256_categories_l2_unit_100"
+            / "gte_large_256"
         )
     example_config = {}
     example_config.update(
@@ -25,7 +25,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
     )
     example_config.update(
         {
-            "users_ratings_selection": "session_based_no_filtering",
+            "users_ratings_selection": "msc_early_split",
             "relevant_users_ids": None,
             "load_users_coefs": False,
             "users_coefs_path": None,
@@ -62,7 +62,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
     example_config.update(
         {
             "weights": "global:cache_v_s_normalized",
-            "clf_C": 0.25,
+            "clf_C": 0.33,
             "weights_cache_v": 0.9,
             "weights_neg_scale": 0.8,
         }

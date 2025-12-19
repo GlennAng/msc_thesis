@@ -125,6 +125,7 @@ def load_finetuning_users_ids(
     select_non_cs_users_only: bool = False,
     old: bool = False,
     no_seq_eval: bool = False,
+    small_val: bool = False,
 ) -> dict:
     if old:
         path = ProjectPaths.data_finetuning_users_ids_old_path()
@@ -133,7 +134,10 @@ def load_finetuning_users_ids(
                 f"Finetuning Users IDs (old) file not found at {path}. Run 'users_ratings_old.py' to create it."
             )
     else:
-        path = ProjectPaths.data_finetuning_users_ids_path()
+        if small_val:
+            path = ProjectPaths.data_finetuning_users_ids_small_val_path()
+        else:
+            path = ProjectPaths.data_finetuning_users_ids_path()
         if not path.exists():
             raise FileNotFoundError(
                 f"Finetuning Users IDs file not found at {path}. Run 'users_ratings.py' to create it."

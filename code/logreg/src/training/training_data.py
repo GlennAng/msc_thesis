@@ -35,7 +35,6 @@ def load_negrated_ranking_idxs_for_user_random(
                 random.sample(neg_idxs, negrated_ranking_idxs.shape[1])
             )
             negrated_ranking_idxs[i] = negrated_ranking_idxs_sample
-    print(negrated_ranking_idxs)
     return negrated_ranking_idxs
 
 

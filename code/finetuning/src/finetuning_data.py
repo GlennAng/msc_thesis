@@ -332,8 +332,13 @@ class TrainDatasetBatchSampler(BatchSampler):
         user_neg_indices = np.arange(
             user_neg_starting_index, user_neg_starting_index + user_neg_count
         )
-
-        user_pos_indices = user_pos_indices[-self.n_samples_from_most_recent_positive_votes :]
+        n_user_pos_indices = len(user_pos_indices)
+        n_samples = n_user_pos_indices
+        #n_samples = int(0.5 * n_user_pos_indices)
+        #n_samples = max(n_samples, 5)
+        user_pos_indices = user_pos_indices[-n_samples :]
+        #user_pos_indices = user_pos_indices[-self.n_samples_from_most_recent_positive_votes :]
+        
         self.rng.shuffle(user_pos_indices)
         selected_pos_indices = user_pos_indices[:1].tolist()
         pos_time = self.dataset.time_tensor[selected_pos_indices[0]].item()

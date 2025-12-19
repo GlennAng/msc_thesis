@@ -152,6 +152,7 @@ subprocess.run(
     check=True,
 )
 
+"""
 embeddings_folder_after_pca = (
     ProjectPaths.logreg_embeddings_path() / "after_pca" / f"{model_abbreviation}_{PCA_DIM}"
 )
@@ -168,3 +169,4 @@ subprocess.run(
 )
 
 shutil.rmtree(embeddings_folder_after_pca, ignore_errors=True)
+"""

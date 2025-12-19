@@ -1,6 +1,7 @@
 import pickle
 import random
 from enum import Enum, auto
+from pathlib import Path
 
 import pandas as pd
 
@@ -65,7 +66,7 @@ def check_single_split(
     )
     valid_split_val = n_posrated_val >= min_n_posrated_val and n_negrated_val >= min_n_negrated_val
     valid_split = valid_split_train and valid_split_val
-    #test_size_split = len(val_ratings) / len(user_ratings)
+    # test_size_split = len(val_ratings) / len(user_ratings)
     test_size_split = n_posrated_val / (n_posrated_train + n_posrated_val)
     return valid_split, test_size_split
 
@@ -172,11 +173,13 @@ def filter_users_ratings_with_sufficient_votes(
     return users_ratings_filtered.reset_index(drop=True)
 
 
-def save_session_based_no_filtering_ratings(users_ratings: pd.DataFrame, params: dict) -> None:
-    path = ProjectPaths.data_msc_early_split_ratings_path()
-    if path.exists():
-        print(f"{path} already exists. Skipping saving.")
-        return
+def save_session_based_no_filtering_ratings(
+    users_ratings: pd.DataFrame, params: dict, path: Path, overwrite: bool = False
+) -> None:
+    if not overwrite:
+        if path.exists():
+            print(f"{path} already exists. Skipping saving.")
+            return
     ratings = filter_users_ratings_with_sufficient_votes_session_based(
         users_ratings=users_ratings,
         min_n_posrated_train=params["min_n_posrated_train"],
@@ -188,6 +191,27 @@ def save_session_based_no_filtering_ratings(users_ratings: pd.DataFrame, params:
     )
     ratings.to_parquet(path, index=False, compression="gzip")
     print(f"Saved ratings to {path}. Total Users: {ratings['user_id'].nunique()}.")
+
+
+def split_users_ids_into_small_val_test(n_val_users: int, seed: int) -> None:
+    path = ProjectPaths.data_finetuning_users_ids_small_val_path()
+    users_ids = load_finetuning_users_ids(selection="all", old=False)
+    val_users_ids = users_ids["val"]
+    test_users_ids = users_ids["test"]
+    assert len(val_users_ids) >= n_val_users
+    random.seed(seed)
+    random.shuffle(val_users_ids)
+    small_val_val_users_ids = sorted(val_users_ids[:n_val_users])
+    small_val_test_users_ids = sorted(val_users_ids[n_val_users:] + test_users_ids)
+    small_val_users_ids = {
+        "train": users_ids["train"],
+        "val": small_val_val_users_ids,
+        "test": small_val_test_users_ids,
+    }
+    with open(path, "wb") as f:
+        pickle.dump(small_val_users_ids, f)
+    n_val, n_test = len(small_val_val_users_ids), len(small_val_test_users_ids)
+    print(f"Saved small val user IDs to {path}. Val Users: {n_val}, Test Users: {n_test}.")
 
 
 def split_users_ids_into_val_test(users_ids: list, n_test_users: int, seed: int) -> tuple:
@@ -202,13 +226,14 @@ def split_users_ids_into_val_test(users_ids: list, n_test_users: int, seed: int)
     return val_users_ids, test_users_ids
 
 
-def save_finetuning_users_ids(users_ratings: pd.DataFrame, params: dict) -> None:
+def save_finetuning_users_ids(users_ratings: pd.DataFrame, params: dict, overwrite: bool = False) -> None:
     path = ProjectPaths.data_finetuning_users_ids_path()
-    if path.exists():
-        print(f"{path} already exists. Skipping saving.")
-        return
+    if not overwrite:
+        if path.exists():
+            print(f"{path} already exists. Skipping saving.")
+            return
     users_ids = load_users_ratings_from_selection(
-        UsersRatingsSelection.SESSION_BASED_NO_FILTERING, ids_only=True
+        UsersRatingsSelection.MSC_EARLY_SPLIT, ids_only=True
     )
     val_users_ids, test_users_ids = split_users_ids_into_val_test(
         users_ids=users_ids, n_test_users=params["n_test_users"], seed=params["val_test_split_seed"]
@@ -582,6 +607,14 @@ def load_users_ratings_from_selection(
             relevant_users_ids = load_finetuning_users_ids(selection="val", old=old)
         elif relevant_users_ids == "finetuning_test":
             relevant_users_ids = load_finetuning_users_ids(selection="test", old=old)
+        elif relevant_users_ids == "finetuning_small_val_val":
+            relevant_users_ids = load_finetuning_users_ids(
+                selection="val", old=False, small_val=True
+            )
+        elif relevant_users_ids == "finetuning_small_val_test":
+            relevant_users_ids = load_finetuning_users_ids(
+                selection="test", old=False, small_val=True
+            )
         elif relevant_users_ids == "sequence_val":
             relevant_users_ids = load_sequence_users_ids(selection="val")
         elif relevant_users_ids == "sequence_test":
@@ -608,12 +641,30 @@ if __name__ == "__main__":
         "min_n_negrated_train": 20,
         "min_n_posrated_val": 5,
         "min_n_negrated_val": 5,
-        "min_n_sessions": 5,
+        "min_n_sessions": 2,
         "test_size": 0.0,
     }
     save_session_based_no_filtering_ratings(
-        users_ratings=users_ratings, params=SESSION_BASED_NO_FILTERING_PARAMS
+        users_ratings=users_ratings,
+        params=SESSION_BASED_NO_FILTERING_PARAMS,
+        path=ProjectPaths.data_msc_early_split_ratings_path(),
     )
+    SESSION_BASED_NO_FILTERING_PARAMS_LATE = SESSION_BASED_NO_FILTERING_PARAMS.copy()
+    SESSION_BASED_NO_FILTERING_PARAMS_LATE["test_size"] = 0.2
+    save_session_based_no_filtering_ratings(
+        users_ratings=users_ratings,
+        params=SESSION_BASED_NO_FILTERING_PARAMS_LATE,
+        path=ProjectPaths.data_msc_late_split_ratings_path(),
+    )
+
+    FINETUNING_PARAMS = {
+        "n_test_users": 750,
+        "val_test_split_seed": 42,
+        "train_users_min_n_posrated_total": 20,
+        "train_users_min_n_negrated_total": 20,
+        "train_users_min_n_sessions": 0,
+    }
+    save_finetuning_users_ids(users_ratings=users_ratings, params=FINETUNING_PARAMS, overwrite=True)
     """
 
     # get a df user_id n_pos n_neg

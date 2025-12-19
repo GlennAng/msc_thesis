@@ -8,6 +8,7 @@ pd.set_option('display.max_rows', None)
 import numpy as np
 from numpy.linalg import norm
 import random
+from pathlib import Path
 
 from ....src.load_files import load_papers, load_users_ratings, load_finetuning_users_ids
 
@@ -16,14 +17,16 @@ from ....finetuning.src.finetuning_compare_embeddings import compute_sims_same_s
 
 from tqdm import tqdm
 
-embedding = Embedding(ProjectPaths.logreg_embeddings_path() / "after_pca" / "F2LLM_0p6B_256")
+embedding = Embedding(Path("code/finetuning/data/experiments") / "gte_large_256_2025-12-19-04-05" / "embeddings")
 # normalize
 embedding.matrix = embedding.matrix / norm(embedding.matrix, axis=1, keepdims=True)
 papers_ids = np.array(list(embedding.papers_ids_to_idxs.keys())).tolist()
 
 users_ratings = load_users_ratings_from_selection(
-    users_ratings_selection=UsersRatingsSelection.SESSION_BASED_NO_FILTERING_POS
+    users_ratings_selection=UsersRatingsSelection.MSC_EARLY_SPLIT, relevant_users_ids = "finetuning_test"
 )
+n_users = users_ratings["user_id"].nunique()
+print(f"Loaded {len(users_ratings)} ratings from {n_users} users.")
 papers = load_papers(relevant_papers_ids=papers_ids)
 
 users_pos_similarities = []

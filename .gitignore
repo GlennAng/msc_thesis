@@ -9,5 +9,8 @@ code/logreg/embeddings
 code/logreg/experiments
 code/logreg/outputs
 code/finetuning/data
+code/finetuning/data_2
+code/finetuning/data_3
+code/finetuning/data_new_split
 *.pdf
 *.png

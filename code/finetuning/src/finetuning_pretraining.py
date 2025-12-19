@@ -27,7 +27,7 @@ def create_finetuning_config_val(example_config: dict) -> dict:
     finetuning_config_val = example_config.copy()
     finetuning_config_val.update(
         {
-            "users_ratings_selection": "session_based_no_filtering",
+            "users_ratings_selection": "msc_late_split",
             "relevant_users_ids": "finetuning_val",
             "evaluation": "session_based",
             "save_users_coefs": True,
@@ -38,7 +38,7 @@ def create_finetuning_config_val(example_config: dict) -> dict:
 
 def create_finetuning_configs() -> None:
     example_config = create_example_config(
-        ProjectPaths.logreg_embeddings_path() / "after_pca" / f"{FINETUNING_MODEL}_categories_l2_unit_100"
+        ProjectPaths.logreg_embeddings_path() / "after_pca" / f"{FINETUNING_MODEL}"
     )
     finetuning_config_train = create_finetuning_config_train(example_config)
     finetuning_config_val = create_finetuning_config_val(example_config)

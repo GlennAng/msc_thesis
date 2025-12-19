@@ -24,7 +24,16 @@ def get_embed_function_from_arg(embed_function_arg: str) -> EmbedFunction:
 
 
 def get_users_selections_choices() -> list:
-    return [None, "sequence_val", "sequence_test", "sequence_high_sessions"]
+    return [
+        None,
+        "sequence_val",
+        "sequence_test",
+        "sequence_high_sessions",
+        "finetuning_val",
+        "finetuning_test",
+        "finetuning_small_val_val",
+        "finetuning_small_val_test",
+    ]
 
 
 def get_eval_data_folder(

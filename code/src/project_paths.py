@@ -37,6 +37,10 @@ class ProjectPaths:
     @staticmethod
     def data_finetuning_users_ids_old_path():
         return ProjectPaths.data_path() / "finetuning_users_ids_old.pkl"
+    
+    @staticmethod
+    def data_finetuning_users_ids_small_val_path():
+        return ProjectPaths.data_path() / "finetuning_users_ids_small_val.pkl"
 
     @staticmethod
     def data_sequence_users_ids_path():

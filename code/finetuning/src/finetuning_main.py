@@ -233,12 +233,13 @@ def load_optimizer(
             "lr": lr_users_embeddings,
             "weight_decay": l2_regularization_other,
         },
+    ]
+    if finetuning_model.categories_embeddings_l1 is not None:
         {
             "params": finetuning_model.categories_embeddings_l1.parameters(),
             "lr": lr_transformer_model,
             "weight_decay": l2_regularization_other,
         },
-    ]
     if finetuning_model.categories_embeddings_l2 is not None:
         param_groups.append(
             {
