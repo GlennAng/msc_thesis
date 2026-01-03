@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 
+
 from ....src.load_files import load_papers, load_users_significant_categories
 from ..embeddings.embedding import Embedding
 from .algorithm import (
@@ -196,6 +197,24 @@ class Evaluator:
             for user_id, user_significant_categories, user_ratings, user_embeddings, user_scores in users_list
         )
 
+
+    def get_random_split(self, user_ratings: pd.DataFrame) -> pd.DataFrame:
+        from sklearn.model_selection import train_test_split
+        user_ratings = user_ratings.copy()
+        train_idx, val_idx = train_test_split(
+            user_ratings.index,
+            test_size=0.2,
+            random_state=self.config["model_random_state"]
+        )
+        user_ratings['split'] = np.where(
+            user_ratings.index.isin(val_idx),
+            'val',
+            'train'
+        )
+        return user_ratings
+        
+
+
     def evaluate_user(
         self,
         user_id: int,
@@ -206,6 +225,10 @@ class Evaluator:
         print_user: bool = False,
     ) -> None:
         user_results_dict, user_predictions_dict = {}, {}
+
+        if self.config["evaluation"] == Evaluation.TRAIN_TEST_SPLIT:
+            user_ratings = self.get_random_split(user_ratings=user_ratings)
+
 
         user_categories_ratios = get_user_categories_ratios(
             categories_to_exclude=user_significant_categories
@@ -260,6 +283,7 @@ class Evaluator:
                     user_predictions_dict=user_predictions_dict,
                     sessions_min_times=sessions_min_times,
                     user_scores=user_scores,
+                    train_test_split=self.config["evaluation"] == Evaluation.TRAIN_TEST_SPLIT,
                 )
 
             elif self.config["evaluation"] == Evaluation.CROSS_VALIDATION:
@@ -306,6 +330,7 @@ class Evaluator:
         user_predictions_dict: dict,
         sessions_min_times: dict,
         user_scores: dict = None,
+        train_test_split: bool = False,
     ) -> None:
         train_ratings, val_ratings, removed_ratings = split_ratings(user_ratings)
         update_user_info_split(user_info, train_ratings, val_ratings)
@@ -332,6 +357,8 @@ class Evaluator:
             UsersRatingsSelection.MSC_EARLY_SPLIT,
             UsersRatingsSelection.MSC_LATE_SPLIT,
         ]
+        if train_test_split:
+            val_causal_mask = False
         train_negrated_ranking_idxs = load_negrated_ranking_idxs_for_user(
             ratings=train_ratings,
             negrated_ranking=train_negrated_ranking,
@@ -385,10 +412,11 @@ class Evaluator:
         split = self.cross_val.split(X=range(len(user_ratings)), y=user_ratings["rating"])
         train_rated_ratios = []
         for fold_idx, (fold_train_idxs, fold_val_idxs) in enumerate(split):
-            user_ratings.loc[fold_train_idxs, "split"] = "train"
-            user_ratings.loc[fold_val_idxs, "split"] = "val"
-            train_ratings, val_ratings, _ = split_ratings(user_ratings)
-            update_user_info_split(user_info, train_ratings, val_ratings)
+            fold_ratings = user_ratings.copy()
+            fold_ratings.loc[fold_train_idxs, "split"] = "train"
+            fold_ratings.loc[fold_val_idxs, "split"] = "val"
+            train_ratings, val_ratings, _ = split_ratings(fold_ratings)
+            update_user_info_split(user_info, train_ratings, val_ratings) 
             train_rated_ratios.append(len(train_ratings) / len(user_ratings))
             train_negrated_ranking = train_ratings[train_ratings["rating"] == 0].reset_index(
                 drop=True

@@ -346,6 +346,34 @@ def save_users_ratings(
     return users_ratings
 
 
+def save_users_ratings_with_time(
+    path: Path = Path("data/users_ratings_with_time.parquet"), users_mapping: dict = None, papers: pd.DataFrame = None) -> pd.DataFrame:
+    users_ratings_query = """
+        SELECT user_id, paper_id, rating FROM users_ratings 
+        WHERE rating IN (-1, 1)
+        """
+    users_ratings = sql_execute(users_ratings_query)
+    users_ratings = pd.DataFrame(users_ratings, columns=["user_id", "paper_id", "rating"])
+    users_ratings["rating"] = users_ratings["rating"].replace(-1, 0)
+    neutral_ratings = get_neutral_ratings()
+    if papers is not None:
+        users_ratings = filter_users_ratings(users_ratings, papers)
+        neutral_ratings = filter_users_ratings(neutral_ratings, papers)
+    if users_mapping is not None:
+        users_ratings["user_id"] = users_ratings["user_id"].map(users_mapping).astype("int64")
+        unique_users_ids = users_ratings["user_id"].unique()
+        assert set(unique_users_ids) == set(range(len(users_mapping)))
+        neutral_ratings["user_id"] = neutral_ratings["user_id"].map(users_mapping).astype("int64")
+    assert not users_ratings.isnull().any().any() and not neutral_ratings.isnull().any().any()
+    users_ratings = users_ratings.sort_values(by=["user_id"]).reset_index(drop=True)
+    users_ratings["session_id"] = 0
+    users_ratings["time"] = pd.NaT
+    users_ratings = assign_neutral_ratings_to_sessions(users_ratings, neutral_ratings)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    users_ratings.to_parquet(path, index=False, compression="gzip")
+    return users_ratings
+
+
 def get_users_distributions(users_ratings: pd.DataFrame, papers: pd.DataFrame) -> pd.DataFrame:
     l1_categories = sorted([cat for cat in papers["l1"].unique() if pd.notna(cat)])
     users_ratings = users_ratings.copy()
@@ -401,6 +429,8 @@ global_sql_engine = create_engine(
 )
 
 if __name__ == "__main__":
+    save_users_ratings_with_time()
+    """
     data_path = ProjectPaths.data_path()
     data_path.mkdir(parents=True, exist_ok=True)
 
@@ -415,3 +445,4 @@ if __name__ == "__main__":
     users_significant_categories = save_significant_categories_for_all_users(
         ProjectPaths.data_users_significant_categories_path(), users_distributions
     )
+    """

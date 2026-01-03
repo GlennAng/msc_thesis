@@ -1008,61 +1008,83 @@ def get_msc_scores(
     y_negative_samples_logits: np.ndarray,
     ratings: pd.DataFrame = None,
     negrated_ranking: pd.DataFrame = None,
+    y_train_rated_pos_logits: np.ndarray = None,
+    y_train_rated_neg_logits: np.ndarray = None,
 ) -> None:
-    from sklearn.metrics import ndcg_score
-    
-    N_MIN_VAL_POS = 1
-    
-    negrated_ranking_idxs = load_negrated_ranking_idxs_for_user_timesort(
-        pos_ratings=ratings[ratings["rating"] == 1],
-        negrated_ranking=negrated_ranking,
-        causal_mask=True,
-        negrated_ranking_idxs=np.zeros(y_val_negrated_ranking_logits.shape, dtype=int),
-        negrated_same_session=True,
-    )
-    
-    valid_mask = (negrated_ranking_idxs != -1)
-    pos_greater_than_neg = y_val_pos_logits[:, np.newaxis] > y_val_negrated_ranking_logits
-    wins_per_row = np.sum(pos_greater_than_neg & valid_mask, axis=1)
-    valid_count_per_row = np.sum(valid_mask, axis=1)
-    
-    with np.errstate(divide='ignore', invalid='ignore'):
-        percentage_per_row = np.where(
-            valid_count_per_row > 0,
-            wins_per_row / valid_count_per_row,
-            np.nan
-        )
-    
-    n_non_nan = np.sum(~np.isnan(percentage_per_row))
-    val_score = np.nan if n_non_nan < N_MIN_VAL_POS else np.nanmean(percentage_per_row)
-    
-    ndcg_scores = []
-    for i in range(len(y_val_pos_logits)):
-        valid_neg_logits = y_val_negrated_ranking_logits[i][valid_mask[i]]
-        if len(valid_neg_logits) == 0:
-            continue
-            
-        if y_negative_samples_logits.ndim == 2:
-            y_negative_samples_logits_i = y_negative_samples_logits[i]
-        else:
-            y_negative_samples_logits_i = y_negative_samples_logits
-        all_logits = np.concatenate([[y_val_pos_logits[i]], valid_neg_logits, y_negative_samples_logits_i])
-        true_relevance = np.concatenate([[1], np.zeros(len(valid_neg_logits) + 100)])
+    try:
+        from sklearn.metrics import ndcg_score
         
-        ndcg = ndcg_score(true_relevance.reshape(1, -1), all_logits.reshape(1, -1))
-        ndcg_scores.append(ndcg)
+        N_MIN_VAL_POS = 1
+        
+        negrated_ranking_idxs = load_negrated_ranking_idxs_for_user_timesort(
+            pos_ratings=ratings[ratings["rating"] == 1],
+            negrated_ranking=negrated_ranking,
+            causal_mask=True,
+            negrated_ranking_idxs=np.zeros(y_val_negrated_ranking_logits.shape, dtype=int),
+            negrated_same_session=True,
+        )
 
-    
-    ndcg_mean = np.nan if len(ndcg_scores) < N_MIN_VAL_POS else np.mean(ndcg_scores)
+        
+        valid_mask = (negrated_ranking_idxs != -1)
+        y_val_negrated_ranking_logits = y_val_negrated_ranking_logits.copy()
+        y_val_negrated_ranking_logits[~valid_mask] = -np.inf
+        pos_greater_than_neg = y_val_pos_logits[:, np.newaxis] > y_val_negrated_ranking_logits
+        wins_per_row = np.sum(pos_greater_than_neg & valid_mask, axis=1)
+        valid_count_per_row = np.sum(valid_mask, axis=1)
+        
+        with np.errstate(divide='ignore', invalid='ignore'):
+            percentage_per_row = np.where(
+                valid_count_per_row > 0,
+                wins_per_row / valid_count_per_row,
+                np.nan
+            )
+        
+        n_non_nan = np.sum(~np.isnan(percentage_per_row))
+        val_score = np.nan if n_non_nan < N_MIN_VAL_POS else np.nanmean(percentage_per_row)
+        
+        ndcg_scores = []
+        for i in range(len(y_val_pos_logits)):
+            valid_neg_logits = y_val_negrated_ranking_logits[i][valid_mask[i]]
+            if len(valid_neg_logits) == 0:
+                continue
+                
+            if y_negative_samples_logits.ndim == 2:
+                y_negative_samples_logits_i = y_negative_samples_logits[i]
+            else:
+                y_negative_samples_logits_i = y_negative_samples_logits
+            all_logits = np.concatenate([[y_val_pos_logits[i]], valid_neg_logits, y_negative_samples_logits_i])
+            true_relevance = np.concatenate([[1], np.zeros(len(valid_neg_logits) + 100)])
+            
+            ndcg = ndcg_score(true_relevance.reshape(1, -1), all_logits.reshape(1, -1))
+            ndcg_scores.append(ndcg)
 
-    fill_user_scores_with_score(
-        Score.MSC_AUC, user_scores, scores_to_indices_dict, 0.0, val_score
-    )
-    fill_user_scores_with_score(
-        Score.MSC_NDCG, user_scores, scores_to_indices_dict, 0.0, ndcg_mean
-    )
-    
-    return val_score, ndcg_mean
+        
+        ndcg_mean = np.nan if len(ndcg_scores) < N_MIN_VAL_POS else np.mean(ndcg_scores)
+
+        if y_train_rated_pos_logits is None or y_train_rated_neg_logits is None:
+            train_auc = 0.0
+        else:
+            n_pos = len(y_train_rated_pos_logits)
+            n_neg = len(y_train_rated_neg_logits)
+            comparisons = y_train_rated_pos_logits[:, None] > y_train_rated_neg_logits[None, :]
+            train_auc = np.sum(comparisons) / (n_pos * n_neg)
+
+        fill_user_scores_with_score(
+            Score.MSC_AUC, user_scores, scores_to_indices_dict, train_auc, val_score
+        )
+        fill_user_scores_with_score(
+            Score.MSC_NDCG, user_scores, scores_to_indices_dict, 0.0, ndcg_mean
+        )
+        
+        return val_score, ndcg_mean
+    except Exception as e:
+        fill_user_scores_with_score(
+            Score.MSC_AUC, user_scores, scores_to_indices_dict, 0.0, 0.0
+        )
+        fill_user_scores_with_score(
+            Score.MSC_NDCG, user_scores, scores_to_indices_dict, 0.0, 0.0
+        )
+        return 0.0, 0.0
 
 
 def get_user_scores(
@@ -1105,6 +1127,9 @@ def get_user_scores(
             ),
         )
     )
+    y_train_rated_neg_logits = user_outputs_dict["y_train_rated_logits"][
+        val_data_dict["y_train_rated"] == 0
+    ]
     scores_ranking_before_avging_train, scores_ranking_before_avging_val = (
         get_scores_ranking_before_avging(
             y_train_rated_pos_logits=y_train_rated_pos_logits,
@@ -1150,5 +1175,7 @@ def get_user_scores(
         y_negative_samples_logits=user_outputs_dict["y_negative_samples_logits"],
         ratings=ratings,
         negrated_ranking=negrated_ranking,
+        y_train_rated_pos_logits=y_train_rated_pos_logits,
+        y_train_rated_neg_logits=y_train_rated_neg_logits,
     )
     return tuple(user_scores)

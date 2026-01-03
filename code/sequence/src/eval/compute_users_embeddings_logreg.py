@@ -27,7 +27,7 @@ def logreg_get_embed_function_params(
     users_ids: list, random_state: int, eval_settings: dict
 ) -> dict:
     users_significant_categories = load_users_significant_categories(relevant_users_ids=users_ids)
-    papers = load_papers(relevant_columns=["paper_id", "in_ratings", "l1"])
+    papers = load_papers(relevant_columns=["paper_id", "in_ratings", "in_cache", "l1"])
     val_negative_samples_ids = get_val_negative_samples_ids(
         papers=papers,
         n_categories_samples=eval_settings["logreg_n_val_negative_samples"],

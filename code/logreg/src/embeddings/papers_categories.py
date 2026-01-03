@@ -103,24 +103,87 @@ def attach_papers_categories(
     return concatenated
 
 
+def get_onehot_categories_embeddings(
+    categories_to_glove: dict, dim: int = 16
+) -> dict:
+    """Create one-hot encodings for categories.
+    
+    Args:
+        categories_to_glove: Dict mapping categories to glove words (only used for category list)
+        dim: Dimension of one-hot encoding (should equal number of categories)
+    """
+    # Get sorted list of categories (excluding None)
+    categories = sorted([cat for cat in categories_to_glove.keys() if cat is not None])
+    
+    if len(categories) != dim:
+        raise ValueError(f"Number of categories ({len(categories)}) must equal dim ({dim})")
+    
+    # Create one-hot encodings
+    onehot_categories_embeddings = {None: np.zeros(dim, dtype=np.float32)}
+    
+    for idx, category in enumerate(categories):
+        onehot_vector = np.zeros(dim, dtype=np.float32)
+        onehot_vector[idx] = 1.0
+        onehot_categories_embeddings[category] = onehot_vector
+    
+    return onehot_categories_embeddings
+
+
+def attach_papers_categories_onehot(
+    embeddings: np.ndarray,
+    papers_ids_to_idxs: dict,
+    papers_categories: PapersCategories,
+    dim: int = 16,
+) -> np.ndarray:
+    """Attach one-hot category encodings to paper embeddings."""
+    n_papers = embeddings.shape[0]
+    papers = load_papers(relevant_columns=["paper_id", "l1"])
+    papers_ids_to_categories_original = papers.set_index("paper_id")["l1"].to_dict()
+    papers_ids_to_categories_original = {
+        paper_id: category
+        for paper_id, category in papers_ids_to_categories_original.items()
+        if paper_id in papers_ids_to_idxs
+    }
+    papers_ids_to_categories = get_papers_ids_to_categories(
+        papers_ids_to_categories_original,
+        papers_categories.original_categories_to_categories,
+    )
+    
+    # Get one-hot encodings instead of GloVe
+    onehot_categories_embeddings = get_onehot_categories_embeddings(
+        papers_categories.categories_to_glove, dim
+    )
+    
+    onehot_matrix = np.zeros((n_papers, dim), dtype=embeddings.dtype)
+    for paper_id, paper_category in papers_ids_to_categories.items():
+        onehot_matrix[papers_ids_to_idxs[paper_id], :] = onehot_categories_embeddings[paper_category]
+    
+    concatenated = np.concatenate((embeddings, onehot_matrix), axis=1)
+    return concatenated
+
+
 if __name__ == "__main__":
     args = parse_args()
     embedding_path = Path(args.embeddings_input_folder).resolve().stem
     embedding_path = ProjectPaths.logreg_embeddings_path() / "after_pca" / embedding_path
-    dim, normalization = args.dim, "l2_unit"
+    
+    # For one-hot encoding
+    dim_onehot = 17  # 17 categories in CATEGORIES_ORIGINAL
     embedding = Embedding(embedding_path)
 
     papers_categories = PAPERS_CATEGORIES
-    glove_matrix = attach_papers_categories(
+    onehot_matrix = attach_papers_categories_onehot(
         embedding.matrix,
         embedding.papers_ids_to_idxs,
         papers_categories,
-        dim,
-        normalization,
+        dim_onehot,
     )
-    matrix_path = embedding_path.parent / f"{embedding_path.name}_categories_{normalization}_{dim}"
+    print(
+        f"Original embedding shape: {embedding.matrix.shape}, after attaching one-hot categories: {onehot_matrix.shape}"
+    )
+    matrix_path = embedding_path.parent / f"{embedding_path.name}_categories_onehot_{dim_onehot}"
     os.makedirs(matrix_path, exist_ok=True)
-    np.save(matrix_path / "abs_X.npy", glove_matrix)
+    np.save(matrix_path / "abs_X.npy", onehot_matrix)
     shutil.copy2(
         embedding_path / "abs_paper_ids_to_idx.pkl",
         matrix_path / "abs_paper_ids_to_idx.pkl",

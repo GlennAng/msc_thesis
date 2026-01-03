@@ -80,7 +80,6 @@ def get_user_train_embeddings_and_ratings(
     soft_constraint_max_n_train_days: int = None,
     remove_negrated_from_history: bool = False,
 ) -> tuple:
-    session_min_time = compute_session_min_time(user_ratings, session_id)
     user_train_set = get_user_train_set(
         user_ratings=user_ratings,
         session_id=session_id,
@@ -90,7 +89,9 @@ def get_user_train_embeddings_and_ratings(
         soft_constraint_max_n_train_days=soft_constraint_max_n_train_days,
         remove_negrated_from_history=remove_negrated_from_history,
     )
-    user_train_set_time_diffs = (session_min_time - user_train_set["time"]).dt.days.to_numpy()
+    user_train_set_time_diffs = session_id - user_train_set["session_id"].to_numpy()
+    #user_train_set_time_diffs = np.minimum(3, user_train_set_time_diffs)
+    assert user_train_set_time_diffs.dtype == np.int64
     user_train_set_papers_ids = user_train_set["paper_id"].tolist()
     user_train_set_embeddings = embedding.matrix[embedding.get_idxs(user_train_set_papers_ids)]
     user_train_set_ratings = user_train_set["rating"].values
@@ -1116,6 +1117,7 @@ def get_y_val_negrated_ranking_logits_session(
         val_negrated_ranking_logits_session = (
             val_negrated_ranking_logits_session + val_negrated_ranking_logits_session_knn
         )
+    
     val_negrated_ranking_logits_session = val_negrated_ranking_logits_session.reshape(
         (-1, N_NEGRATED_RANKING)
     )

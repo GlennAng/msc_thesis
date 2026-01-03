@@ -41,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--move_outputs_folder", type=str, required=False, default=None)
 
     parser.add_argument("--single_random_state", action="store_true", default=False)
+    parser.add_argument("--random_state", type=int, required=False, default=None)
     parser.add_argument("--single_val_session", action="store_true", default=False)
 
     parser.add_argument("--use_existing_users_embeddings", action="store_true", default=False)
@@ -121,8 +122,12 @@ def process_papers_embedding_path(args_dict: dict) -> None:
 
 def process_random_states(args_dict: dict) -> None:
     if args_dict["single_random_state"]:
-        args_dict["embed_random_states"] = [VAL_RANDOM_STATE]
-        args_dict["eval_random_states"] = [VAL_RANDOM_STATE]
+        if args_dict["random_state"] is not None:
+            args_dict["embed_random_states"] = [args_dict["random_state"]]
+            args_dict["eval_random_states"] = [args_dict["random_state"]]
+        else:
+            args_dict["embed_random_states"] = [VAL_RANDOM_STATE]
+            args_dict["eval_random_states"] = [VAL_RANDOM_STATE]
     else:
         args_dict["eval_random_states"] = TEST_RANDOM_STATES
         ef = args_dict["embed_function"]

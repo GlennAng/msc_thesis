@@ -188,6 +188,8 @@ def init_users_ratings(eval_settings: dict) -> tuple:
         urs = UsersRatingsSelection.SESSION_BASED_FILTERING_OLD
     else:
         urs = UsersRatingsSelection.MSC_EARLY_SPLIT
+    if eval_settings["single_val_session"]:
+        urs = UsersRatingsSelection.MSC_LATE_SPLIT
     users_ratings = load_users_ratings_from_selection(
         users_ratings_selection=urs, relevant_users_ids=eval_settings["users_selection"]
     )

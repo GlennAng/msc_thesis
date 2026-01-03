@@ -11,6 +11,7 @@ from tqdm import tqdm
 from ....logreg.src.training.users_ratings import (
     get_users_ratings_selection_from_arg,
     load_users_ratings_from_selection,
+    UsersRatingsSelection,
 )
 from ....src.load_files import load_users_ratings
 from .visu_temporal import (
@@ -23,8 +24,9 @@ from .visu_temporal import (
     plot_lims_ticks,
     plot_line_fill,
 )
+from ..training.training_data import split_ratings, split_negrated_ranking, load_negrated_ranking_idxs_for_user_timesort
 
-RANKING_METRICS = ["ndcg", "mrr", "hr@1", "ince"]
+RANKING_METRICS = ["ndcg", "mrr", "hr@1", "ince", "auc"]
 NON_RANKING_METRICS = ["recall", "specificity", "balanced_accuracy"]
 UPPER_BOUND_METRICS = ["best_k", "difference_to_k_1"]
 PERCENTAGE_GLOBAL_MODEL_METRICS = [
@@ -64,6 +66,10 @@ def get_visu_types_models() -> dict:
         "ince": {
             "agg_func": "mean",
             "y_label": "InfoNCE",
+        },
+        "auc": {
+            "agg_func": "mean",
+            "y_label": "AUC",
         },
         "norm": {
             "agg_func": "mean",
@@ -153,7 +159,7 @@ def get_visu_type_entry(visu_type: str) -> dict:
 def parse_args() -> dict:
     parser = argparse.ArgumentParser()
     parser.add_argument("--visu_type", type=str, choices=list(get_visu_types_models().keys()))
-    parser.add_argument("--users_selection", type=str, default="session_based_filtering")
+    parser.add_argument("--users_selection", type=str, default="msc_early_split")
     parser.add_argument(
         "--temporal_type", type=str, default="sessions", choices=["sessions", "days", "n_posrated"]
     )
@@ -235,6 +241,8 @@ def get_window_df_included_users(window_df: pd.DataFrame, visu_type: str) -> pd.
         return window_df[window_df["n_neg"] > 0]
     elif visu_type == "balanced_accuracy":
         return window_df[window_df["n_rated"] > 0]
+    elif visu_type == "auc":
+        return window_df[(window_df["n_pos"] > 0) & (window_df["n_neg"] > 0)]
     else:
         return window_df
 
@@ -254,6 +262,9 @@ def compute_ranking_metric(user_scores_seed: np.ndarray, ranking_metric: str) ->
         user_ranking_metric = 1 / pos_ranks
     elif ranking_metric == "hr@1":
         user_ranking_metric = (pos_ranks <= 1).astype(float)
+    elif ranking_metric == "auc":
+        pass
+
     return user_ranking_metric
 
 
@@ -272,18 +283,57 @@ def attach_ranking_metric_column(
         sessions_df["n_rated_cum"] = sessions_df.groupby("user_id")["n_rated"].cumsum()
     users_ids = sessions_df["user_id"].unique().tolist()
 
+
     random_states = list(users_scores.keys())
+    users_ratings = load_users_ratings_from_selection(
+        users_ratings_selection=UsersRatingsSelection.MSC_EARLY_SPLIT, ids_only=False,
+    )
+    users_ratings = users_ratings[users_ratings["user_id"].isin(users_ids)]
+    users_ratings = users_ratings[users_ratings["split"] == "val"]
     for user_id in tqdm(users_ids):
+        user_ratings = users_ratings[users_ratings["user_id"] == user_id]
+        train_ratings, val_ratings, removed_ratings = split_ratings(user_ratings)
+        train_negrated_ranking, val_negrated_ranking = split_negrated_ranking(
+            train_ratings, val_ratings, removed_ratings
+        )
+        y_val_negrated_ranking_logits_shape = users_scores[random_states[0]][user_id][
+            "y_val_negrated_ranking_logits"
+        ].shape
+        negrated_ranking_idxs = load_negrated_ranking_idxs_for_user_timesort(
+            pos_ratings=user_ratings[user_ratings["rating"] == 1],
+            negrated_ranking=val_negrated_ranking,
+            causal_mask=True,
+            negrated_ranking_idxs=np.zeros(y_val_negrated_ranking_logits_shape, dtype=int),
+            negrated_same_session=True,
+        )
         user_metrics = []
         for random_state in random_states:
             user_scores_seed = users_scores[random_state][user_id]
             val_logits_pos = user_scores_seed["y_val_logits_pos"].reshape(-1, 1)
             val_negrated_ranking_logits = user_scores_seed["y_val_negrated_ranking_logits"]
-            val_negative_samples_logits = user_scores_seed["y_negative_samples_logits"]
-            user_scores_seed = np.hstack(
-                [val_logits_pos, val_negrated_ranking_logits, val_negative_samples_logits]
-            )
-            user_metric_seed = compute_ranking_metric(user_scores_seed, visu_type)
+
+            if visu_type == "auc":
+                valid_mask = (negrated_ranking_idxs != -1)
+                val_negrated_ranking_logits_masked = val_negrated_ranking_logits.copy()
+                val_negrated_ranking_logits_masked[~valid_mask] = -np.inf
+                
+                pos_greater_than_neg = val_logits_pos > val_negrated_ranking_logits_masked
+                wins_per_row = np.sum(pos_greater_than_neg & valid_mask, axis=1)
+                valid_count_per_row = np.sum(valid_mask, axis=1)
+                
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    user_metric_seed = np.where(
+                        valid_count_per_row > 0,
+                        wins_per_row / valid_count_per_row,
+                        np.nan
+                    )
+            else:
+                val_negative_samples_logits = user_scores_seed["y_negative_samples_logits"]
+                user_scores_seed = np.hstack(
+                    [val_logits_pos, val_negrated_ranking_logits, val_negative_samples_logits]
+                )
+                user_metric_seed = compute_ranking_metric(user_scores_seed, visu_type)
+            
             user_metrics.append(user_metric_seed)
         user_metrics_mean = np.mean(user_metrics, axis=0)
         n_train_rated = users_scores[random_states[0]][user_id]["y_train_rated_logits"].shape[0]
@@ -326,11 +376,11 @@ def attach_non_ranking_metric_column(
             if visu_type == "recall":
                 val_logits = user_scores_seed["y_val_logits_pos"]
                 user_scores_seed = np.zeros(val_logits.shape)
-                user_scores_seed[val_logits >= 0.5] = 1
+                user_scores_seed[val_logits >= 0.0] = 1
             elif visu_type == "specificity":
                 val_logits = user_scores_seed["y_val_logits_neg"]
                 user_scores_seed = np.zeros(val_logits.shape)
-                user_scores_seed[val_logits < 0.5] = 1
+                user_scores_seed[val_logits < 0.0] = 1
             user_metrics.append(user_scores_seed)
         user_metrics_mean = np.mean(user_metrics, axis=0)
         n_train_rated = users_scores[random_states[0]][user_id]["y_train_rated_logits"].shape[0]
@@ -459,7 +509,7 @@ def get_window_scores(
     column = visu_type + ("_compare" if compare else "")
     if visu_type in RANKING_METRICS:
         scores = window_df.groupby("user_id")[column].apply(
-            lambda x: np.mean(np.concatenate(x.tolist()))
+            lambda x: np.nanmean(np.concatenate(x.tolist()))
         )
     elif visu_type in NON_RANKING_METRICS:
         scores = window_df.groupby("user_id")[column].apply(
@@ -502,13 +552,15 @@ def plot_data_sessions_compare(sessions_df: pd.DataFrame, args: dict, path: str 
     assert len(plot_components_1["scores"]) == len(plot_components_2["scores"])
     _, ax = plt.subplots(figsize=(10, 5))
     ax.set_facecolor("#f0f0f0")
-    ax.grid(alpha=0.7, linewidth=0.5)
+    
     x = np.arange(
         args["first_iter_included"],
         args["first_iter_included"] + len(plot_components_1["scores"]),
     )
     model_1_label = args.get("model_name", "K=1")
     model_2_label = args.get("model_name_compare", "K=3")
+    model_1_label = r'Exponential Decay ($\lambda = 0.15$)'
+    model_2_label = "Baseline (No Temporal Decay)"
     plot_line_fill(
         plt=plt,
         plot_components=plot_components_1,
@@ -532,11 +584,26 @@ def plot_data_sessions_compare(sessions_df: pd.DataFrame, args: dict, path: str 
         sessions_df=sessions_df,
         args=args,
     )
+    
+    # Set major y-axis ticks with labels at 0.6, 0.7, 0.8, 0.9
+    ax.set_yticks([0.6, 0.7, 0.8, 0.9])
+    ax.set_yticklabels(['0.6', '0.7', '0.8', '0.9'])
+    
+    # Set minor y-axis ticks at 0.65, 0.75, 0.85, 0.95 for gridlines only
+    ax.set_yticks([0.65, 0.75, 0.85, 0.95], minor=True)
+    
+    # Remove minor tick marks (but keep the grid lines)
+    ax.tick_params(axis='y', which='minor', length=0)
+    
+    # Enable grid for both major and minor ticks
+    ax.grid(True, which='major', alpha=0.7, linewidth=0.5)
+    ax.grid(True, which='minor', axis='y', alpha=0.7, linewidth=0.5)
+    
     if plot_components_1["scores"][0] > plot_components_1["scores"][-1]:
         legend_loc = "upper right"
     else:
         legend_loc = "lower right"
-    ax.legend(loc=legend_loc, fontsize=8.5)
+    ax.legend(loc=legend_loc, fontsize=14)
     plt.savefig(path, bbox_inches="tight")
     plt.close()
 
@@ -544,15 +611,19 @@ def plot_data_sessions_compare(sessions_df: pd.DataFrame, args: dict, path: str 
 if __name__ == "__main__":
     args, users_scores, users_scores_compare = parse_args_models()
     users_ids = load_users_ratings_from_selection(
-        users_ratings_selection=args["users_selection"], ids_only=True
+        users_ratings_selection=args["users_selection"], ids_only=True, relevant_users_ids="finetuning_test"
     )
     users_ratings = load_users_ratings(relevant_users_ids=users_ids, include_neutral_ratings=True)
+    users_ratings = load_users_ratings_from_selection(
+        users_ratings_selection=UsersRatingsSelection.MSC_LATE_SPLIT, relevant_users_ids="finetuning_test"
+    )
     users_ratings = filter_users_ratings(
         users_ratings,
         n_min_sessions=args["users_n_min_sessions"],
         n_min_days=args["users_n_min_days"],
     )
     sessions_df, _ = get_sessions_df(users_ratings)
+
     if args["visu_type"] in RANKING_METRICS:
         sessions_df = attach_ranking_metric_column(
             sessions_df, args["visu_type"], users_scores, compare=False
@@ -565,6 +636,7 @@ if __name__ == "__main__":
         sessions_df = attach_non_ranking_metric_column(
             sessions_df, args["visu_type"], users_scores, compare=False
         )
+        n_unique_users = sessions_df["user_id"].nunique()
         if args["compare_models"]:
             sessions_df = attach_non_ranking_metric_column(
                 sessions_df, args["visu_type"], users_scores_compare, compare=True
@@ -616,6 +688,7 @@ if __name__ == "__main__":
                 include_categories=args["include_categories"],
                 compare=True,
             )
+
 
     if args["compare_models"]:
         plot_data_sessions_compare(sessions_df=sessions_df, args=args)

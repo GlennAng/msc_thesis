@@ -6,6 +6,7 @@ from sklearn.metrics.pairwise import cosine_distances
 from ....src.load_files import load_papers, load_sequence_users_ids, load_users_ratings
 from ....src.project_paths import ProjectPaths
 from .embedding import Embedding
+from ....finetuning.src.finetuning_compare_embeddings import compute_sims_same_set
 
 
 def get_sequence_users_ids_all():
@@ -83,6 +84,40 @@ def compute_pairwise_cosine_distances(user_ratings: pd.DataFrame, embedding: Emb
 
 
 def find_users_ids_with_multiple_interests(
+    n_max_users: int,
+    users_ids: list = None,
+    embedding: Embedding = None,
+    min_n_l1l2_categories: int = 2,
+    min_n_papers_per_l1l2_category: int = 3,
+    min_n_clusters: int = 2,
+    eps_clusters: float = 0.4,
+    min_n_samples_per_cluster: int = 3,
+) -> list:
+    if users_ids is None:
+        users_ids = get_sequence_users_ids_all()
+    if embedding is None:
+        embedding = Embedding(
+            ProjectPaths.logreg_embeddings_path()
+            / "after_pca"
+            / "gte_large_256_categories_l2_unit_100"
+        )
+        embedding.matrix = embedding.matrix[:, :-100]
+
+    users_ratings = get_users_ratings_for_multi_interest_analysis(users_ids=users_ids)
+    cosine_sims = []
+    for user_id in users_ids:
+        user_ratings = users_ratings[users_ratings["user_id"] == user_id]
+        papers_ids = user_ratings["paper_id"].tolist()
+        papers_embeddings = embedding.matrix[embedding.get_idxs(papers_ids)]
+        sims = compute_sims_same_set(papers_embeddings)
+        cosine_sims.append({"user_id": user_id, "score": sims})    
+    n_users = min(n_max_users, len(cosine_sims))
+    cosine_sims = pd.DataFrame(cosine_sims)
+    cosine_sims.sort_values(by="score", ascending=False, inplace=True)
+    return cosine_sims.head(n_users)["user_id"].tolist()
+
+
+def find_users_ids_with_multiple_interests_old(
     n_max_users: int,
     users_ids: list = None,
     embedding: Embedding = None,

@@ -110,7 +110,8 @@ def calculate_cel_neg(y_true: np.ndarray, y_proba: np.ndarray) -> float:
 
 
 def calculate_auroc_classification(y_true: np.ndarray, y_proba: np.ndarray) -> float:
-    return roc_auc_score(y_true, y_proba)
+    auc_score = roc_auc_score(y_true, y_proba)
+    return auc_score
 
 
 def calculate_confidence_all(y_proba: np.ndarray) -> float:
@@ -459,6 +460,7 @@ SCORES_DICT = {
     },
     "NDCG_SAMPLES": {
         "abbreviation": "NDCG\nSmpl",
+        "abbreviation_for_visu_file": "NDCG_Smpl",
         "type": Score_Type.RANKING,
         "increase_better": True,
         "page": 1,

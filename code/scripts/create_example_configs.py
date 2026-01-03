@@ -62,7 +62,7 @@ def create_example_config(embeddings_folder: Path = None) -> dict:
     example_config.update(
         {
             "weights": "global:cache_v_s_normalized",
-            "clf_C": 0.33,
+            "clf_C": 0.25,
             "weights_cache_v": 0.9,
             "weights_neg_scale": 0.8,
         }
@@ -86,7 +86,7 @@ def create_example_config_tfidf(embeddings_folder: Path = None) -> dict:
     if embeddings_folder is None:
         embeddings_folder = ProjectPaths.logreg_embeddings_path() / "tfidf" / "tfidf_10k"
     example_config = create_example_config(embeddings_folder).copy()
-    example_config.update({"clf_C": 0.4, "weights_cache_v": 0.9, "weights_neg_scale": 1.0})
+    example_config.update({"clf_C": 0.33, "weights_cache_v": 0.95, "weights_neg_scale": 0.52})
     return example_config
 
 

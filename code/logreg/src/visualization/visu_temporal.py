@@ -83,7 +83,7 @@ def get_visu_types() -> dict:
             "title": "Mean Cosine Similarities with Initial Onboarding (All Papers)",
             "y_label": "Cosine Similarity",
         },
-        "cosine_start_racodeted": {
+        "cosine_start_rated": {
             "agg_func": "mean",
             "title": "Mean Cosine Similarities with Initial Onboarding (Rated Papers)",
             "y_label": "Cosine Similarity",
@@ -127,7 +127,7 @@ def get_last_iter_included(temporal_type: str) -> int:
 def parse_args() -> dict:
     parser = argparse.ArgumentParser()
     parser.add_argument("--visu_type", type=str, choices=list(get_visu_types().keys()))
-    parser.add_argument("--users_selection", type=str, default="session_based_filtering")
+    parser.add_argument("--users_selection", type=str, default="msc_late_split")
     parser.add_argument(
         "--temporal_type", type=str, default="sessions", choices=["sessions", "days", "n_posrated"]
     )
@@ -312,12 +312,13 @@ def get_sessions_df(users_ratings: pd.DataFrame, embedding: Embedding = None) ->
             )
         sessions_df = sessions_df_attach_extended_embeddings(sessions_df)
     sessions_df = sessions_df_attach_n_days_passed(sessions_df, users_ratings)
-    sessions_df, users_embeddings_df = sessions_df_attach_split(sessions_df, users_ratings)
+    #sessions_df, users_embeddings_df = sessions_df_attach_split(sessions_df, users_ratings)
     print(f"Number of Sessions: {len(sessions_df)}")
-    return sessions_df, users_embeddings_df
+    return sessions_df, None
 
 
 def get_window_df_included_users(window_df: pd.DataFrame, visu_type: str) -> pd.DataFrame:
+    print(visu_type)
     if visu_type == "n_votes_all":
         return window_df[window_df["n_all"] > 0]
     elif visu_type == "n_votes_rated":
@@ -353,6 +354,12 @@ def get_window_df_included_users(window_df: pd.DataFrame, visu_type: str) -> pd.
     elif visu_type == "cosine_start_pos":
         window_df = window_df[window_df["split"] == "val"]
         window_df = window_df[window_df["n_pos"] > 0]
+    elif visu_type == "recall":
+        print("hi")
+        print(len(window_df))
+        window_df = window_df[window_df["split"] == "val"]
+        window_df = window_df[window_df["n_pos"] > 0]
+        print(len(window_df))
     else:
         raise ValueError(f"Unknown visu_type: {visu_type}")
     return window_df
@@ -564,8 +571,8 @@ def plot_line_fill(
     fill: bool = True,
 ) -> None:
     for i in range(len(x) - 1):
-        min_width = 1.0
-        max_width = 4.0
+        min_width = 2.0  # Changed from 1.0
+        max_width = 5.0  # Changed from 4.0
         thickness = (
             min_width + (max_width - min_width) * plot_components["percentages_users_included"][i]
         )
@@ -598,15 +605,16 @@ def plot_lims_ticks(
     plt.ylim(bottom=args["y_lower_bound"])
     if args["y_upper_bound"] is not None:
         plt.ylim(top=args["y_upper_bound"])
-    plt.xlabel(f"{args['temporal_type'].capitalize()}")
-    plt.ylabel(args["visu_type_entry"]["y_label"])
+    plt.xlabel(f"{args['temporal_type'].capitalize()}", fontsize=18)  # Added fontsize
+    plt.ylabel(args["visu_type_entry"]["y_label"], fontsize=18)  # Added fontsize
 
     first_iter, last_iter = x[0], x[-1]
     plt.xlim(left=0, right=last_iter)
     tick_positions = np.linspace(0, last_iter, 6)
     tick_positions[0] = first_iter
     ax.set_xticks(tick_positions)
-    ax.set_xticklabels([f"{int(pos)}" for pos in tick_positions])
+    ax.set_xticklabels([f"{int(pos)}" for pos in tick_positions], fontsize=16)  # Added fontsize
+    ax.tick_params(axis='y', labelsize=16)  # Added for y-axis tick labels
     ax2 = ax.twiny()
     ax2.set_xlim(ax.get_xlim())
     users_percentages = plot_components["percentages_users_included"][
@@ -614,7 +622,7 @@ def plot_lims_ticks(
     ]
     users_counts = (users_percentages * sessions_df["user_id"].nunique()).astype(int)
     ax2.set_xticks(ax.get_xticks())
-    ax2.set_xticklabels([f"{count} Users" for count in users_counts], fontsize=8)
+    ax2.set_xticklabels([f"{count} Users" for count in users_counts], fontsize=14)  # Changed from 8 to 10
 
 
 def plot_data_sessions(
@@ -636,6 +644,11 @@ def plot_data_sessions(
         scores_func=scores_func,
         compare=compare,
     )
+
+    first_score = plot_components["scores"][0]
+    first_spread_upper = plot_components["spreads_upper"][0]
+    first_spread_lower = plot_components["spreads_lower"][0]
+    print(f"Lower: {first_spread_lower}, Score: {first_score}, Upper: {first_spread_upper}")
     _, ax = plt.subplots(figsize=(10, 5))
     ax.set_facecolor("#f0f0f0")
     ax.grid(alpha=0.7, linewidth=0.5)
@@ -665,11 +678,16 @@ def plot_data_sessions(
         sessions_df=sessions_df,
         args=args,
     )
+    
+    # Set y-axis ticks to only 0.6, 0.7, 0.8, 0.9
+    ax.set_yticks([0.6, 0.7, 0.8, 0.9])
+    ax.set_yticklabels(['0.6', '0.7', '0.8', '0.9'])
+    
     if plot_components["scores"][0] > plot_components["scores"][-1]:
         legend_loc = "upper right"
     else:
         legend_loc = "lower right"
-    ax.legend(loc=legend_loc, fontsize=8.5)
+    ax.legend(loc=legend_loc, fontsize=16)  # Changed from 14 to 16
     plt.savefig(path, bbox_inches="tight")
     plt.close()
 

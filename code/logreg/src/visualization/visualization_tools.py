@@ -51,14 +51,14 @@ PLOT_CONSTANTS = {
     "ALPHA_PLOT": 0.5,
     "ALPHA_FILL": 0.2,
     "LINE_WIDTH": 2.5,
-    "X_HYPERPARAMETER": "clf_C",
+    "X_HYPERPARAMETER": "weights_neg_scale",
     "N_PAPERS_PER_PAGE": 7,
     "N_PAPERS_IN_TOTAL": 70,
     "MAX_LINES": 5,
     "LINE_HEIGHT": 0.025,
     "WORD_SPACING": 0.0075,
     "X_LOCATION": -0.125,
-    "PLOT_SCORES": [Score.BALANCED_ACCURACY, Score.RECALL, Score.MSC_AUC, Score.SPECIFICITY],
+    "PLOT_SCORES": [Score.RECALL, Score.SPECIFICITY, Score.MSC_AUC, Score.NDCG_SAMPLES],
 }
 PRINT_SCORES = [
     Score.RECALL,
@@ -620,6 +620,8 @@ def plot_score(
     score: Score,
     vertical_line: float = None,
     results_tail_df: pd.DataFrame = None,
+    is_bottom_row: bool = False,
+    is_right_column: bool = False,
 ) -> tuple:
     score_name, subtitle = score.name.lower(), SCORES_DICT[score]["abbreviation"]
     alpha_plot, alpha_fill, line_width, X_hyperparameter = (
@@ -628,7 +630,15 @@ def plot_score(
         PLOT_CONSTANTS["LINE_WIDTH"],
         PLOT_CONSTANTS["X_HYPERPARAMETER"],
     )
-    axs.set_title(f"{subtitle}.", fontsize=14)
+    if subtitle == "MSC\nAUC":
+        subtitle = "AUC-D"
+    elif subtitle == "NDCG\nSmpl":
+        subtitle = "NDCG-R"
+    elif subtitle == "REC":
+        subtitle = "Recall"
+    elif subtitle == "SPE":
+        subtitle = "Specificity"
+    axs.set_title(f"{subtitle}", fontsize=28, fontweight='bold')  # Increased and bold
 
     if SCORES_DICT[score]["increase_better"]:
         best_X_hyperparameter_value = results_df.loc[results_df[f"val_{score_name}_mean"].idxmax()][
@@ -637,7 +647,13 @@ def plot_score(
         best_X_hyperparameter_val_score = results_df.loc[
             results_df[f"val_{score_name}_mean"].idxmax()
         ][f"val_{score_name}_mean"]
-        axs.set_ylim(-0.01, 1.01)
+        # Get best training score
+        best_X_hyperparameter_train_value = results_df.loc[results_df[f"train_{score_name}_mean"].idxmax()][
+            X_hyperparameter
+        ]
+        best_X_hyperparameter_train_score = results_df.loc[
+            results_df[f"train_{score_name}_mean"].idxmax()
+        ][f"train_{score_name}_mean"]
     else:
         best_X_hyperparameter_value = results_df.loc[results_df[f"val_{score_name}_mean"].idxmin()][
             X_hyperparameter
@@ -645,7 +661,60 @@ def plot_score(
         best_X_hyperparameter_val_score = results_df.loc[
             results_df[f"val_{score_name}_mean"].idxmin()
         ][f"val_{score_name}_mean"]
+        # Get best training score
+        best_X_hyperparameter_train_value = results_df.loc[results_df[f"train_{score_name}_mean"].idxmin()][
+            X_hyperparameter
+        ]
+        best_X_hyperparameter_train_score = results_df.loc[
+            results_df[f"train_{score_name}_mean"].idxmin()
+        ][f"train_{score_name}_mean"]
         axs.set_ylim(-0.01, 2.01)
+    axs.set_ylim(-0.01, 1.01)
+
+    axs.set_ylim(-0.02, 1.02)
+
+    # Set up grid FIRST with all positions
+    # Y-axis grid positions (both major and minor)
+    axs.set_yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    axs.set_yticks([0.1, 0.3, 0.5, 0.7, 0.9], minor=True)
+    
+    # X-axis grid positions (all 0.0 to 1.0 in 0.1 increments)
+    axs.set_xticks([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
+    
+    # Enable grid for both major and minor ticks
+    axs.grid(True, axis='y', which='both', alpha=0.12, linestyle='-', linewidth=0.4, color='gray')
+    axs.grid(True, axis='x', alpha=0.12, linestyle='-', linewidth=0.4, color='gray')
+    
+    # NOW override with visible ticks only where we have labels
+    # Y-axis: Only ticks with labels
+    if is_right_column:
+        # Right column: no labels, no visible ticks
+        axs.tick_params(axis='y', which='both', length=0)
+        axs.set_yticklabels([])
+    else:
+        # Left column: ticks only at major positions
+        axs.tick_params(axis='y', which='minor', length=0)
+        axs.tick_params(axis='y', which='major', length=4)
+    
+    # X-axis: Only ticks with labels (bottom row only)
+    if is_bottom_row:
+        # Bottom row: ticks at 0.2, 0.4, 0.6, 0.8, 1.0 only
+        axs.set_xticklabels(['', '', '0.2', '', '0.4', '', '0.6', '', '0.8', '', '1.0'])
+        # Hide ticks where there are no labels
+        for tick, label in zip(axs.xaxis.get_major_ticks(), ['', '', '0.2', '', '0.4', '', '0.6', '', '0.8', '', '1.0']):
+            if label == '':
+                tick.tick1line.set_visible(False)
+                tick.tick2line.set_visible(False)
+    else:
+        # Top row: no labels, no visible ticks
+        axs.set_xticklabels(['', '', '', '', '', '', '', '', '', '', ''])
+        axs.tick_params(axis='x', which='both', length=0)
+
+    # Set x-axis limits
+    axs.set_xlim(-0.01, 1.01)
+
+    axs.set_axisbelow(True)
+
     train_score, val_score = (
         results_df[f"train_{score_name}_mean"],
         results_df[f"val_{score_name}_mean"],
@@ -653,24 +722,43 @@ def plot_score(
     (train_line,) = axs.plot(
         results_df[X_hyperparameter],
         train_score,
-        label="Performance on Training Set",
+        label="Training",
         alpha=alpha_plot,
         linewidth=line_width,
     )
     (val_line,) = axs.plot(
         results_df[X_hyperparameter],
         val_score,
-        label="Performance on Validation Set",
+        label="Evaluation",
         alpha=alpha_plot,
         linewidth=line_width,
     )
+    
+    # Get the fill color for training (lighter version)
+    train_fill_color = train_line.get_color()
+    
+    # Draw training scatter FIRST (so validation overlaps if at same position)
+    axs.scatter(
+        best_X_hyperparameter_train_value,
+        best_X_hyperparameter_train_score,
+        s=80,
+        zorder=5,
+        facecolor=train_fill_color,
+        edgecolor="black",
+        linewidth=1.5,
+        alpha=0.6,  # Make it lighter like the fill
+        label="Best Training Hyperparameter",
+    )
+    
+    # Draw validation scatter SECOND (so it appears on top)
     axs.scatter(
         best_X_hyperparameter_value,
         best_X_hyperparameter_val_score,
-        s=50,
-        zorder=5,
+        s=80,
+        zorder=6,  # Higher zorder to ensure it's on top
         facecolor=val_line.get_color(),
         edgecolor="black",
+        linewidth=1.5,
         label="Best Hyperparameter",
     )
 
@@ -689,6 +777,7 @@ def plot_score(
         alpha=alpha_fill,
     )
 
+    results_tail_df = None
     if results_tail_df is not None:
         if SCORES_DICT[score]["increase_better"]:
             best_X_hyperparameter_tail = results_tail_df.loc[
@@ -716,20 +805,14 @@ def plot_score(
         axs.scatter(
             best_X_hyperparameter_tail,
             best_X_hyperparameter_tail_val_score,
-            s=50,
+            s=80,
             zorder=5,
             facecolor="red",
             edgecolor="black",
+            linewidth=1.5,
             label="Best Hyperparameter (Tail)",
         )
 
-    secax = axs.secondary_yaxis("right")
-    secax.set_yticks(
-        [best_X_hyperparameter_val_score, best_X_hyperparameter_tail_val_score]
-        if results_tail_df is not None
-        else [best_X_hyperparameter_val_score]
-    )
-    axs.set_xscale("log")
     if vertical_line is not None:
         axs.axvline(x=vertical_line, color="grey", linestyle="--")
     return train_line, val_line, tail_line if results_tail_df is not None else None
@@ -748,30 +831,56 @@ def plot_hyperparameter(
         PLOT_CONSTANTS["X_HYPERPARAMETER"],
     )
     fig, ax = plt.subplots(2, 2, figsize=(18, 11))
+    title = ""
     fig.suptitle(title, fontsize=14)
     plot_tail = results_tail_df is not None
 
     for i, axs in enumerate(ax.flat):
         score = plot_scores[i]
+        is_bottom_row = i >= 2
+        is_right_column = i % 2 == 1
         train_line, val_line, tail_line = plot_score(
-            axs, results_df, score, vertical_line, results_tail_df
+            axs, results_df, score, vertical_line, results_tail_df, is_bottom_row, is_right_column
         )
-        if i > 1:
-            axs.set_xlabel(f"'{X_hyperparameter}'", fontsize=12)
+        
+        # Add tick label sizes (increased)
+        axs.tick_params(axis='both', which='major', labelsize=24)  # Increased from 18
 
-    legend_lines = [train_line, val_line, tail_line] if plot_tail else [train_line, val_line]
+    # Add centered x-label (increased)
+    if X_hyperparameter == "weights_neg_scale":
+        xlabel = "S"
+    else:
+        xlabel = X_hyperparameter
+    fig.text(0.515, 0.02, xlabel, ha='center', fontsize=30, fontweight='bold')
+
+    legend_lines = [train_line, val_line]
+    if plot_tail and tail_line is not None:
+        legend_lines.append(tail_line)
+
     legend_titles = (
         [
-            "Performance on Training Set",
-            "Performance on Validation Set",
+            "Training",
+            "Validation",
             "Tail Performance on Validation Set",
         ]
-        if results_tail_df is not None
-        else ["Performance on Training Set", "Performance on Validation Set"]
+        if plot_tail and tail_line is not None
+        else ["Training", "Evaluation"]
     )
-    fig.legend(legend_lines, legend_titles, loc="lower right", ncol=1, fontsize=12)
-    fig_text = f"Remark: The filled area represents +- 1 standard deviation from the mean over all {'Users' if multiple_users else 'Folds'}."
-    fig.text(0.6, 0.02, fig_text, wrap=False, horizontalalignment="right", fontsize=10)
+    
+    # Horizontal legend positioned to the right (increased font)
+    # Add this after creating the legend
+    leg = fig.legend(
+        legend_lines, 
+        legend_titles, 
+        loc="lower right",
+        ncol=2,
+        fontsize=26,
+        framealpha=0.9
+    )
+    for line in leg.get_lines():
+        line.set_linewidth(6)  #
+    
+    fig.tight_layout(rect=[0, 0.08, 1, 0.999])
     pdf.savefig(fig)
     plt.close(fig)
 
@@ -797,6 +906,7 @@ def plot_hyperparameter_for_all_combinations(
             ]["combination_idx"]
         )
         title = f"Combinations: {str(included_combinations)}.\n"
+        title = ""
         plot_hyperparameter(pdf, plot_df, title, True, None, plot_tail_df)
     else:
         non_X_hyperparameter_combinations = len(
@@ -814,6 +924,7 @@ def plot_hyperparameter_for_all_combinations(
                 ]["combination_idx"]
             )
             plot_subset_title = f"Combinations: {str(included_combinations)}.\n"
+            plot_subset_title = ""
             non_X_hyparameter_combinations_first_row_with_idx = (
                 hyperparameters_combinations_with_explicit_X_hyperparameter.loc[
                     hyperparameters_combinations_with_explicit_X_hyperparameter[
@@ -839,7 +950,7 @@ def plot_hyperparameter_for_all_combinations(
                     else:
                         plot_subset_title += "  "
             plot_hyperparameter(
-                pdf, plot_df_subset, plot_subset_title + ".", True, None, plot_tail_df_subset
+                pdf, plot_df_subset, plot_subset_title, True, None, plot_tail_df_subset
             )
 
 

@@ -22,7 +22,7 @@ from .visu_temporal import (
 
 def parse_args() -> dict:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--users_selection", type=str, default="session_based_no_filtering")
+    parser.add_argument("--users_selection", type=str, default="msc_late_split")
     parser.add_argument("--users_n_min_sessions", type=int, default=None)
     parser.add_argument("--users_n_min_days", type=int, default=None)
     args = vars(parser.parse_args())

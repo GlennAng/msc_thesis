@@ -7,6 +7,7 @@ class TemporalDecay(Enum):
     NONE = auto()
     LINEAR = auto()
     EXPONENTIAL = auto()
+    ONBOARDING = auto()
 
 
 def get_temporal_decay_from_arg(temporal_decay_arg: str) -> TemporalDecay:
@@ -152,19 +153,36 @@ def get_sample_weights_temporal_decay(
         decays = compute_temporal_decay_exponential(
             time_diffs=user_train_set_time_diffs, decay_param=temporal_decay_param
         )
-    assert np.all(decays >= 0) and np.all(decays[:-1] <= decays[1:])
-    pos_decays, neg_decays = decays[pos_idxs], decays[neg_idxs]
+        assert np.all(decays >= 0) and np.all(decays[:-1] <= decays[1:])
+        pos_decays, neg_decays = decays[pos_idxs], decays[neg_idxs]
+        pos_decays, neg_decays, cache_weight = get_sample_weights_temporal_decay_by_normalization(
+            temporal_decay_normalization=temporal_decay_normalization,
+            pos_decays=pos_decays,
+            neg_decays=neg_decays,
+            n_cache=n_cache,
+            weights_neg_scale=weights_neg_scale,
+            weights_cache_v=weights_cache_v,
+        )
+    elif temporal_decay == TemporalDecay.ONBOARDING:
+        pos_decays = user_train_set_time_diffs[pos_idxs]
+        pos_weights = np.ones_like(pos_decays, dtype=np.float64)
+        pos_weights[pos_decays == 0] = temporal_decay_param
+        pos_weights_normalized = pos_weights / np.sum(pos_weights) if pos_weights.shape[0] > 0 else pos_weights
+        pos_decays = (1.0 - weights_neg_scale) * pos_weights_normalized
 
-    pos_decays, neg_decays, cache_weight = get_sample_weights_temporal_decay_by_normalization(
-        temporal_decay_normalization=temporal_decay_normalization,
-        pos_decays=pos_decays,
-        neg_decays=neg_decays,
-        n_cache=n_cache,
-        weights_neg_scale=weights_neg_scale,
-        weights_cache_v=weights_cache_v,
-    )
+        neg_decays = np.ones_like(neg_idxs, dtype=np.int64)
+        train_negrated_n = neg_decays.shape[0]
+        neg_denominator = weights_cache_v * train_negrated_n + (1.0 - weights_cache_v) * n_cache
+        assert neg_denominator > 0
+        neg_weight = weights_neg_scale * weights_cache_v / neg_denominator
+        neg_decays = np.full(shape=neg_decays.shape, fill_value=neg_weight)
+        cache_weight = weights_neg_scale * (1.0 - weights_cache_v) / neg_denominator
+
+
     sample_weights[pos_idxs] = pos_decays
     sample_weights[neg_idxs] = neg_decays
     sample_weights[cache_idxs] = cache_weight
+    assert np.isclose(np.sum(sample_weights[pos_idxs]), 1.0 - weights_neg_scale, atol=1e-6)
+    assert np.isclose(np.sum(sample_weights[neg_idxs]) + np.sum(sample_weights[cache_idxs]), weights_neg_scale, atol=1e-6)
     sample_weights = sample_weights * n_total
     return sample_weights
