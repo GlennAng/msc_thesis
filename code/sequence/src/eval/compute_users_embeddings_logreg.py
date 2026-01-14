@@ -973,6 +973,89 @@ def get_sample_weights_temporal_decay_none(
     return sample_weights
 
 
+def get_sample_weights_temporal_decay_cluster(
+    rated_time_diffs: np.ndarray,
+    temporal_decay_param: float,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    n_rated: int,
+    hyperparameters_combination: tuple,
+    cluster_label: int,
+    pos_clusters_idxs: dict,
+    neg_clusters_idxs: dict,
+    cluster_alpha: float,
+) -> np.ndarray:
+    n_total = y_train.shape[0]
+    sample_weights = np.empty(n_total, dtype=np.float64)
+    y_rated = y_train[:n_rated]
+    weights = get_weights(
+        hyperparameters_combination=hyperparameters_combination,
+        n_posrated=np.sum(y_rated == 1),
+        n_negrated=np.sum(y_rated == 0),
+        n_cache=n_total - n_rated,
+        is_cluster=True,
+        pos_scheme="relative",
+        neg_scheme="same_ratio",
+        cluster_label=cluster_label,
+        pos_clusters_idxs=pos_clusters_idxs,
+        neg_clusters_idxs=neg_clusters_idxs,
+        cluster_alpha=cluster_alpha,
+        X_train=X_train,
+        y_train=y_train,
+    )
+    w_pos_in_cluster, w_neg_in_cluster, w_cache, w_pos_out_cluster, w_neg_out_cluster = weights
+    pos_original_idxs = np.where(y_rated == 1)[0]
+    neg_original_idxs = np.where(y_rated == 0)[0]
+    pos_cluster_in_idxs = pos_clusters_idxs[cluster_label]
+    neg_cluster_in_idxs = neg_clusters_idxs[cluster_label]
+
+
+    pos_cluster_out_idxs = [
+        idx
+        for lbl, idxs in pos_clusters_idxs.items()
+        if lbl != cluster_label
+        for idx in idxs
+    ]
+    pos_cluster_out_idxs = np.array(pos_cluster_out_idxs, dtype=np.int64)
+    neg_cluster_out_idxs = [
+        idx
+        for lbl, idxs in neg_clusters_idxs.items()
+        if lbl != cluster_label
+        for idx in idxs
+    ]
+    neg_cluster_out_idxs = np.array(neg_cluster_out_idxs, dtype=np.int64)
+    sample_weights[neg_original_idxs[neg_cluster_in_idxs]] = w_neg_in_cluster
+    sample_weights[neg_original_idxs[neg_cluster_out_idxs]] = w_neg_out_cluster
+    n_pos_in_cluster, n_pos_out_cluster = len(pos_cluster_in_idxs), len(pos_cluster_out_idxs)
+    pos_sum_in_cluster = w_pos_in_cluster * n_pos_in_cluster
+    pos_sum_out_cluster = w_pos_out_cluster * n_pos_out_cluster
+    weights_neg_scale = hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_neg_scale"]]
+    assert np.isclose(pos_sum_in_cluster + pos_sum_out_cluster, n_total * (1.0 - weights_neg_scale))
+    pos_decays = get_sample_weights_temporal_decay(
+        user_train_set_ratings=y_rated[:n_rated],
+        user_train_set_time_diffs=rated_time_diffs,
+        n_cache=n_total - n_rated,
+        weights_neg_scale=weights_neg_scale,
+        weights_cache_v=hyperparameters_combination[LOGREG_HYPERPARAMETERS["weights_cache_v"]],
+        temporal_decay=TemporalDecay.EXPONENTIAL,
+        temporal_decay_normalization=TemporalDecayNormalization.POSITIVES,
+        temporal_decay_param=temporal_decay_param,
+        pos_decays_only=True,
+    )
+    pos_decays *= n_total
+    assert np.isclose(np.sum(pos_decays), n_total * (1.0 - weights_neg_scale))
+    pos_decays_in_cluster = pos_decays[pos_cluster_in_idxs]
+    pos_decays_out_cluster = pos_decays[pos_cluster_out_idxs]
+    pos_decays_in_cluster = pos_decays_in_cluster / np.sum(pos_decays_in_cluster) * pos_sum_in_cluster
+    pos_decays_out_cluster = pos_decays_out_cluster / np.sum(pos_decays_out_cluster) * pos_sum_out_cluster
+    assert np.isclose(np.sum(pos_decays_in_cluster) + np.sum(pos_decays_out_cluster), n_total * (1.0 - weights_neg_scale))
+    sample_weights[pos_original_idxs[pos_cluster_in_idxs]] = pos_decays_in_cluster
+    sample_weights[pos_original_idxs[pos_cluster_out_idxs]] = pos_decays_out_cluster
+    sample_weights[n_rated:] = w_cache
+    assert np.isclose(np.sum(sample_weights), n_total), f"{np.sum(sample_weights)} vs {n_total}"
+    return sample_weights
+
+
 def get_sample_weights(
     X_train: np.ndarray,
     y_train: np.ndarray,

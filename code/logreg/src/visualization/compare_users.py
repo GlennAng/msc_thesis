@@ -16,7 +16,7 @@ def parse_args() -> dict:
     parser = argparse.ArgumentParser(description="Compare user performance")
     parser.add_argument("--old_path", type=str, required=True)
     parser.add_argument("--new_path", type=str, required=True)
-    parser.add_argument("--score", type=str, default="MSC_AUC", choices=SCORES_NAMES)
+    parser.add_argument("--score", type=str, default="AUROC_CLASSIFICATION", choices=SCORES_NAMES)
     parser.add_argument("--second_score", type=str, default=None, choices=SCORES_NAMES + [None])
     args = vars(parser.parse_args())
     args["old_path"] = Path(args["old_path"]).resolve()
@@ -64,9 +64,52 @@ if __name__ == "__main__":
         score=args["score"],
         folder=None,
     )
-    assert gv_old.users_ids == gv_new.users_ids
+    from ..training.users_ratings import load_users_ratings_from_selection, UsersRatingsSelection
+    users_ratings = load_users_ratings_from_selection(
+        users_ratings_selection=UsersRatingsSelection.MSC_LATE_SPLIT)
+    
+    import numpy as np
+    from ..embeddings.embedding import Embedding
+    from ....src.project_paths import ProjectPaths
+    from ....finetuning.src.finetuning_compare_embeddings import compute_sims_same_set
+    embedding = Embedding(ProjectPaths().logreg_embeddings_path() / "after_pca" / "gte_large_256")
+
+    groups = ["CosH", "CosL", "HSessPV", "Tail"]
+    cosine_sims, sessions_counts = {}, {}
+    for group in groups:
+        users_ids = gv_new.users_groups_dict[group]["users_ids"]
+        users_ratings_group = users_ratings[users_ratings["user_id"].isin(users_ids)]
+        users_cosine_sims, users_sessions_counts = [], []
+        for user_id in users_ids:
+            user_ratings = users_ratings_group[users_ratings_group["user_id"] == user_id]
+            users_sessions_counts.append(user_ratings["session_id"].nunique())
+            user_ratings_pos = user_ratings[user_ratings["rating"] == 1]
+            papers_ids = user_ratings_pos["paper_id"].tolist()
+            embeds = embedding.matrix[embedding.get_idxs(papers_ids)]
+            sims = compute_sims_same_set(embeds)
+            users_cosine_sims.append(sims)
+        cosine_sims[group] = np.nanmean(users_cosine_sims)
+        sessions_counts[group] = np.nanmean(users_sessions_counts)
+        print(f"Group {group}: Mean cosine sim: {cosine_sims[group]:.4f}, Mean #sessions: {sessions_counts[group]:.4f}")
+
+    tail_users_old = gv_old.users_groups_dict["Tail"]["users_ids"]
+    tail_users_new = gv_new.users_groups_dict["Tail"]["users_ids"]
+    common_tail_users = set(tail_users_old).intersection(set(tail_users_new))
+    print(f"Number of common Tail users: {len(common_tail_users)}")
+
+
     sig_categories = load_users_significant_categories(relevant_users_ids=gv_old.users_ids)
     sig_categories = sig_categories[sig_categories["rank"] == 1]
+
+    correlation = gv_old.results_after_averaging_over_folds[["user_id", f"val_{args['score'].name.lower()}"]].merge(
+        gv_new.results_after_averaging_over_folds[["user_id", f"val_{args['score'].name.lower()}"]],
+        on="user_id",
+        suffixes=("_old", "_new"),
+    )
+    corr_value = correlation[f"val_{args['score'].name.lower()}_old"].corr(
+        correlation[f"val_{args['score'].name.lower()}_new"]
+    )
+    print(f"Correlation of {args['score'].name} between old and new: {corr_value:.4f}\n")
 
     score_col = f"val_{args['score'].name.lower()}"
     bottom_1_pos = "val_confidence_bottom_1_pos"

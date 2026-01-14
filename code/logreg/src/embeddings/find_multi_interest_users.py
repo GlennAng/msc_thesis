@@ -92,6 +92,7 @@ def find_users_ids_with_multiple_interests(
     min_n_clusters: int = 2,
     eps_clusters: float = 0.4,
     min_n_samples_per_cluster: int = 3,
+    lowest: bool = False,
 ) -> list:
     if users_ids is None:
         users_ids = get_sequence_users_ids_all()
@@ -113,7 +114,7 @@ def find_users_ids_with_multiple_interests(
         cosine_sims.append({"user_id": user_id, "score": sims})    
     n_users = min(n_max_users, len(cosine_sims))
     cosine_sims = pd.DataFrame(cosine_sims)
-    cosine_sims.sort_values(by="score", ascending=False, inplace=True)
+    cosine_sims.sort_values(by="score", ascending=lowest, inplace=True)
     return cosine_sims.head(n_users)["user_id"].tolist()
 
 

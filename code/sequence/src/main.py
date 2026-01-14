@@ -33,7 +33,7 @@ def get_embeddings_path(use_finetuned_embeddings: bool) -> Path:
     if use_finetuned_embeddings:
         return ProjectPaths.sequence_finetuned_embeddings_path()
     else:
-        return ProjectPaths.sequence_non_finetuned_embeddings_path()
+        return ProjectPaths.logreg_embeddings_path() / "after_pca" / "gte_large_256_categories_l2_unit_100"
 
 
 def process_args_dict(args_dict: dict) -> dict:
@@ -243,6 +243,7 @@ def save_config(args_dict: dict) -> None:
         if isinstance(args_dict[key], enum.Enum):
             copy_args_dict[key] = args_dict[key].name
     with open(args_dict["outputs_folder"] / "config.json", "w") as f:
+        print(f"Saving config to {args_dict['outputs_folder'] / 'config.json'}.")
         json.dump(copy_args_dict, f, indent=4)
 
 

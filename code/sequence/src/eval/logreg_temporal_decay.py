@@ -49,18 +49,17 @@ def get_sample_weights_temporal_decay_normalization_jointly(
 ) -> tuple:
     sum_all_decays = np.sum(pos_decays) + np.sum(neg_decays)
     pos_decays = pos_decays / sum_all_decays if pos_decays.shape[0] > 0 else pos_decays
+    pos_sum = np.sum(pos_decays)
+    pos_decays = (1.0 - weights_neg_scale) * pos_decays / pos_sum if pos_sum > 0 else pos_decays
+
     neg_decays = neg_decays / sum_all_decays if neg_decays.shape[0] > 0 else neg_decays
-    pos_sum, neg_sum = np.sum(pos_decays),np.sum(neg_decays)
+    neg_sum = np.sum(neg_decays)
     train_negrated_n = neg_decays.shape[0]
     neg_denominator = weights_cache_v * train_negrated_n + (1.0 - weights_cache_v) * n_cache
     assert neg_denominator > 0
-    neg_weight = weights_neg_scale * weights_cache_v / neg_denominator
-    neg_decays = train_negrated_n * neg_weight * neg_decays
-    cache_weight = weights_neg_scale * neg_sum * (1.0 - weights_cache_v) / neg_denominator
-    correction = (weights_neg_scale + 1.0) / (pos_sum + weights_neg_scale * neg_sum)
-    pos_decays = correction * (1.0 - weights_neg_scale) * pos_decays
-    neg_decays = correction * neg_decays
-    cache_weight = correction * cache_weight
+    neg_target_sum = train_negrated_n * weights_cache_v / neg_denominator
+    neg_decays = weights_neg_scale * neg_target_sum * neg_decays / neg_sum if neg_sum > 0 else neg_decays
+    cache_weight = weights_neg_scale * (1.0 - weights_cache_v) / neg_denominator
     return pos_decays, neg_decays, cache_weight
 
 
@@ -72,6 +71,7 @@ def get_sample_weights_temporal_decay_normalization_separately(
     weights_cache_v: float,
 ) -> tuple:
     pos_decays = pos_decays / np.sum(pos_decays) if pos_decays.shape[0] > 0 else pos_decays
+    pos_decays = (1.0 - weights_neg_scale) * pos_decays
     neg_decays = neg_decays / np.sum(neg_decays) if neg_decays.shape[0] > 0 else neg_decays
     train_negrated_n = neg_decays.shape[0]
     neg_denominator = weights_cache_v * train_negrated_n + (1.0 - weights_cache_v) * n_cache
@@ -141,6 +141,7 @@ def get_sample_weights_temporal_decay(
     temporal_decay: TemporalDecay,
     temporal_decay_normalization: TemporalDecayNormalization,
     temporal_decay_param: float,
+    pos_decays_only: bool = False,
 ) -> np.ndarray:
     n_total = user_train_set_ratings.shape[0] + n_cache
     sample_weights = np.empty(n_total, dtype=np.float64)
@@ -185,4 +186,6 @@ def get_sample_weights_temporal_decay(
     assert np.isclose(np.sum(sample_weights[pos_idxs]), 1.0 - weights_neg_scale, atol=1e-6)
     assert np.isclose(np.sum(sample_weights[neg_idxs]) + np.sum(sample_weights[cache_idxs]), weights_neg_scale, atol=1e-6)
     sample_weights = sample_weights * n_total
+    if pos_decays_only:
+        return pos_decays
     return sample_weights

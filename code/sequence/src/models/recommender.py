@@ -196,6 +196,9 @@ def load_recommender_from_scratch(
             users_encoder_class = get_users_encoder_class(users_encoder_type)
     else:
         users_encoder_class = get_users_encoder_class(users_encoder_type)
+    if users_encoder_class == MeanPoolingUsersEncoder:
+        del users_encoder_kwargs["include_negatives"]
+        del users_encoder_kwargs["temporal_args"]
     users_encoder = users_encoder_class(**users_encoder_kwargs)
     papers_embeddings, papers_ids_to_idxs = load_recommender_pretrained_embeddings(embeddings_path)
     recommender = Recommender(

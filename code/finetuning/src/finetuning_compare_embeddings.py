@@ -124,10 +124,10 @@ if __name__ == "__main__":
     if len(sys.argv) <= 1:
         print("Usage: python finetuning_compare_embeddings.py <path_to_finetuning_embedding>")
         sys.exit(1)
-    embeddings_before = Embedding(ProjectPaths.finetuning_data_model_path() / "embeddings")
+    embeddings_before = Embedding(ProjectPaths.logreg_embeddings_path() / "after_pca" / "gte_large_256")
     embeddings_after = Embedding(sys.argv[1])
 
-    papers_ids = list(embeddings_before.papers_ids_to_idxs.keys())
+    papers_ids = list(embeddings_after.papers_ids_to_idxs.keys())
     assert set(papers_ids) <= set(embeddings_after.papers_ids_to_idxs.keys())
     papers = load_papers(
         relevant_papers_ids=papers_ids,

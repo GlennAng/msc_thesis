@@ -39,12 +39,12 @@ if model_name == "gte-base-en-v1.5":
     model_abbreviation = "gte_base"
     model_path = f"Alibaba-NLP/{model_name}"
     if batch_size is None:
-        batch_size = 1000
+        batch_size = 100
 elif model_name == "gte-large-en-v1.5":
     model_abbreviation = "gte_large"
     model_path = f"Alibaba-NLP/{model_name}"
     if batch_size is None:
-        batch_size = 500
+        batch_size = 100
 elif model_name == "specter2_base":
     model_abbreviation = "specter2"
     model_path = f"allenai/{model_name}"
@@ -54,7 +54,7 @@ elif model_name == "Qwen3-Embedding-0.6B":
     model_abbreviation = "qwen3_0p6B"
     model_path = f"Qwen/{model_name}"
     if batch_size is None:
-        batch_size = 175
+        batch_size = 100
 elif model_name == "Qwen3-Embedding-4B":
     model_abbreviation = "qwen3_4B"
     model_path = f"Qwen/{model_name}"
@@ -69,7 +69,7 @@ elif model_name == "gte_qwen1p5_7B_instruct":
     model_abbreviation = "gte_qwen1p5_7B_instruct"
     model_path = "Alibaba-NLP/gte-qwen1p5-7B-instruct"
     if batch_size is None:
-        batch_size = 15
+        batch_size = 10
 elif model_name == "gte_Qwen2_7B_instruct":
     model_abbreviation = "gte_Qwen2_7B_instruct"
     model_path = "Alibaba-NLP/gte-Qwen2-7B-instruct"
@@ -79,17 +79,17 @@ elif model_name == "F2LLM-0.6B":
     model_abbreviation = "F2LLM_0p6B"
     model_path = "codefuse-ai/F2LLM-0.6B"
     if batch_size is None:
-        batch_size = 175
+        batch_size = 100
 elif model_name == "F2LLM-1.7B":
     model_abbreviation = "F2LLM_1p7B"
     model_path = "codefuse-ai/F2LLM-1.7B"
     if batch_size is None:
-        batch_size = 75
+        batch_size = 50
 elif model_name == "F2LLM-4B":
     model_abbreviation = "F2LLM_4B"
     model_path = "codefuse-ai/F2LLM-4B"
     if batch_size is None:
-        batch_size = 30
+        batch_size = 25
 
 
 embeddings_folder = EMBEDDINGS_FOLDER / f"{model_abbreviation}"
@@ -108,7 +108,6 @@ subprocess.run(
         "--max_sequence_length",
         str(MAX_SEQUENCE_LENGTH),
     ]
-    + (["--save_scores_tables"] if args_dict["all_papers"] else [])
     + (
         ["--existing_embedding", args_dict["existing_embedding"]]
         if args_dict["existing_embedding"]

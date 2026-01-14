@@ -17,7 +17,7 @@ from .users_embeddings_data import get_users_val_sessions_ids
 def get_standard_train_sessions_dataset_params() -> dict:
     return {
         "histories_hard_constraint_min_n_train_posrated": 0,
-        "histories_hard_constraint_max_n_train_rated": 4096,
+        "histories_hard_constraint_max_n_train_rated": 1024,
         "histories_soft_constraint_max_n_train_sessions": None,
         "histories_soft_constraint_max_n_train_days": None,
         "negrated_hard_constraint_max_n_ratings": 15,

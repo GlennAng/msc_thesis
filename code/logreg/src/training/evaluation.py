@@ -226,8 +226,8 @@ class Evaluator:
     ) -> None:
         user_results_dict, user_predictions_dict = {}, {}
 
-        if self.config["evaluation"] == Evaluation.TRAIN_TEST_SPLIT:
-            user_ratings = self.get_random_split(user_ratings=user_ratings)
+        #if self.config["evaluation"] == Evaluation.TRAIN_TEST_SPLIT:
+        #    user_ratings = self.get_random_split(user_ratings=user_ratings)
 
 
         user_categories_ratios = get_user_categories_ratios(

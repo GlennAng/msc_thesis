@@ -570,6 +570,7 @@ def load_users_ratings_from_selection(
         users_ids = load_finetuning_users_ids(selection="train")
         users_ratings = load_users_ratings(relevant_users_ids=users_ids)
         users_ratings["split"] = "train"
+        
     elif users_ratings_selection == UsersRatingsSelection.SEQUENCE_TRAIN:
         path = ProjectPaths.data_sequence_train_ratings_path()
         users_ratings = pd.read_parquet(path, engine="pyarrow")

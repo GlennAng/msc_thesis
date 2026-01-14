@@ -366,6 +366,7 @@ SCORES_DICT = {
     },
     "AUROC_CLASSIFICATION": {
         "abbreviation": "AUC_C",
+        "abbreviation_for_visu_file": "AUC_C",
         "type": Score_Type.DEFAULT,
         "increase_better": True,
         "page": 0,

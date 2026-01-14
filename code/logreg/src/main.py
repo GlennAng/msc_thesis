@@ -224,6 +224,11 @@ if __name__ == "__main__":
         users_ratings_selection=config["users_ratings_selection"],
         relevant_users_ids=config["relevant_users_ids"],
     )
+    n_users = len(users_ratings["user_id"].unique())
+    train_ratings = users_ratings
+    print(f"Number of Training Ratings: {len(train_ratings)}.")
+    pos_train_ratings = train_ratings[train_ratings["rating"] == 1]
+    print(f"Number of Positive Training Ratings: {len(pos_train_ratings)}.")
     users_embeddings, users_scores = None, None
     if config["load_users_scores"]:
         users_scores = load_users_scores(config["users_scores_path"])

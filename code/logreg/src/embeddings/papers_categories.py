@@ -164,8 +164,11 @@ def attach_papers_categories_onehot(
 
 if __name__ == "__main__":
     args = parse_args()
+    """
     embedding_path = Path(args.embeddings_input_folder).resolve().stem
     embedding_path = ProjectPaths.logreg_embeddings_path() / "after_pca" / embedding_path
+    """
+    embedding_path = Path(args.embeddings_input_folder).resolve()
     
     # For one-hot encoding
     dim_onehot = 17  # 17 categories in CATEGORIES_ORIGINAL

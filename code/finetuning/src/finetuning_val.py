@@ -12,8 +12,9 @@ from .finetuning_preprocessing import (
     load_negative_samples_matrix_val,
     load_val_users_embeddings_idxs,
 )
+from sklearn.metrics import roc_auc_score
 
-FINETUNING_CLASSIFICATION_METRICS = ["bcel", "recall", "specificity", "balacc"]
+FINETUNING_CLASSIFICATION_METRICS = ["bcel", "recall", "specificity", "balacc", "auc"]
 FINETUNING_RANKING_METRICS = ["ndcg", "mrr", "hr@1", "infonce"]
 FINETUNING_INFO_NCE_TEMPERATURE = 0.1
 
@@ -61,7 +62,25 @@ def compute_user_classification_metrics(
     recall = torch.sum(user_scores[user_ratings == 1] > 0) / torch.sum(user_ratings == 1)
     specificity = torch.sum(user_scores[user_ratings == 0] < 0) / torch.sum(user_ratings == 0)
     balanced_accuracy = (recall + specificity) / 2
-    return torch.tensor([bcel, recall, specificity, balanced_accuracy], dtype=torch.float32)
+    
+    # Compute AUC using sklearn
+    n_pos = torch.sum(user_ratings == 1).item()
+    n_neg = torch.sum(user_ratings == 0).item()
+    
+    if n_pos == 0 or n_neg == 0:
+        auc = torch.tensor(0.5)
+    else:
+        try:
+            auc_score = roc_auc_score(
+                user_ratings.cpu().numpy(), 
+                user_scores.cpu().numpy()
+            )
+            auc = torch.tensor(auc_score, dtype=torch.float32)
+        except ValueError:
+            # Fallback if sklearn fails
+            auc = torch.tensor(0.5)
+    
+    return torch.tensor([bcel, recall, specificity, balanced_accuracy, auc], dtype=torch.float32)
 
 
 def compute_user_ranking_metrics_single(pos_rank: int) -> torch.Tensor:
@@ -157,6 +176,7 @@ def compute_user_ranking_metrics(
 
 def get_metric_strings() -> dict:
     return {
+        "auc": "AUC",
         "bcel": "BCEL",
         "recall": "Recall",
         "specificity": "Specificity",

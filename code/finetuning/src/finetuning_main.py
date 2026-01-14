@@ -101,11 +101,11 @@ def parse_arguments() -> dict:
         dest="categories_cosine_term",
         default=True,
     )
-    parser.add_argument("--categories_cosine_term_weight", type=float, default=1.0)
-    parser.add_argument("--n_batches_total", type=int, default=50000)
+    parser.add_argument("--categories_cosine_term_weight", type=float, default=0.2)
+    parser.add_argument("--n_batches_total", type=int, default=12000)
     parser.add_argument("--n_batches_per_val", type=int, default=2000)
-    parser.add_argument("--val_metric", type=str, default="ndcg_all")
-    parser.add_argument("--early_stopping_patience", type=int, default=10)
+    parser.add_argument("--val_metric", type=str, default="auc")
+    parser.add_argument("--early_stopping_patience", type=int, default=5)
 
     parser.add_argument(
         "--model_path", type=str, default=str(ProjectPaths.finetuning_data_model_state_dicts_path())
@@ -346,6 +346,7 @@ def compute_info_nce_loss(
         user_idx.item(): i for i, user_idx in enumerate(sorted_unique_user_idx_tensor)
     }
     negatives_scores_dict = {}
+    
     for user_idx in enumerated_users_dict.keys():
         negative_train_ratings_scores_user = train_dataset_scores[
             (user_idx_tensor == user_idx) & (rating_tensor == 0)
@@ -356,14 +357,27 @@ def compute_info_nce_loss(
         batch_negatives_scores_user = extract_scores_user(
             batch_negatives_scores, enumerated_users_dict[user_idx]
         )
+        
         negative_train_ratings_scores_user /= temperature_explicit_negatives
         negative_samples_scores_user /= temperature_negative_samples
         batch_negatives_scores_user /= temperature_batch_negatives
+        
+        # Hardcoded weights - downweight cross-field negatives
+        if negative_samples_scores_user.numel() > 0:
+            negative_samples_scores_user = negative_samples_scores_user + torch.log(
+                torch.tensor(0.2, device=negative_samples_scores_user.device)
+            )
+        if batch_negatives_scores_user.numel() > 0:
+            batch_negatives_scores_user = batch_negatives_scores_user + torch.log(
+                torch.tensor(0.2, device=batch_negatives_scores_user.device)
+            )
+        
         negatives_scores_dict[user_idx] = cat_negatives_scores_user(
             negative_train_ratings_scores_user=negative_train_ratings_scores_user,
             negative_samples_scores_user=negative_samples_scores_user,
             batch_negatives_scores_user=batch_negatives_scores_user,
         )
+    
     positive_indices = torch.where(rating_tensor == 1)[0]
     positive_scores, positive_users_idxs = (
         train_dataset_scores[positive_indices],

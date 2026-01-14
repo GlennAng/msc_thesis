@@ -229,9 +229,9 @@ def tokenize_and_encode_papers_in_batches(
                                 model_path,
                             )
                             gpu_info = get_gpu_info()
-                write_additions_to_file(
-                    embeddings_folder, batch_papers_ids, batch_papers_embeddings, batch_num
-                )
+                #write_additions_to_file(
+                #    embeddings_folder, batch_papers_ids, batch_papers_embeddings, batch_num
+                #)
                 n_papers_processed = min(n_papers, n_papers_processed + batch_size)
                 print(
                     f"Finished Batch {batch_num} in {time.time() - batch_start_time:.2f} Seconds: Papers {n_papers_processed} / {n_papers}. {gpu_info}"
@@ -260,14 +260,16 @@ def tokenize_and_encode_papers_in_batches(
 if __name__ == "__main__":
     args = parse_args()
     embeddings_folder = Path(args.embeddings_folder).resolve()
-    if os.path.exists(embeddings_folder):
-        raise ValueError("Embeddings Folder already exists.")
+    #if os.path.exists(embeddings_folder):
+    #    raise ValueError("Embeddings Folder already exists.")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}.")
     model, tokenizer = load_model_and_tokenizer(args.model_path)
     papers_texts = load_papers_texts(relevant_columns=["paper_id", "title", "abstract"])
     relevant_papers_ids = papers_texts["paper_id"].tolist()
-    if not args.all_papers:
+    all_papers = args.all_papers
+    all_papers = True
+    if not all_papers:
         print("Finding relevant papers IDs...")
         relevant_papers_ids_no_filtering = find_relevant_papers_ids(
             users_ratings_selection=UsersRatingsSelection.SESSION_BASED_NO_FILTERING,

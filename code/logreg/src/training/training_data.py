@@ -598,6 +598,7 @@ def get_user_cache_papers(
 
 
 def split_ratings(user_ratings: pd.DataFrame) -> tuple:
+
     if "split" not in user_ratings.columns:
         raise ValueError("User ratings DataFrame must contain 'split' column.")
     train_mask = user_ratings["split"] == "train"

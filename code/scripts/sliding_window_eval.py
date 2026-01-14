@@ -91,7 +91,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clustering_upper_bound_n_clusters_before_val", type=int, default=1)
     parser.add_argument("--clustering_pos_weighting_scheme", type=str, default="relative")
     parser.add_argument("--clustering_neg_weighting_scheme", type=str, default="same_ratio")
-    parser.add_argument("--clustering_cluster_alpha", type=float, default=0.8)
+    parser.add_argument("--clustering_cluster_alpha", type=float, default=0.9)
 
     parser.add_argument("--save_users_predictions", action="store_true", default=False)
     args_dict = vars(parser.parse_args())

@@ -214,21 +214,30 @@ class FinetuningModel(nn.Module):
         self,
         negative_samples_embeddings: torch.Tensor,
         category_l1_tensor: torch.Tensor,
-        margin: float = 0.4,
+        margin: float = 0.0,
     ) -> torch.Tensor:
-        non_cs_mask = category_l1_tensor != CS_ID
-        if non_cs_mask.sum() <= 1:
+        """
+        Push ALL different categories apart (including CS)
+        """
+        if len(category_l1_tensor) <= 1:
             return torch.tensor(0.0, device=negative_samples_embeddings.device)
-        non_cs_embeddings = negative_samples_embeddings[non_cs_mask]
-        non_cs_categories = category_l1_tensor[non_cs_mask]
-        category_mask = non_cs_categories.unsqueeze(0) != non_cs_categories.unsqueeze(1)
+        
+        # Remove this line:
+        # non_cs_mask = category_l1_tensor != CS_ID
+        
+        # Use all embeddings:
+        normalized_embeddings = F.normalize(negative_samples_embeddings, p=2, dim=1)
+        
+        # Mask for different categories (any pair)
+        category_mask = category_l1_tensor.unsqueeze(0) != category_l1_tensor.unsqueeze(1)
         diagonal_mask = ~torch.eye(
-            len(non_cs_categories), dtype=torch.bool, device=category_mask.device
+            len(category_l1_tensor), dtype=torch.bool, device=category_mask.device
         )
         mask = category_mask & diagonal_mask
-        normalized_embeddings = F.normalize(non_cs_embeddings, p=2, dim=1)
+        
         similarity_matrix = torch.mm(normalized_embeddings, normalized_embeddings.t())
         different_category_similarities = similarity_matrix[mask]
+        
         if different_category_similarities.numel() > 0:
             penalties = torch.clamp(different_category_similarities - margin, min=0)
             return penalties.mean()

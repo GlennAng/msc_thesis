@@ -45,7 +45,7 @@ from .visualization_tools import (
 )
 
 OPTIMIZATION_CONSTANTS = {
-    "N_TAIL_USERS": 15,
+    "N_TAIL_USERS": 75,
     "N_PRINT_BEST_HYPERPARAMETERS_COMBINATIONS": 25,
     "PERCENTAGE_USERS_SPECIAL_GROUPS": 0.16667,
 }
@@ -196,15 +196,23 @@ class Global_Visualizer:
 
     def extract_head_tail_users(self) -> None:
         score_abb = SCORES_DICT[self.score]["abbreviation_for_visu_file"]
-        sorted_df = self.best_global_hyperparameters_combination_df.sort_values(
+        
+        # Filter out NaN values first
+        valid_df = self.best_global_hyperparameters_combination_df.dropna(
+            subset=[f"val_{self.score.name.lower()}"]
+        )
+        
+        sorted_df = valid_df.sort_values(
             f"val_{self.score.name.lower()}",
             ascending=not SCORES_DICT[self.score]["increase_better"],
         )
-        assert len(sorted_df) == self.n_users
+        
         n = self.n_users_special_groups
         head_df, tail_df = (sorted_df.head(n), sorted_df.tail(n))
         n_head, n_tail = len(head_df), len(tail_df)
-        assert n == n_head == n_tail
+        
+        assert n == n_head == n_tail, f"Not enough valid users: got {n_head}/{n_tail}, expected {n}"
+        
         legend = f"Head/Tail: The {n_head}/{n_tail} Users with the "
         legend += f"best/worst {score_abb}."
         self.users_groups_dict["Head"] = {"users_ids": head_df["user_id"].values, "legend": legend}
@@ -251,12 +259,14 @@ class Global_Visualizer:
         legend = f"HiNegTr: The {n} Users with the highest Negative Training Votes."
         self.users_groups_dict["HiNegTr"] = {"users_ids": hi_negrated_train_users, "legend": legend}
 
-    def extract_high_multi_interest_users(self) -> None:
+    def extract_high_multi_interest_users(self, low: bool = False) -> None:
         n = self.n_users_special_groups
-        multi_interest_users = find_users_ids_with_multiple_interests(n_max_users=n)
+        multi_interest_users = find_users_ids_with_multiple_interests(n_max_users=n, lowest=low)
         multi_interest_n = len(multi_interest_users)
-        legend = f"MultiInt: The {multi_interest_n} Users with the highest multi-interest Score."
-        self.users_groups_dict["MultiInt"] = {"users_ids": multi_interest_users, "legend": legend}
+        s = "highest" if not low else "lowest"
+        s2 = "CosH" if not low else "CosL"
+        legend = f"{s2}: The {multi_interest_n} Users with the {s} multi-interest Score."
+        self.users_groups_dict[s2] = {"users_ids": multi_interest_users, "legend": legend}
 
     def extract_cs_non_cs_users(self) -> None:
         cs_users = self.users_significant_categories[
@@ -274,8 +284,8 @@ class Global_Visualizer:
         self.users_groups_dict = {}
         self.extract_head_tail_users()
         self.extract_high_pos_val_ratings_sessions_time_users()
-        self.extract_high_negrated_train_users()
         self.extract_high_multi_interest_users()
+        self.extract_high_multi_interest_users(low=True)
         self.extract_cs_non_cs_users()
 
     def extract_best_individual_hyperparameters_combination_data(self) -> None:

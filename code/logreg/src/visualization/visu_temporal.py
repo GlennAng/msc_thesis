@@ -715,4 +715,5 @@ if __name__ == "__main__":
             test_size=1.0,
         )
     sessions_df, users_embeddings_df = get_sessions_df(users_ratings, embedding)
+    print(users_embeddings_df.columns)
     plot_data_sessions(sessions_df, args, users_embeddings_df)
